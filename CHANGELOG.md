@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.6.8](https://github.com/nzbdav/nzbdav/compare/v0.6.7...v0.6.8) (2026-07-10)
+
+
+### Features
+
+* **usenet:** consume chunked decoded-body API ([d0996d3](https://github.com/nzbdav/nzbdav/commit/d0996d31822c15752144aff2f306f360c60e21a2))
+* **usenet:** keep paused streaming connections warm longer ([fe7a779](https://github.com/nzbdav/nzbdav/commit/fe7a7790624bd1e7f8a7384b22062e8199035b5b))
+* **usenet:** pipeline segment BODY requests ([b911d06](https://github.com/nzbdav/nzbdav/commit/b911d06e17d4199a1f9b1c8fcfa23cf0dedc7f2a))
+* **webdav:** persist segment ranges for arithmetic seeks ([c22650e](https://github.com/nzbdav/nzbdav/commit/c22650ed03c81f1dc1ead42c15ecd1c5cb58c6f9))
+
+
+### Bug Fixes
+
+* **api:** mask stored credentials in config responses ([8dfedb2](https://github.com/nzbdav/nzbdav/commit/8dfedb28a6a1c727946522267019c0088ad61c5f))
+* **api:** stop returning raw exception messages ([0e2accd](https://github.com/nzbdav/nzbdav/commit/0e2accd3da421d30347be6f434d4fcc248e5dcab))
+* **arr:** contain monitoring loop failures ([9d7aed2](https://github.com/nzbdav/nzbdav/commit/9d7aed25de87176b87166638440242e476d031bc))
+* **arr:** return parent directories in root-first order ([e76531b](https://github.com/nzbdav/nzbdav/commit/e76531bca4ebc639c5c8de67a28e07300a3aa23e))
+* **auth:** cache successful WebDAV password checks ([ba60894](https://github.com/nzbdav/nzbdav/commit/ba608945aabc8c77172442476ddfcad7bbe4a6f8))
+* **auth:** compare API and download keys in constant time ([a6541e4](https://github.com/nzbdav/nzbdav/commit/a6541e4cbff9e832e8d1010fb848209328a057f6))
+* **auth:** preserve sessions across development reloads ([d293df1](https://github.com/nzbdav/nzbdav/commit/d293df1b995a41c10584a5f22abcf3a8bc592f87))
+* **backend:** enable server garbage collection ([1169b00](https://github.com/nzbdav/nzbdav/commit/1169b007723c61cdfd2703e431c94be0e9d0a119))
+* **backend:** respect configured logging level ([afc72d3](https://github.com/nzbdav/nzbdav/commit/afc72d3d686a6d98a688d4c68f7be4d269098999))
+* **ci:** deploy Docker images when release-please creates a release ([01eb27a](https://github.com/nzbdav/nzbdav/commit/01eb27ad61b66c292ce9a0df8c1fcca85122d367))
+* **ci:** drop unsupported configfile test flag ([943863c](https://github.com/nzbdav/nzbdav/commit/943863c69275a6dc8d2b656241929cdf5b95adc0))
+* **config:** cache parsed structured settings ([1a5e70b](https://github.com/nzbdav/nzbdav/commit/1a5e70bbf881f449e701bfd6d2ca5f8fc1836b8a))
+* **db:** cache deserialized streaming metadata ([3eec4c0](https://github.com/nzbdav/nzbdav/commit/3eec4c05e0b79ef3a3ea291b5e0d2e63a368552a))
+* **db:** disable tracking for read-only queries ([1d70198](https://github.com/nzbdav/nzbdav/commit/1d70198815ab6516b4f07b5896cf79bf21bb0c34))
+* **db:** enable WAL and busy timeout ([56cac83](https://github.com/nzbdav/nzbdav/commit/56cac83a005b666f934645c7835f1711ea958960))
+* **deps:** bump react-router packages to 8.1.0 ([a7fb1d2](https://github.com/nzbdav/nzbdav/commit/a7fb1d2e186302f0b4003aec971658793cc2689c))
+* **deps:** bump UsenetSharp to 1.2.2 ([3c24411](https://github.com/nzbdav/nzbdav/commit/3c2441120823a71c2e457062929967b4956235e3))
+* **docker:** propagate child process exit codes ([be67ea8](https://github.com/nzbdav/nzbdav/commit/be67ea8974a2ff27365c4283c54fdd120732801c))
+* harden security-sensitive request handling ([1e0f2dc](https://github.com/nzbdav/nzbdav/commit/1e0f2dc3ee637d8603c94da7271e1932922fd1e2))
+* **health:** bound the missing segment cache ([cdbc614](https://github.com/nzbdav/nzbdav/commit/cdbc61481f202dcaf133a915ce3a14f1962d684d))
+* **nntp:** close pipelined transfer lifecycle gaps ([27ccc31](https://github.com/nzbdav/nzbdav/commit/27ccc31abdc818ae95b46cc9ba326ea8e6a3c6dd))
+* **queue:** start queue processing at startup ([3b6904f](https://github.com/nzbdav/nzbdav/commit/3b6904f3e51fb9be7babc5bc3ef454746b572ac9))
+* **sab:** guard addurl fetches against SSRF ([6249dc4](https://github.com/nzbdav/nzbdav/commit/6249dc47152a56478cceba252684d9f8e7d56567))
+* **sab:** make history delete idempotent for missing ids ([#36](https://github.com/nzbdav/nzbdav/issues/36)) ([e16b7c5](https://github.com/nzbdav/nzbdav/commit/e16b7c543e6c8c7444965798c3a693001167a5bb))
+* **sab:** retry history delete save when rows vanish concurrently ([1b9bf1e](https://github.com/nzbdav/nzbdav/commit/1b9bf1e28162ccf13809474de8bd649411f5c584))
+* **sab:** validate category before backup paths ([f56812a](https://github.com/nzbdav/nzbdav/commit/f56812a1dc04984ba75b261fb6b991e321da6675))
+* **ui:** guard backend websocket parsing ([7e65ff9](https://github.com/nzbdav/nzbdav/commit/7e65ff90462f810439effe4fca4c2c068bd34d1b))
+* **ui:** improve standalone frontend status ([b47ebde](https://github.com/nzbdav/nzbdav/commit/b47ebdef341c3f721bd1711d14d7c34f6f267d3e))
+* **ui:** replace incompatible queue dropzone ([6b5dc08](https://github.com/nzbdav/nzbdav/commit/6b5dc08721a3b5f4518edaeff6470674a7c09369))
+* **usenet:** skip websocket encoding without subscribers ([e837451](https://github.com/nzbdav/nzbdav/commit/e837451b6492dc19db909f541efa4a16334043c7))
+* **webdav:** decrypt AES streams in 256 KiB runs ([6b4f867](https://github.com/nzbdav/nzbdav/commit/6b4f867664a7dc54298c39b269a923f552f23577))
+* **webdav:** discard seek prefixes in 64 KiB chunks ([c649dea](https://github.com/nzbdav/nzbdav/commit/c649dea5720ad009771eb5455b388f7fd4532271))
+* **webdav:** enforce seek and stream lifecycle contracts ([c390134](https://github.com/nzbdav/nzbdav/commit/c390134875dee5d285979cbacfc0283c29a8218d))
+* **webdav:** honor construction cancellation token in CancellableStream reads ([452227b](https://github.com/nzbdav/nzbdav/commit/452227bb6c63fac6683c22d9346baf787b197ede))
+* **webdav:** pool the response copy buffer ([5997260](https://github.com/nzbdav/nzbdav/commit/5997260c8abffd8f334b3dcd79d02ff67ce71895))
+* **webdav:** preserve prefetch on small forward seeks ([79f14a4](https://github.com/nzbdav/nzbdav/commit/79f14a41ea00337bfa6557d49d7942331046bf0b))
+* **webdav:** serve correct suffix byte ranges ([34a5530](https://github.com/nzbdav/nzbdav/commit/34a55302267ba1cee6ba82ec0d88dd564bfbaa89))
+* **webdav:** surface segment producer failures ([9610dc5](https://github.com/nzbdav/nzbdav/commit/9610dc517363dedf37372cae994fd516d7b2ae59))
+* **webdav:** throw when stream reads are cancelled ([5e4cb9a](https://github.com/nzbdav/nzbdav/commit/5e4cb9aedcdc86ac0a4e1d76d604f44a457a6519))
+
 ## [0.6.7](https://github.com/nzbdav/nzbdav/compare/v0.6.6...v0.6.7) (2026-07-10)
 
 
