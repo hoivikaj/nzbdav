@@ -24,12 +24,21 @@ public class RemoveFromHistoryController(
         }
         catch (DbUpdateConcurrencyException ex) when (ex.Entries.All(e => e.Entity is HistoryItem))
         {
-            // A HistoryItem vanished between RemoveHistoryItemsAsync's existence check and this save
-            // (a concurrent delete). The SAB API delete is idempotent, so that outcome is success.
-            //
-            // The `when` filter matters: on the deleteFiles=true path this SaveChanges also removes
-            // joined DavItem rows. A concurrency conflict on THOSE is a real conflict, not an
-            // already-deleted history row, and must not be swallowed.
+            // Ignore concurrently deleted history rows, then retry the surviving batch.
+            var vanishedIds = ex.Entries
+                .Select(e => ((HistoryItem)e.Entity).Id)
+                .ToHashSet();
+
+            foreach (var entry in ex.Entries)
+                entry.State = EntityState.Detached;
+
+            var cleanupEntries = dbClient.Ctx.ChangeTracker.Entries<HistoryCleanupItem>()
+                .Where(e => e.State == EntityState.Added && vanishedIds.Contains(e.Entity.Id))
+                .ToList();
+            foreach (var entry in cleanupEntries)
+                entry.State = EntityState.Detached;
+
+            await dbClient.Ctx.SaveChangesAsync(request.CancellationToken).ConfigureAwait(false);
         }
         _ = websocketManager.SendMessage(WebsocketTopic.HistoryItemRemoved, string.Join(",", request.NzoIds));
         return new RemoveFromHistoryResponse() { Status = true };
