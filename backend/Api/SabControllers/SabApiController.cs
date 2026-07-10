@@ -17,6 +17,7 @@ using NzbWebDAV.Extensions;
 using NzbWebDAV.Queue;
 using NzbWebDAV.Utils;
 using NzbWebDAV.Websocket;
+using Serilog;
 
 namespace NzbWebDAV.Api.SabControllers;
 
@@ -56,10 +57,11 @@ public class SabApiController(
         }
         catch (Exception e)
         {
+            Log.Error(e, "Unhandled SAB API request failure");
             return StatusCode(500, new SabBaseResponse()
             {
                 Status = false,
-                Error = e.Message
+                Error = "An internal server error occurred."
             });
         }
     }

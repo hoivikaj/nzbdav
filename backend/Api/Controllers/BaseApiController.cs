@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using NzbWebDAV.Extensions;
 using NzbWebDAV.Utils;
+using Serilog;
 
 namespace NzbWebDAV.Api.Controllers;
 
@@ -46,10 +47,11 @@ public abstract class BaseApiController : ControllerBase
         catch (Exception e) when (e is not OperationCanceledException ||
                                   !HttpContext.RequestAborted.IsCancellationRequested)
         {
+            Log.Error(e, "Unhandled admin API request failure");
             return StatusCode(500, new BaseApiResponse()
             {
                 Status = false,
-                Error = e.Message
+                Error = "An internal server error occurred."
             });
         }
     }
