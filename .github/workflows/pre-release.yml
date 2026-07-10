@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build:
-    if: ${{ github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}
+    if: "${{ github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     uses: ./.github/workflows/docker-build-push.yml
     permissions:
       contents: read
