@@ -8,68 +8,52 @@ registries:
     password: ${{secrets.GITHUB_TOKEN}}
 
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: nuget
+    directory: /backend
+    registries:
+      - github-hoivikaj
     schedule:
-      interval: "monthly"
+      interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "fix(deps)"
-    open-pull-requests-limit: 15
+    groups:
+      nuget-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "fix(deps)"
     groups:
       github-actions:
         patterns:
           - "*"
+    open-pull-requests-limit: 10
 
-  - package-ecosystem: "npm"
-    directory: "/frontend"
+  - package-ecosystem: npm
+    directory: /frontend
     schedule:
-      interval: "monthly"
+      interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "fix(deps)"
-    open-pull-requests-limit: 15
     groups:
-      react-router:
+      npm-minor-and-patch:
         patterns:
-          - "react-router"
-          - "@react-router/*"
-      react:
-        patterns:
-          - "react"
-          - "react-dom"
-          - "@types/react"
-          - "@types/react-dom"
-      tailwindcss:
-        patterns:
-          - "tailwindcss"
-          - "@tailwindcss/*"
-      vite:
-        patterns:
-          - "vite"
-          - "vite-*"
-      express-types:
-        patterns:
-          - "@types/express"
-          - "@types/express-serve-static-core"
-      bootstrap:
-        patterns:
-          - "bootstrap"
-          - "react-bootstrap"
-      remix-auth:
-        patterns:
-          - "remix-auth"
-          - "remix-auth-*"
-
-  - package-ecosystem: "nuget"
-    directory: "/backend"
-    registries:
-      - github-hoivikaj
-    schedule:
-      interval: "monthly"
-    commit-message:
-      prefix: "fix(deps)"
-    open-pull-requests-limit: 15
-    groups:
-      dotnet:
-        patterns:
-          - "Microsoft.AspNetCore.*"
-          - "Microsoft.EntityFrameworkCore.*"
+          - "*"
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 10
