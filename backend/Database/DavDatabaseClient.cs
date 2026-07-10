@@ -218,10 +218,23 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
             return;
         }
 
-        Ctx.HistoryItems.RemoveRange(ids.Select(id => new HistoryItem() { Id = id }));
-        Ctx.HistoryCleanupItems.AddRange(ids.Select(x => new HistoryCleanupItem
+        // Only remove ids that actually exist. Attaching stub entities for ids that are already
+        // gone makes EF emit a DELETE affecting 0 rows, which throws DbUpdateConcurrencyException
+        // and rolls back the WHOLE SaveChangesAsync -- so a batch containing one stale id would
+        // silently delete none of them (and queue none of their cleanup items). The deleteFiles
+        // branch above is already safe because it queries the rows first; this branch was not.
+        // Remove the entities we just loaded rather than fresh stubs. Attaching a stub whose key is
+        // already tracked by this context throws ("another instance with the same key is already
+        // tracked"), and stubs are what made the original code delete rows it had never checked for.
+        var existing = await Ctx.HistoryItems
+            .Where(h => ids.Contains(h.Id))
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        Ctx.HistoryItems.RemoveRange(existing);
+        Ctx.HistoryCleanupItems.AddRange(existing.Select(x => new HistoryCleanupItem
         {
-            Id = x,
+            Id = x.Id,
             DeleteMountedFiles = deleteFiles
         }));
     }
