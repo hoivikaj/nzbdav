@@ -1,5 +1,8 @@
 ﻿using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using NWebDav.Server;
 using NWebDav.Server.Authentication;
@@ -11,6 +14,12 @@ namespace NzbWebDAV.Auth;
 
 public static class ServiceCollectionAuthExtensions
 {
+    private static readonly byte[] CredentialCacheKey = RandomNumberGenerator.GetBytes(32);
+    private static readonly MemoryCache VerifiedCredentials = new(new MemoryCacheOptions
+    {
+        SizeLimit = 16
+    });
+
     public static IServiceCollection AddWebdavBasicAuthentication
     (
         this IServiceCollection services,
@@ -45,9 +54,13 @@ public static class ServiceCollectionAuthExtensions
         var passwordHash = configManager.GetWebdavPasswordHash();
 
         if (user == null || passwordHash == null)
+        {
             context.Fail("webdav user and password are not yet configured.");
+            return Task.CompletedTask;
+        }
 
-        if (context.Username == user && PasswordUtil.Verify(passwordHash!, context.Password))
+        if (context.Username == user &&
+            VerifyPasswordWithCache(context.Username, context.Password, passwordHash))
         {
             var claims = new[]
             {
@@ -66,5 +79,27 @@ public static class ServiceCollectionAuthExtensions
         }
 
         return Task.CompletedTask;
+    }
+
+    private static bool VerifyPasswordWithCache(string username, string password, string passwordHash)
+    {
+        var credentialBytes = Encoding.UTF8.GetBytes(
+            string.Concat(username, "\0", passwordHash, "\0", password));
+        try
+        {
+            var cacheKey = Convert.ToHexString(
+                HMACSHA256.HashData(CredentialCacheKey, credentialBytes));
+            if (VerifiedCredentials.TryGetValue(cacheKey, out _)) return true;
+            if (!PasswordUtil.Verify(passwordHash, password)) return false;
+
+            VerifiedCredentials.Set(cacheKey, true, new MemoryCacheEntryOptions()
+                .SetSize(1)
+                .SetSlidingExpiration(TimeSpan.FromMinutes(5)));
+            return true;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(credentialBytes);
+        }
     }
 }
