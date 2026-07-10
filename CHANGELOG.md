@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.6](https://github.com/nzbdav/nzbdav/compare/v0.6.5...v0.6.6) (2026-07-10)
+
+
+### Bug Fixes
+
+* **ci:** add self-managed dependency submission with NuGet auth ([b35b856](https://github.com/nzbdav/nzbdav/commit/b35b856f58685ebb1eda9cfb16f15ab404d6d2b8))
+* **ci:** deploy Docker images on release published event ([c9f8207](https://github.com/nzbdav/nzbdav/commit/c9f8207c95abb41f6ab413a85d0d755dcc3d3f07))
+* **ci:** quote pre-release image tag for Dependabot parser ([0066a1f](https://github.com/nzbdav/nzbdav/commit/0066a1f07db64de69c7c8044fdd80b64b84f3169))
+* **deps:** remove invalid GITHUB_TOKEN from Dependabot registry config ([d5bb833](https://github.com/nzbdav/nzbdav/commit/d5bb833b23683858c211e230375d3f1f415e540e))
+* **ui:** emit node build output to dist-node only ([507bb66](https://github.com/nzbdav/nzbdav/commit/507bb66b60c0d810b3570133620a6a39e4397643))
+
 ## [0.6.5](https://github.com/hoivikaj/nzbdav/compare/v0.6.4...v0.6.5) (2026-07-10)
 
 
