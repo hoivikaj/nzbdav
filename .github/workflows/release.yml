@@ -17,12 +17,19 @@ jobs:
   release-please:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      major: ${{ steps.release.outputs.major }}
+      minor: ${{ steps.release.outputs.minor }}
+      patch: ${{ steps.release.outputs.patch }}
+      sha: ${{ steps.release.outputs.sha }}
     permissions:
       contents: write
       pull-requests: write
     steps:
       - name: Create release
         uses: googleapis/release-please-action@v5
+        id: release
         with:
           config-file: .release-please-config.json
 
@@ -58,6 +65,25 @@ jobs:
           echo "ref=${REF}" >> "$GITHUB_OUTPUT"
 
   deploy:
+    if: github.event_name == 'push' && needs.release-please.outputs.release_created == 'true'
+    needs: release-please
+    uses: ./.github/workflows/docker-build-push.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      tags: |
+        ghcr.io/${{ github.repository }}:latest
+        ghcr.io/${{ github.repository }}:${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }}.${{ needs.release-please.outputs.patch }}
+        ghcr.io/${{ github.repository }}:v${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }}.${{ needs.release-please.outputs.patch }}
+        ghcr.io/${{ github.repository }}:v${{ needs.release-please.outputs.major }}
+        ghcr.io/${{ github.repository }}:v${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }}
+      nzbdav_version: ${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }}.${{ needs.release-please.outputs.patch }}
+      checkout_ref: ${{ needs.release-please.outputs.sha }}
+    secrets:
+      registry_token: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-manual:
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     needs: resolve-version
     uses: ./.github/workflows/docker-build-push.yml
@@ -68,6 +94,7 @@ jobs:
       tags: |
         ghcr.io/${{ github.repository }}:latest
         ghcr.io/${{ github.repository }}:${{ needs.resolve-version.outputs.version }}
+        ghcr.io/${{ github.repository }}:${{ needs.resolve-version.outputs.ref }}
         ghcr.io/${{ github.repository }}:v${{ needs.resolve-version.outputs.major }}
         ghcr.io/${{ github.repository }}:v${{ needs.resolve-version.outputs.major }}.${{ needs.resolve-version.outputs.minor }}
       nzbdav_version: ${{ needs.resolve-version.outputs.version }}
