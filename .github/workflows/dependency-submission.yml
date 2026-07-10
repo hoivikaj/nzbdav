@@ -1,8 +1,7 @@
 name: Dependency submission
 
 # Self-managed replacement for GitHub's "Automatic dependency submission"
-# (dynamic/dependency-graph/auto-submission), which cannot authenticate against
-# the private UsenetSharp GitHub Packages feed.
+# (dynamic/dependency-graph/auto-submission).
 #
 # After merging, disable automatic submission at:
 # Settings → Code security and analysis → Automatic dependency submission
@@ -16,7 +15,6 @@ on:
 
 permissions:
   contents: write
-  packages: read
   id-token: write
 
 jobs:
@@ -30,14 +28,6 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-
-      - name: Authenticate GitHub Packages
-        working-directory: backend
-        run: |
-          dotnet nuget update source github \
-            --username nzbdav \
-            --password "${{ secrets.GITHUB_TOKEN }}" \
-            --store-password-in-clear-text
 
       - name: Restore .NET dependencies
         working-directory: backend

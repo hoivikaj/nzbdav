@@ -20,12 +20,7 @@ WORKDIR /backend
 # Accept build-time architecture as ARG (e.g., x64 or arm64)
 ARG TARGETARCH
 COPY ./backend/NzbWebDAV.csproj ./backend/nuget.config ./
-RUN --mount=type=secret,id=github_token \
-    dotnet nuget update source github \
-      --username nzbdav \
-      --password "$(cat /run/secrets/github_token)" \
-      --store-password-in-clear-text \
-    && dotnet restore NzbWebDAV.csproj -r linux-musl-${TARGETARCH}
+RUN dotnet restore NzbWebDAV.csproj -r linux-musl-${TARGETARCH}
 COPY ./backend ./
 RUN dotnet publish NzbWebDAV.csproj -c Release -r linux-musl-${TARGETARCH} -o ./publish --no-restore
 

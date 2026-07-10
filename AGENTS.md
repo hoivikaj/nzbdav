@@ -109,17 +109,15 @@ Performance benchmarks live in `backend.Benchmarks/` and are run manually with
 
 ## UsenetSharp integration
 
-NzbDav consumes `UsenetSharp` from the private GitHub Packages feed. The library is commonly checked out as a sibling repository at `../UsenetSharp`.
+NzbDav consumes the public `NzbDav.UsenetSharp` package from NuGet.org.
 
-- During local development, the UsenetSharp package is unavailable from GitHub Packages. Clone the repository at `../UsenetSharp` and temporarily replace the committed `PackageReference` in `backend/NzbWebDAV.csproj` with `<ProjectReference Include="../../UsenetSharp/UsenetSharp/UsenetSharp.csproj" />`.
-- Keep the `PackageReference` in committed code; restore it before committing after using the local `ProjectReference`.
 - Publish and verify the UsenetSharp package before bumping `backend/NzbWebDAV.csproj`. A release tag can exist without a package if the publish workflow fails before its pack/push steps.
-- Repository CI authenticates to GitHub Packages with `read:packages` and is the authoritative package-consumption check.
-- For cross-repository changes, build both projects and run UsenetSharp's deterministic tests:
+- Repository CI restores anonymously from NuGet.org and is the authoritative package-consumption check.
+- After bumping the package, build and test the backend:
 
 ```bash
-dotnet test ../UsenetSharp/UsenetSharp.sln --filter "TestCategory!=Integration"
 dotnet build backend/NzbWebDAV.csproj
+dotnet test tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release
 ```
 
 ### Streaming lifecycle invariants
@@ -239,7 +237,7 @@ Do not accumulate a large uncommitted diff across unrelated areas.
 | `pre-release.yml` | Pushes to `main` (except release commits) | Publishes `ghcr.io/.../nzbdav:dev` |
 | `release.yml` | Push to `main` | release-please versioning; publishes Docker images when a release is created |
 | `release.yml` | Manual `workflow_dispatch` | Republishes semver Docker tags to GHCR for an existing version |
-| `dependency-submission.yml` | Push/PR to `main` | Dependency graph submission (NuGet + npm) with GitHub Packages auth |
+| `dependency-submission.yml` | Push/PR to `main` | Dependency graph submission (NuGet + npm) |
 | `docker-build-push.yml` | Reusable (called by pre-release/release) | Multi-arch Docker build with GHA cache |
 
 Docker image builds are shared via the reusable workflow. Branch and dependabot image pipelines were removed — PRs are validated by `ci.yml` instead of publishing throwaway images.
@@ -251,9 +249,7 @@ Docker image builds are shared via the reusable workflow. Branch and dependabot 
 - When release-please creates a release on merge to `main`, the same workflow run builds and pushes Docker images to `ghcr.io` (`latest`, exact `vMAJOR.MINOR.PATCH`, and rolling `vMAJOR` / `vMAJOR.MINOR` tags).
 - To republish images for an existing release (e.g. after fixing CI), run **Release** workflow manually with the `version` input (e.g. `0.6.5`).
 - Pre-release Docker images (`:dev`) build on every `main` push except `chore(main): release` commits.
-- Ensure `nzbdav/nzbdav` has **Read** access on the UsenetSharp GitHub Package (Package settings → Manage Actions access); without it Docker builds and CI fail restoring the private NuGet feed.
-- Dependabot NuGet updates also need a **Dependabot secret** `GH_PACKAGES_READ_TOKEN` (classic PAT with `read:packages`) referenced in `.github/dependabot.yml`; `GITHUB_TOKEN` cannot be used in Dependabot registry config.
-- Disable GitHub's **Automatic dependency submission** in repo settings once `dependency-submission.yml` is active (the built-in workflow cannot auth to GitHub Packages).
+- Disable GitHub's **Automatic dependency submission** in repo settings once `dependency-submission.yml` is active to avoid duplicate submissions.
 
 ## Coding guidelines
 

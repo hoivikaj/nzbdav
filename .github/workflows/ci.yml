@@ -42,7 +42,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -51,14 +50,6 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-
-      - name: Authenticate GitHub Packages
-        working-directory: backend
-        run: |
-          dotnet nuget update source github \
-            --username nzbdav \
-            --password "${{ secrets.GITHUB_TOKEN }}" \
-            --store-password-in-clear-text
 
       - name: Build backend
         working-directory: backend

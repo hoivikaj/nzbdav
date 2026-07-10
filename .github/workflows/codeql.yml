@@ -21,7 +21,6 @@ jobs:
     timeout-minutes: 120
     permissions:
       security-events: write
-      packages: read
       actions: read
       contents: read
     strategy:
@@ -67,12 +66,7 @@ jobs:
       - name: Build C#
         if: matrix.build-mode == 'manual'
         working-directory: backend
-        run: |
-          dotnet nuget update source github \
-            --username nzbdav \
-            --password "${{ secrets.GITHUB_TOKEN }}" \
-            --store-password-in-clear-text
-          dotnet build -c Release
+        run: dotnet build -c Release
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4.36.3

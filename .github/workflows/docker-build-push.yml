@@ -55,7 +55,5 @@ jobs:
           build-args: |
             NZBDAV_VERSION=${{ inputs.nzbdav_version }}
             REPO_URL=https://github.com/${{ github.repository }}
-          secrets: |
-            github_token=${{ secrets.registry_token }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

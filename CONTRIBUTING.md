@@ -30,29 +30,8 @@ sudo pacman -S dotnet-sdk aspnet-runtime nodejs npm
 
 ## Build / run backend
 
-### UsenetSharp (GitHub Packages)
-
-The `UsenetSharp` dependency is resolved from GitHub Packages. Before building the backend, authenticate once (credentials are stored in your user-level NuGet config, not in the repo):
-
-```bash
-dotnet nuget add source https://nuget.pkg.github.com/nzbdav/index.json \
-  --name github \
-  --username nzbdav \
-  --password <GITHUB_PAT_WITH_read:packages> \
-  --store-password-in-clear-text
-```
-
-If the `github` source already exists locally, use `dotnet nuget update source github` with the same options instead.
-
-### Dependabot (NuGet updates)
-
-Dependabot cannot use `GITHUB_TOKEN` for private GitHub Packages feeds. Add a **Dependabot** secret (Settings → Secrets and variables → Dependabot):
-
-| Secret | Value |
-|--------|-------|
-| `GH_PACKAGES_READ_TOKEN` | Classic PAT with `read:packages` scope |
-
-Also grant `nzbdav/nzbdav` **Read** on the UsenetSharp package (Package settings → Manage Actions access).
+The `NzbDav.UsenetSharp` dependency is published on NuGet.org and restores without
+additional credentials.
 
 ```bash
 cd backend
@@ -88,17 +67,14 @@ npm run dev
 
 ### Using Docker CLI
 
-In the root directory, pass a GitHub token so the backend build can restore `UsenetSharp` from GitHub Packages:
-
 ```bash
-export GITHUB_TOKEN=<GITHUB_PAT_WITH_read:packages>
-docker build --secret id=github_token,env=GITHUB_TOKEN .
+docker build .
 ```
 
 You can also tag the release, which can be used with `docker compose`:
 
 ```bash
-docker build --secret id=github_token,env=GITHUB_TOKEN -t example/nzbdav:test_build .
+docker build -t example/nzbdav:test_build .
 ```
 
 Run the container:
