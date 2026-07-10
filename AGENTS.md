@@ -91,13 +91,22 @@ cd frontend && npm install && npm run dev
 
 Open `http://localhost:5173` (dev) or `http://localhost:3000` (production build).
 
-**Before opening a PR (frontend changes):**
+**Before opening a PR:**
 
 ```bash
-cd frontend && npm run typecheck
+# Frontend
+cd frontend && npm run typecheck && npm test
+
+# Backend (from repository root)
+dotnet test tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release \
+  --configfile backend/nuget.config
 ```
 
-The NzbDav repository has no automated test suite today. Verify behavior manually or with targeted checks.
+Backend tests use xUnit and live in `tests/NzbWebDAV.Tests/`. They cover streams,
+NZB/PAR2 parsing, NNTP caching and concurrency, queue logic, and SQLite-backed
+database behavior. Frontend tests use Vitest and are colocated as `*.test.ts`.
+Performance benchmarks live in `backend.Benchmarks/` and are run manually with
+`dotnet run --project backend.Benchmarks -c Release`; do not run benchmarks in CI.
 
 ## UsenetSharp integration
 
@@ -225,7 +234,7 @@ Do not accumulate a large uncommitted diff across unrelated areas.
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `ci.yml` | PRs and pushes to `main` | Frontend typecheck + backend build (fast validation) |
+| `ci.yml` | PRs and pushes to `main` | Frontend typecheck/tests + backend build/tests |
 | `codeql.yml` | PRs, pushes to `main`, and weekly schedule | CodeQL security analysis for C#, TypeScript, and GitHub Actions |
 | `pre-release.yml` | Pushes to `main` (except release commits) | Publishes `ghcr.io/.../nzbdav:dev` |
 | `release.yml` | Push to `main` | release-please versioning; publishes Docker images when a release is created |
@@ -263,7 +272,8 @@ Docker image builds are shared via the reusable workflow. Branch and dependabot 
 - **Editing CHANGELOG.md:** it is generated — commit messages are the source of truth.
 - **Package release ordering:** do not bump UsenetSharp merely because a release/tag exists; confirm the package publish job completed.
 - **Breaking upgrades:** major incompatible releases may gate startup in `Program.cs` (see `UPGRADE` env var pattern).
-- **No NzbDav test suite:** rely on backend builds, `npm run typecheck`, and manual verification.
+- **Test fixtures:** prefer deterministic generated data and `FakeNntpClient`; do not require live Usenet providers in the automated suite.
+- **Streaming changes:** run the focused backend tests and retain manual range, rclone scrubbing, and encrypted-archive playback checks for behavior not covered by automation.
 
 ## Useful references
 
