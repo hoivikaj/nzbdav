@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@react-router/express": "^7.14.0",
-    "@react-router/fs-routes": "^7.14.0",
+    "@react-router/fs-routes": "^8.2.0",
     "@react-router/node": "^7.5.3",
     "bootstrap": "^5.3.8",
     "compression": "^1.7.5",
@@ -30,7 +30,7 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@react-router/dev": "^7.5.3",
+    "@react-router/dev": "^8.2.0",
     "@tailwindcss/vite": "^4.3.2",
     "@types/compression": "^1.7.5",
     "@types/express": "^5.0.6",
