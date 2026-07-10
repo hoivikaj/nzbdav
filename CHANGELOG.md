@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.10](https://github.com/nzbdav/nzbdav/compare/v0.6.9...v0.6.10) (2026-07-10)
+
+
+### Bug Fixes
+
+* **deps:** consume UsenetSharp from NuGet.org ([bfe8586](https://github.com/nzbdav/nzbdav/commit/bfe8586aac02444cc732334593f42835b02d6f8a))
+* **docker:** image contents ([e67542f](https://github.com/nzbdav/nzbdav/commit/e67542f9f012dfa802562590dcfcca178ef503e7))
+
 ## [0.6.9](https://github.com/nzbdav/nzbdav/compare/v0.6.8...v0.6.9) (2026-07-10)
 
 
