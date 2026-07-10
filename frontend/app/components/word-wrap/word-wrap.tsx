@@ -1,4 +1,3 @@
-import styles from "./word-wrap.module.css";
 import type { ReactNode } from "react";
 
 export type WordWrapProps = {
@@ -6,5 +5,5 @@ export type WordWrapProps = {
 }
 
 export function WordWrap({ children }: WordWrapProps) {
-    return <div className={styles.wordWrap}>{children}</div>;
+    return <div className="min-w-0 break-words">{children}</div>;
 }

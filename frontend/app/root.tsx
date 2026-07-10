@@ -8,7 +8,6 @@ import {
   useNavigation,
 } from "react-router";
 
-import 'bootstrap/dist/css/bootstrap.min.css';
 import "./app.css";
 import type { Route } from "./+types/root";
 import { IS_FRONTEND_AUTH_DISABLED } from "~/auth/authentication.server";
@@ -50,7 +49,7 @@ function hasConfiguredUsenetProviders(configValue?: string): boolean {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" data-bs-theme="dark">
+    <html lang="en" data-appearance-theme="dark">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />

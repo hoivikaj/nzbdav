@@ -1,8 +1,7 @@
 import { Form, Link, useLocation, useNavigation } from "react-router";
-import styles from "./left-navigation.module.css";
-import { className } from "~/utils/styling";
 import type React from "react";
 import { LiveUsenetConnections } from "../live-usenet-connections/live-usenet-connections";
+import { Icon } from "~/components/ui";
 
 export type LeftNavigationProps = {
     version?: string,
@@ -12,64 +11,65 @@ export type LeftNavigationProps = {
 
 export function LeftNavigation({ version, isFrontendAuthDisabled, hasUsenetProviders }: LeftNavigationProps) {
     return (
-        <div className={styles.container}>
-            <Item target="/queue">
-                <div className={styles["queue-icon"]} />
-                <div className={styles.title}>Queue & History</div>
-            </Item>
-            <Item target="/explore">
-                <div className={styles["explore-icon"]} />
-                <div className={styles.title}>Dav Explore</div>
-            </Item>
-            <Item target="/health">
-                <div className={styles["health-icon"]} />
-                <div className={styles.title}>Health</div>
-            </Item>
-            <Item target="/settings">
-                <div className={styles["settings-icon"]} />
-                <div className={styles.title}>Settings</div>
-            </Item>
+        <div className="flex h-full flex-col px-3 py-5 text-slate-400">
+            <nav className="flex flex-col gap-1">
+                <Item target="/queue" icon="list_alt">Queue & History</Item>
+                <Item target="/explore" icon="folder_open">DAV Explore</Item>
+                <Item target="/health" icon="health_and_safety">Health</Item>
+                <Item target="/settings" icon="settings">Settings</Item>
+            </nav>
             <LiveUsenetConnections hasUsenetProviders={!!hasUsenetProviders} />
 
-            <div className={styles.footer}>
-                <div className={styles["footer-item"]}>
-                    <Link to="https://github.com/nzbdav/nzbdav" className={styles["github-link"]}>
-                        github
+            <footer className="mt-auto border-t border-slate-800 pt-4 text-xs text-slate-500">
+                <div className="mb-3 flex items-center gap-3">
+                    <Link
+                        to="https://github.com/nzbdav/nzbdav"
+                        className="flex items-center gap-1 hover:text-blue-400"
+                    >
+                        <Icon name="code" className="!text-[16px]" />
+                        GitHub
                     </Link>
-                    <div className={styles["github-icon"]} />
-                </div>
-                <div className={styles["footer-item"]}>
-                    <Link to="https://github.com/nzbdav/nzbdav/releases" className={styles["github-link"]}>
-                        changelog
+                    <Link
+                        to="https://github.com/nzbdav/nzbdav/releases"
+                        className="hover:text-blue-400"
+                    >
+                        Changelog
                     </Link>
                 </div>
-                <div className={styles["footer-item"]}>
-                    version: {version || 'unknown'}
-                </div>
-                {!isFrontendAuthDisabled && <>
-                    <hr />
+                <div className="font-mono text-[11px]">v{version || "unknown"}</div>
+                {!isFrontendAuthDisabled && (
                     <Form method="post" action="/logout">
                         <input name="confirm" value="true" type="hidden" />
-                        <button className={styles.unstyled + ' ' + styles.item} type="submit">
-                            <div className={styles["logout-icon"]} />
-                            <div className={styles.title}>Logout</div>
+                        <button
+                            className="mt-3 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-slate-400 hover:bg-white/10 hover:text-white"
+                            type="submit"
+                        >
+                            <Icon name="logout" className="!text-[18px]" />
+                            Logout
                         </button>
                     </Form>
-                </>}
-            </div>
+                )}
+            </footer>
         </div>
     );
 }
 
-function Item({ target, children }: { target: string, children: React.ReactNode }) {
+function Item({ target, icon, children }: { target: string, icon: string, children: React.ReactNode }) {
     const location = useLocation();
     const navigation = useNavigation();
     const pathname = navigation.location?.pathname ?? location.pathname;
     const isSelected = pathname.startsWith(target);
-    const classes = [styles.item, isSelected ? styles.selected : null];
-    return <>
-        <Link {...className(classes)} to={target}>
+    return (
+        <Link
+            to={target}
+            className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all ${
+                isSelected
+                    ? "bg-blue-500/15 text-blue-400"
+                    : "text-slate-400 hover:bg-white/10 hover:text-white"
+            }`}
+        >
+            <Icon name={icon} filled={isSelected} className="!text-[21px] transition-transform group-hover:scale-105" />
             {children}
         </Link>
-    </>;
+    );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import styles from "./live-usenet-connections.module.css";
 import { receiveMessage } from "~/utils/websocket-util";
 import { useNavigate } from "react-router";
+import { Icon } from "~/components/ui";
 
 const usenetConnectionsTopic = {'cxs': 'state'};
 
@@ -43,25 +43,36 @@ export function LiveUsenetConnections({ hasUsenetProviders }: LiveUsenetConnecti
     }, [hasUsenetProviders, navigate]);
 
     return (
-        <div className={styles.container}>
-            <div className={styles.title}>
+        <section className="mt-6 rounded border border-slate-700/70 bg-slate-800/50 p-3">
+            <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-500">
+                <Icon name="cloud" className="!text-[16px]" />
                 Usenet Connections
             </div>
-            {hasUsenetProviders && <div className={styles.bar}>
-                    <div className={styles.max} />
-                    <div className={styles.live} style={{ width: `${livePercent}%` }} />
-                    <div className={styles.active} style={{ width: `${activePercent}%` }} />
-                </div>}
-            <div className={styles.caption}>
+            {hasUsenetProviders && (
+                <div className="relative mb-2 h-1 overflow-hidden rounded-full bg-slate-700">
+                    <div
+                        className="absolute inset-y-0 left-0 bg-emerald-500 transition-all duration-300"
+                        style={{ width: `${livePercent}%` }}
+                    />
+                    <div
+                        className="absolute inset-y-0 left-0 bg-blue-500 transition-all duration-300"
+                        style={{ width: `${activePercent}%` }}
+                    />
+                </div>
+            )}
+            <div className="text-xs text-slate-400">
                 {!hasUsenetProviders && "No providers configured"}
                 {hasUsenetProviders && connections && `${live} connected / ${max} max`}
-                {hasUsenetProviders && !connections && "Loading..."}
+                {hasUsenetProviders && !connections && (
+                    <span className="flex items-center gap-1.5">
+                        <Icon name="progress_activity" className="animate-spin !text-[14px]" />
+                        Connecting
+                    </span>
+                )}
             </div>
-            {hasUsenetProviders && connections &&
-                <div className={styles.caption}>
-                    ( {active} active )
-                </div>
-            }
-        </div>
+            {hasUsenetProviders && connections && (
+                <div className="mt-1 font-mono text-[11px] text-slate-500">{active} active</div>
+            )}
+        </section>
     );
 }

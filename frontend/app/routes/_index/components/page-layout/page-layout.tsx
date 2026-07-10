@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import styles from "./page-layout.module.css";
 import { useNavigation } from "react-router";
 
 export type PageLayoutProps = {
@@ -32,26 +31,35 @@ export function PageLayout(props: PageLayoutProps) {
         setIsHamburgerMenuOpen(false);
     }, [setIsHamburgerMenuOpen]);
 
-    let containerClassName = styles["container"];
-    if (isHamburgerMenuOpen) containerClassName += " " + styles["hamburger-open"];
-
     return (
-        <>
-            <div className={containerClassName}>
-                <div className={styles["top-navigation"]}>
-                    <props.topNavComponent
-                        isHamburgerMenuOpen={isHamburgerMenuOpen}
-                        onHamburgerMenuClick={onHamburgerMenuClick} />
-                </div>
-                <div className={styles["page"]}>
-                    <div className={styles["left-navigation"]}>
-                        {props.leftNavChild}
-                    </div>
-                    <div className={styles["body"]} onClick={onBodyClick}>
-                        {props.bodyChild}
-                    </div>
-                </div>
+        <div className="flex h-dvh min-w-0 flex-col overflow-hidden bg-gray-900 text-white">
+            <div className="z-40 h-16 shrink-0 border-b border-slate-800 bg-gray-900">
+                <props.topNavComponent
+                    isHamburgerMenuOpen={isHamburgerMenuOpen}
+                    onHamburgerMenuClick={onHamburgerMenuClick} />
             </div>
-        </>
+            <div className="relative flex min-h-0 flex-1">
+                <aside
+                    className={`absolute inset-y-0 left-0 z-30 w-[250px] border-r border-slate-800 bg-gray-900 transition-transform duration-200 md:relative md:translate-x-0 ${
+                        isHamburgerMenuOpen ? "translate-x-0" : "-translate-x-full"
+                    }`}
+                >
+                    {props.leftNavChild}
+                </aside>
+                {isHamburgerMenuOpen && (
+                    <button
+                        aria-label="Close navigation"
+                        className="absolute inset-0 z-20 bg-slate-950/60 backdrop-blur-[2px] md:hidden"
+                        onClick={onBodyClick}
+                    />
+                )}
+                <main
+                    className="yes-scrollbar min-w-0 flex-1 overflow-y-auto bg-[var(--app-bg)]"
+                    onClick={onBodyClick}
+                >
+                    {props.bodyChild}
+                </main>
+            </div>
+        </div>
     );
 }
