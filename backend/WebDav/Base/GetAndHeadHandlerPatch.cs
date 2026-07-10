@@ -47,6 +47,8 @@ public class GetAndHeadHandlerPatch : IRequestHandler
 
         // Determine the requested range
         var range = request.GetRange();
+        var copyStart = 0L;
+        long? copyEnd = null;
 
         // Obtain the WebDAV collection
         var entry = await _store.GetItemAsync(request.GetUri(), httpContext.RequestAborted).ConfigureAwait(false);
@@ -110,11 +112,22 @@ public class GetAndHeadHandlerPatch : IRequestHandler
                         // Check if a range was specified
                         if (range != null)
                         {
-                            var start = range.Start ?? 0;
-                            var end = Math.Min(range.End ?? long.MaxValue, length - 1);
+                            long start;
+                            long end;
+                            if (!range.Start.HasValue && range.End.HasValue)
+                            {
+                                var suffixLength = range.End.Value;
+                                start = suffixLength > 0 ? Math.Max(0, length - suffixLength) : length;
+                                end = length - 1;
+                            }
+                            else
+                            {
+                                start = range.Start ?? 0;
+                                end = Math.Min(range.End ?? length - 1, length - 1);
+                            }
 
                             // Return 416 if the range start is beyond the end of the file
-                            if (start > end)
+                            if (start < 0 || start > end)
                             {
                                 response.Headers.ContentRange = $"bytes */{stream.Length}";
                                 response.SetStatus((DavStatusCode)416);
@@ -122,13 +135,12 @@ public class GetAndHeadHandlerPatch : IRequestHandler
                             }
 
                             length = end - start + 1;
+                            copyStart = start;
+                            copyEnd = end;
 
                             // Write the range
                             response.Headers.ContentRange = $"bytes {start}-{end}/{stream.Length}";
-
-                            // Set status to partial result if not all data can be sent
-                            if (length < stream.Length)
-                                response.SetStatus(DavStatusCode.PartialContent);
+                            response.SetStatus(DavStatusCode.PartialContent);
                         }
 
                         // Set the header, so the client knows how much data is required
@@ -150,7 +162,8 @@ public class GetAndHeadHandlerPatch : IRequestHandler
 
                 // HEAD method doesn't require the actual item data
                 if (!isHeadRequest)
-                    await CopyToAsync(stream, response.Body, range?.Start ?? 0, range?.End, httpContext.RequestAborted).ConfigureAwait(false);
+                    await CopyToAsync(
+                        stream, response.Body, copyStart, copyEnd, httpContext.RequestAborted).ConfigureAwait(false);
             }
             else
             {
