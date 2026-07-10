@@ -4,6 +4,7 @@ import express from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { websocketServer } from "./websocket.server";
+import { shouldProxyToBackend } from "./proxy-path";
 import { isAuthenticated } from "~/auth/authentication.server";
 import { authMiddleware } from "~/auth/auth-middleware.server";
 
@@ -64,17 +65,7 @@ const credentialRateLimiter = rateLimit({
 });
 
 app.use(async (req, res, next) => {
-  const path = decodeURIComponent(req.path);
-  if (
-    req.method.toUpperCase() === "PROPFIND"
-    || req.method.toUpperCase() === "OPTIONS"
-    || path.startsWith("/api")
-    || path.startsWith("/view")
-    || path.startsWith("/.ids")
-    || path.startsWith("/nzbs")
-    || path.startsWith("/content")
-    || path.startsWith("/completed-symlinks")
-  ) {
+  if (shouldProxyToBackend(req.method, req.path)) {
     await setApiKeyForAuthenticatedRequests(req);
     return forwardToBackend(req, res, next);
   }
