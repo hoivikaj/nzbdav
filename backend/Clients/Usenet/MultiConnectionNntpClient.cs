@@ -123,6 +123,84 @@ public class MultiConnectionNntpClient(
         );
     }
 
+    public override async Task<UsenetDecodedBodyBatch> DecodedBodiesAsync
+    (
+        IReadOnlyList<SegmentId> segmentIds,
+        Action<ArticleBodyResult>? onConnectionReadyAgain,
+        CancellationToken ct
+    )
+    {
+        var retryCount = 1;
+        while (retryCount >= 0)
+        {
+            ConnectionLock<INntpClient>? connectionLock = null;
+            var deferredCallback = new DeferredArticleBodyCallback();
+            try
+            {
+                connectionLock = await connectionPool
+                    .GetConnectionLockAsync(SemaphorePriority.High, ct)
+                    .ConfigureAwait(false);
+                var batch = await connectionLock.Connection.DecodedBodiesAsync(
+                    segmentIds, deferredCallback.Invoke, ct).ConfigureAwait(false);
+
+                var callbackInvoked = 0;
+                deferredCallback.Activate(OnConnectionReadyAgain);
+                return batch;
+
+                void OnConnectionReadyAgain(ArticleBodyResult result)
+                {
+                    if (Interlocked.Exchange(ref callbackInvoked, 1) != 0) return;
+                    switch (result)
+                    {
+                        case ArticleBodyResult.Retrieved:
+                        case ArticleBodyResult.NotFound:
+                            circuitBreaker.RecordSuccess();
+                            break;
+                        case ArticleBodyResult.Cancelled:
+                            break;
+                        default:
+                            circuitBreaker.RecordFailure();
+                            LogException(connectionLock.Replace);
+                            break;
+                    }
+
+                    LogException(connectionLock.Dispose);
+                    LogException(() => onConnectionReadyAgain?.Invoke(result));
+                }
+            }
+            catch (Exception e) when (e.IsCancellationException())
+            {
+                deferredCallback.Discard();
+                LogException(() => connectionLock?.Dispose());
+                LogException(() => onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved));
+                throw;
+            }
+            catch (Exception e)
+            {
+                deferredCallback.Discard();
+                circuitBreaker.RecordFailure();
+                LogException(() => connectionLock?.Replace());
+                LogException(() => connectionLock?.Dispose());
+                if (retryCount > 0)
+                {
+                    Log.Debug(e,
+                        "Error executing pipelined NNTP BODY commands for provider {Provider}. Retrying with a new connection.",
+                        providerName);
+                    retryCount--;
+                    continue;
+                }
+
+                Log.Warning(e,
+                    "Error executing pipelined NNTP BODY commands for provider {Provider}.",
+                    providerName);
+                LogException(() => onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved));
+                throw;
+            }
+        }
+
+        throw new InvalidOperationException("Unreachable code");
+    }
+
     public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync
     (
         SegmentId segmentId,

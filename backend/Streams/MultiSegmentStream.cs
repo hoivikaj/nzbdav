@@ -1,17 +1,18 @@
 ﻿using System.Threading.Channels;
 using NzbWebDAV.Clients.Usenet;
-using NzbWebDAV.Clients.Usenet.Concurrency;
 using NzbWebDAV.Clients.Usenet.Contexts;
-using NzbWebDAV.Clients.Usenet.Models;
+using UsenetSharp.Models;
 using UsenetSharp.Streams;
 
 namespace NzbWebDAV.Streams;
 
 public class MultiSegmentStream : FastReadOnlyNonSeekableStream
 {
+    private const int BodyPipelineBatchSize = 4;
     private readonly Memory<string> _segmentIds;
     private readonly INntpClient _usenetClient;
     private readonly Channel<Task<Stream>> _streamTasks;
+    private readonly int _bodyPipelineBatchSize;
     private readonly ContextualCancellationTokenSource _cts;
     private Stream? _stream;
     private bool _disposed;
@@ -39,6 +40,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
     {
         _segmentIds = segmentIds;
         _usenetClient = usenetClient;
+        _bodyPipelineBatchSize = Math.Min(BodyPipelineBatchSize, articleBufferSize);
         _streamTasks = Channel.CreateBounded<Task<Stream>>(articleBufferSize);
         _cts = ContextualCancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _ = DownloadSegments(_cts.Token);
@@ -48,19 +50,43 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
     {
         try
         {
-            for (var i = 0; i < _segmentIds.Length; i++)
+            for (var batchStart = 0; batchStart < _segmentIds.Length;)
             {
-                var segmentId = _segmentIds.Span[i];
+                var batchCount = Math.Min(
+                    _bodyPipelineBatchSize, _segmentIds.Length - batchStart);
+                var segmentIds = new SegmentId[batchCount];
+                for (var index = 0; index < batchCount; index++)
+                {
+                    segmentIds[index] = _segmentIds.Span[batchStart + index];
+                }
 
                 await _streamTasks.Writer.WaitToWriteAsync(cancellationToken);
-                var connection = await _usenetClient.AcquireExclusiveConnectionAsync(segmentId, cancellationToken);
-                var streamTask = DownloadSegment(segmentId, connection, cancellationToken);
-                if (_streamTasks.Writer.TryWrite(streamTask)) continue;
+                var connection = await _usenetClient.AcquireExclusiveConnectionAsync(
+                    segmentIds, cancellationToken);
+                var batch = await _usenetClient.DecodedBodiesAsync(
+                    segmentIds, connection, cancellationToken).ConfigureAwait(false);
+                var streamTasks = batch.Responses.Select(DownloadSegment).ToArray();
 
-                // if we never get a chance to write the stream to the writer
-                // then make sure the stream gets disposed.
-                _ = Task.Run(async () => await (await streamTask).DisposeAsync(), CancellationToken.None);
-                break;
+                var responseIndex = 0;
+                try
+                {
+                    for (; responseIndex < streamTasks.Length; responseIndex++)
+                    {
+                        await _streamTasks.Writer.WriteAsync(
+                            streamTasks[responseIndex], cancellationToken);
+                    }
+                }
+                catch
+                {
+                    for (; responseIndex < streamTasks.Length; responseIndex++)
+                    {
+                        _ = DisposeStreamAsync(streamTasks[responseIndex]);
+                    }
+
+                    throw;
+                }
+
+                batchStart += batchCount;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -79,17 +105,25 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         return;
     }
 
-    private async Task<Stream> DownloadSegment
-    (
-        string segmentId,
-        UsenetExclusiveConnection exclusiveConnection,
-        CancellationToken cancellationToken
-    )
+    private static async Task<Stream> DownloadSegment(
+        Task<UsenetDecodedBodyResponse> responseTask)
     {
-        var bodyResponse = await _usenetClient
-            .DecodedBodyAsync(segmentId, exclusiveConnection, cancellationToken)
-            .ConfigureAwait(false);
-        return bodyResponse.Stream;
+        var bodyResponse = await responseTask.ConfigureAwait(false);
+        return bodyResponse.Stream ??
+            throw new InvalidDataException(
+                $"NNTP BODY failed for segment {bodyResponse.SegmentId}: {bodyResponse.ResponseMessage}");
+    }
+
+    private static async Task DisposeStreamAsync(Task<Stream> streamTask)
+    {
+        try
+        {
+            await using var stream = await streamTask.ConfigureAwait(false);
+        }
+        catch
+        {
+            // The producer owns reporting download failures.
+        }
     }
 
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
@@ -135,7 +169,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
 
         // ensure that streams that were never read from the channel get disposed
         while (_streamTasks.Reader.TryRead(out var streamTask))
-            _ = Task.Run(async () => await (await streamTask).DisposeAsync(), CancellationToken.None);
+            _ = DisposeStreamAsync(streamTask);
 
         base.Dispose();
     }

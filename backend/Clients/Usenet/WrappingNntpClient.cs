@@ -39,6 +39,11 @@ public class WrappingNntpClient(INntpClient usenetClient) : NntpClient
         SegmentId segmentId, Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken) =>
         _usenetClient.DecodedBodyAsync(segmentId, onConnectionReadyAgain, cancellationToken);
 
+    public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+        IReadOnlyList<SegmentId> segmentIds, Action<ArticleBodyResult>? onConnectionReadyAgain,
+        CancellationToken cancellationToken) =>
+        _usenetClient.DecodedBodiesAsync(segmentIds, onConnectionReadyAgain, cancellationToken);
+
     public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
         SegmentId segmentId, Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken) =>
         _usenetClient.DecodedArticleAsync(segmentId, onConnectionReadyAgain, cancellationToken);
@@ -47,9 +52,18 @@ public class WrappingNntpClient(INntpClient usenetClient) : NntpClient
         string segmentId, CancellationToken cancellationToken) =>
         _usenetClient.AcquireExclusiveConnectionAsync(segmentId, cancellationToken);
 
+    public override Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync(
+        IReadOnlyList<SegmentId> segmentIds, CancellationToken cancellationToken) =>
+        _usenetClient.AcquireExclusiveConnectionAsync(segmentIds, cancellationToken);
+
     public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
         SegmentId segmentId, UsenetExclusiveConnection exclusiveConnection, CancellationToken cancellationToken) =>
         _usenetClient.DecodedBodyAsync(segmentId, exclusiveConnection, cancellationToken);
+
+    public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+        IReadOnlyList<SegmentId> segmentIds, UsenetExclusiveConnection exclusiveConnection,
+        CancellationToken cancellationToken) =>
+        _usenetClient.DecodedBodiesAsync(segmentIds, exclusiveConnection, cancellationToken);
 
     public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
         SegmentId segmentId, UsenetExclusiveConnection exclusiveConnection, CancellationToken cancellationToken) =>

@@ -27,6 +27,10 @@ public interface INntpClient : IDisposable
     Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
         SegmentId segmentId, Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken);
 
+    Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+        IReadOnlyList<SegmentId> segmentIds, Action<ArticleBodyResult>? onConnectionReadyAgain,
+        CancellationToken cancellationToken);
+
     Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
         SegmentId segmentId, CancellationToken cancellationToken);
 
@@ -40,8 +44,15 @@ public interface INntpClient : IDisposable
     Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync(
         string segmentId, CancellationToken cancellationToken);
 
+    Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync(
+        IReadOnlyList<SegmentId> segmentIds, CancellationToken cancellationToken);
+
     Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
         SegmentId segmentId, UsenetExclusiveConnection connection, CancellationToken cancellationToken);
+
+    Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+        IReadOnlyList<SegmentId> segmentIds, UsenetExclusiveConnection connection,
+        CancellationToken cancellationToken);
 
     Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
         SegmentId segmentId, UsenetExclusiveConnection connection, CancellationToken cancellationToken);

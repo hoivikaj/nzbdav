@@ -107,6 +107,17 @@ public class BaseNntpClient : NntpClient
         };
     }
 
+    public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync
+    (
+        IReadOnlyList<SegmentId> segmentIds,
+        Action<ArticleBodyResult>? onConnectionReadyAgain,
+        CancellationToken cancellationToken
+    )
+    {
+        return _client.DecodedBodiesAsync(
+            segmentIds, onConnectionReadyAgain, cancellationToken);
+    }
+
     public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync
     (
         SegmentId segmentId,

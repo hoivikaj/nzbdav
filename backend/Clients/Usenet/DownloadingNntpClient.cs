@@ -66,6 +66,22 @@ public class DownloadingNntpClient : WrappingNntpClient
         }
     }
 
+    public override async Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+        IReadOnlyList<SegmentId> segmentIds,
+        Action<ArticleBodyResult>? onConnectionReadyAgain,
+        CancellationToken cancellationToken)
+    {
+        await AcquireExclusiveConnectionAsync(onConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
+        return await base.DecodedBodiesAsync(
+            segmentIds, OnConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
+
+        void OnConnectionReadyAgain(ArticleBodyResult articleBodyResult)
+        {
+            _semaphore.Release();
+            onConnectionReadyAgain?.Invoke(articleBodyResult);
+        }
+    }
+
     public override async Task<UsenetDecodedArticleResponse> DecodedArticleAsync(SegmentId segmentId,
         Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken)
     {
@@ -111,11 +127,36 @@ public class DownloadingNntpClient : WrappingNntpClient
         return new UsenetExclusiveConnection(_ => _semaphore.Release());
     }
 
+    public override async Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync
+    (
+        IReadOnlyList<SegmentId> segmentIds,
+        CancellationToken cancellationToken
+    )
+    {
+        ArgumentNullException.ThrowIfNull(segmentIds);
+        if (segmentIds.Count == 0)
+        {
+            throw new ArgumentException("At least one segment ID is required.", nameof(segmentIds));
+        }
+
+        await AcquireExclusiveConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return new UsenetExclusiveConnection(_ => _semaphore.Release());
+    }
+
     public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(SegmentId segmentId,
         UsenetExclusiveConnection exclusiveConnection, CancellationToken cancellationToken)
     {
         var onConnectionReadyAgain = exclusiveConnection.OnConnectionReadyAgain;
         return base.DecodedBodyAsync(segmentId, onConnectionReadyAgain, cancellationToken);
+    }
+
+    public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+        IReadOnlyList<SegmentId> segmentIds,
+        UsenetExclusiveConnection exclusiveConnection,
+        CancellationToken cancellationToken)
+    {
+        return base.DecodedBodiesAsync(
+            segmentIds, exclusiveConnection.OnConnectionReadyAgain, cancellationToken);
     }
 
     public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(SegmentId segmentId,

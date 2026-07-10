@@ -112,6 +112,22 @@ public class ArticleCachingNntpClient(
         }
     }
 
+    public override async Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+        IReadOnlyList<SegmentId> segmentIds,
+        Action<ArticleBodyResult>? onConnectionReadyAgain,
+        CancellationToken cancellationToken)
+    {
+        if (TryCreateCachedBatch(segmentIds, out var cachedBatch))
+        {
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return cachedBatch;
+        }
+
+        var batch = await base.DecodedBodiesAsync(
+            segmentIds, onConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
+        return WrapBatchForCaching(segmentIds, batch, cancellationToken);
+    }
+
     public override async Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
         SegmentId segmentId, Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken)
     {
@@ -214,6 +230,23 @@ public class ArticleCachingNntpClient(
         }
     }
 
+    public override Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync
+    (
+        IReadOnlyList<SegmentId> segmentIds,
+        CancellationToken cancellationToken
+    )
+    {
+        ArgumentNullException.ThrowIfNull(segmentIds);
+        if (segmentIds.Count == 0)
+        {
+            throw new ArgumentException("At least one segment ID is required.", nameof(segmentIds));
+        }
+
+        return segmentIds.All(segmentId => _cachedSegments.ContainsKey(segmentId))
+            ? Task.FromResult(new UsenetExclusiveConnection(onConnectionReadyAgain: null))
+            : base.AcquireExclusiveConnectionAsync(segmentIds, cancellationToken);
+    }
+
     public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync
     (
         SegmentId segmentId,
@@ -223,6 +256,24 @@ public class ArticleCachingNntpClient(
     {
         var onConnectionReadyAgain = exclusiveConnection.OnConnectionReadyAgain;
         return DecodedBodyAsync(segmentId, onConnectionReadyAgain, cancellationToken);
+    }
+
+    public override async Task<UsenetDecodedBodyBatch> DecodedBodiesAsync
+    (
+        IReadOnlyList<SegmentId> segmentIds,
+        UsenetExclusiveConnection exclusiveConnection,
+        CancellationToken cancellationToken
+    )
+    {
+        if (TryCreateCachedBatch(segmentIds, out var cachedBatch))
+        {
+            exclusiveConnection.OnConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return cachedBatch;
+        }
+
+        var batch = await base.DecodedBodiesAsync(
+            segmentIds, exclusiveConnection, cancellationToken).ConfigureAwait(false);
+        return WrapBatchForCaching(segmentIds, batch, cancellationToken);
     }
 
     public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync
@@ -251,6 +302,89 @@ public class ArticleCachingNntpClient(
         var byteRange = GetByteRange(cacheEntry.YencHeaders);
         foreach (var segment in trackedSegments)
             segment.ByteRange = byteRange;
+    }
+
+    private UsenetDecodedBodyBatch WrapBatchForCaching(
+        IReadOnlyList<SegmentId> segmentIds,
+        UsenetDecodedBodyBatch batch,
+        CancellationToken cancellationToken)
+    {
+        var responses = batch.Responses
+            .Select((response, index) => CacheBatchResponseAsync(
+                segmentIds[index], response, cancellationToken))
+            .ToArray();
+        return new UsenetDecodedBodyBatch { Responses = responses };
+    }
+
+    private bool TryCreateCachedBatch(
+        IReadOnlyList<SegmentId> segmentIds,
+        out UsenetDecodedBodyBatch batch)
+    {
+        var cached = new (string Key, CacheEntry Entry)[segmentIds.Count];
+        for (var index = 0; index < segmentIds.Count; index++)
+        {
+            var key = segmentIds[index].ToString();
+            if (!_cachedSegments.TryGetValue(key, out var cacheEntry))
+            {
+                batch = null!;
+                return false;
+            }
+
+            cached[index] = (key, cacheEntry);
+        }
+
+        var responses = new Task<UsenetDecodedBodyResponse>[cached.Length];
+        for (var index = 0; index < cached.Length; index++)
+        {
+            responses[index] = Task.FromResult(
+                ReadCachedBodyAsync(cached[index].Key, cached[index].Entry.YencHeaders));
+        }
+
+        batch = new UsenetDecodedBodyBatch { Responses = responses };
+        return true;
+    }
+
+    private async Task<UsenetDecodedBodyResponse> CacheBatchResponseAsync(
+        SegmentId segmentId,
+        Task<UsenetDecodedBodyResponse> responseTask,
+        CancellationToken cancellationToken)
+    {
+        var key = segmentId.ToString();
+        var semaphore = _pendingRequests.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var response = await responseTask.ConfigureAwait(false);
+            if (_cachedSegments.TryGetValue(key, out var existingEntry))
+            {
+                if (response.Stream != null)
+                {
+                    await response.Stream.DisposeAsync().ConfigureAwait(false);
+                }
+
+                return ReadCachedBodyAsync(key, existingEntry.YencHeaders);
+            }
+
+            if (response.Stream == null)
+            {
+                return response;
+            }
+
+            await using var stream = response.Stream;
+            var yencHeaders = await stream.GetYencHeadersAsync(cancellationToken).ConfigureAwait(false) ??
+                throw new InvalidOperationException(
+                    $"Failed to read yenc headers for segment {key}");
+            await CacheDecodedStreamAsync(key, stream, cancellationToken).ConfigureAwait(false);
+            AddCacheEntry(key, new CacheEntry(
+                YencHeaders: yencHeaders,
+                HasArticleHeaders: false,
+                ArticleHeaders: null));
+            return ReadCachedBodyAsync(key, yencHeaders);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
     }
 
     private static LongRange GetByteRange(UsenetYencHeader headers)

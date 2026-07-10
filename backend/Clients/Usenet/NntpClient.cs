@@ -31,6 +31,10 @@ public abstract class NntpClient : INntpClient
     public abstract Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
         SegmentId segmentId, Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken);
 
+    public abstract Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+        IReadOnlyList<SegmentId> segmentIds, Action<ArticleBodyResult>? onConnectionReadyAgain,
+        CancellationToken cancellationToken);
+
     public abstract Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
         SegmentId segmentId, CancellationToken cancellationToken);
 
@@ -52,6 +56,21 @@ public abstract class NntpClient : INntpClient
         throw new NotSupportedException(message);
     }
 
+    public virtual Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync
+    (
+        IReadOnlyList<SegmentId> segmentIds,
+        CancellationToken cancellationToken
+    )
+    {
+        ArgumentNullException.ThrowIfNull(segmentIds);
+        if (segmentIds.Count == 0)
+        {
+            throw new ArgumentException("At least one segment ID is required.", nameof(segmentIds));
+        }
+
+        return AcquireExclusiveConnectionAsync(segmentIds[0], cancellationToken);
+    }
+
     public virtual Task<UsenetDecodedBodyResponse> DecodedBodyAsync
     (
         SegmentId segmentId,
@@ -60,6 +79,17 @@ public abstract class NntpClient : INntpClient
     )
     {
         var message = $"{GetType().Name} does not support DecodedBodyAsync with exclusive connections.";
+        throw new NotSupportedException(message);
+    }
+
+    public virtual Task<UsenetDecodedBodyBatch> DecodedBodiesAsync
+    (
+        IReadOnlyList<SegmentId> segmentIds,
+        UsenetExclusiveConnection exclusiveConnection,
+        CancellationToken cancellationToken
+    )
+    {
+        var message = $"{GetType().Name} does not support DecodedBodiesAsync with exclusive connections.";
         throw new NotSupportedException(message);
     }
 
