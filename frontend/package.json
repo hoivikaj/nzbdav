@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@react-router/express": "^7.18.1",
-    "@react-router/fs-routes": "^7.18.1",
+    "@react-router/fs-routes": "^8.1.0",
     "@react-router/node": "^7.18.1",
     "bootstrap": "^5.3.8",
     "compression": "^1.7.5",
