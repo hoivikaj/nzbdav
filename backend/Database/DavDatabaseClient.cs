@@ -12,12 +12,13 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
     public Task<DavItem?> GetFileById(string id)
     {
         var guid = Guid.Parse(id);
-        return ctx.Items.Where(i => i.Id == guid).FirstOrDefaultAsync();
+        return ctx.Items.AsNoTracking().FirstOrDefaultAsync(i => i.Id == guid);
     }
 
     public Task<List<DavItem>> GetFilesByIdPrefix(string prefix)
     {
         return ctx.Items
+            .AsNoTracking()
             .Where(i => i.IdPrefix == prefix)
             .Where(i => i.Type == DavItem.ItemType.UsenetFile)
             .ToListAsync();
@@ -26,12 +27,13 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
     // directory
     public Task<List<DavItem>> GetDirectoryChildrenAsync(Guid dirId, CancellationToken ct = default)
     {
-        return ctx.Items.Where(x => x.ParentId == dirId).ToListAsync(ct);
+        return ctx.Items.AsNoTracking().Where(x => x.ParentId == dirId).ToListAsync(ct);
     }
 
     public Task<DavItem?> GetDirectoryChildAsync(Guid dirId, string childName, CancellationToken ct = default)
     {
-        return ctx.Items.FirstOrDefaultAsync(x => x.ParentId == dirId && x.Name == childName, ct);
+        return ctx.Items.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.ParentId == dirId && x.Name == childName, ct);
     }
 
     public async Task<long> GetRecursiveSize(Guid dirId, CancellationToken ct = default)
@@ -81,6 +83,7 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
 
         // read from database
         return await ctx.NzbFiles
+            .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == davItem.Id, ct)
             .ConfigureAwait(false);
     }
@@ -97,6 +100,7 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
 
         // read from database
         return await ctx.RarFiles
+            .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == davItem.Id, ct)
             .ConfigureAwait(false);
     }
@@ -113,6 +117,7 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
 
         // read from database
         return await ctx.MultipartFiles
+            .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == davItem.Id, ct)
             .ConfigureAwait(false);
     }
@@ -166,6 +171,7 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
             ? Ctx.QueueItems.Where(q => q.Category == category)
             : Ctx.QueueItems;
         return queueItems
+            .AsNoTracking()
             .OrderByDescending(q => q.Priority)
             .ThenBy(q => q.CreatedAt)
             .Skip(start)
@@ -191,7 +197,8 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
     // history
     public async Task<HistoryItem?> GetHistoryItemAsync(string id)
     {
-        return await Ctx.HistoryItems.FirstOrDefaultAsync(x => x.Id == Guid.Parse(id)).ConfigureAwait(false);
+        return await Ctx.HistoryItems.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == Guid.Parse(id)).ConfigureAwait(false);
     }
 
     public async Task RemoveHistoryItemsAsync(List<Guid> ids, bool deleteFiles, CancellationToken ct = default)
@@ -253,6 +260,7 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
     )
     {
         return await Ctx.HealthCheckStats
+            .AsNoTracking()
             .Where(h => h.DateStartInclusive >= from && h.DateStartInclusive <= to)
             .GroupBy(h => new { h.Result, h.RepairStatus })
             .Select(g => new HealthCheckStat
@@ -269,10 +277,11 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
         CancellationToken ct = default)
     {
         var query = from historyItem in Ctx.HistoryItems
+            .AsNoTracking()
             where historyItem.Category == category
                   && historyItem.DownloadStatus == HistoryItem.DownloadStatusOption.Completed
                   && historyItem.DownloadDirId != null
-            join davItem in Ctx.Items on historyItem.DownloadDirId equals davItem.Id
+            join davItem in Ctx.Items.AsNoTracking() on historyItem.DownloadDirId equals davItem.Id
             where davItem.Type == DavItem.ItemType.Directory
             select davItem;
         return await query.Distinct().ToListAsync(ct).ConfigureAwait(false);
