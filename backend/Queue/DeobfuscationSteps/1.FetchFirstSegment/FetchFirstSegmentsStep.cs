@@ -4,6 +4,7 @@ using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Config;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
+using NzbWebDAV.Models;
 using NzbWebDAV.Models.Nzb;
 using UsenetSharp.Models;
 
@@ -61,6 +62,9 @@ public static class FetchFirstSegmentsStep
             var yencHeaders = await bodyStream
                 .GetYencHeadersAsync(cancellationToken)
                 .ConfigureAwait(false);
+            if (yencHeaders is not null)
+                nzbFile.Segments[0].ByteRange =
+                    LongRange.FromStartAndSize(yencHeaders.PartOffset, yencHeaders.PartSize);
 
             // return
             return new NzbFileWithFirstSegment

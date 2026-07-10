@@ -30,6 +30,9 @@ public partial class DavRarFile
 
         [MemoryPackOrder(3)]
         public long ByteCount { get; set; }
+
+        [MemoryPackOrder(4)]
+        public LongRange[]? SegmentByteRanges { get; set; }
     }
 
     public DavMultipartFile.Meta ToDavMultipartFileMeta()
@@ -41,6 +44,7 @@ public partial class DavRarFile
                 SegmentIds = x.SegmentIds,
                 SegmentIdByteRange = LongRange.FromStartAndSize(0, x.PartSize),
                 FilePartByteRange = LongRange.FromStartAndSize(x.Offset, x.ByteCount),
+                SegmentByteRanges = x.SegmentByteRanges,
             }).ToArray()
         };
     }

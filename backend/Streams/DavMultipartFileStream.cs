@@ -97,7 +97,12 @@ public class DavMultipartFileStream(
             .Select((x, i) =>
             {
                 var offset = (i == 0) ? additionalOffset : 0;
-                var stream = usenetClient.GetFileStream(x.SegmentIds, x.SegmentIdByteRange.Count, articleBufferSize);
+                var stream = usenetClient.GetFileStream(
+                    x.SegmentIds,
+                    x.SegmentIdByteRange.Count,
+                    articleBufferSize,
+                    x.SegmentByteRanges
+                );
                 stream.Seek(x.FilePartByteRange.StartInclusive + offset, SeekOrigin.Begin);
                 return Task.FromResult(stream.LimitLength(x.FilePartByteRange.Count - offset));
             });

@@ -1,6 +1,7 @@
 using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
+using NzbWebDAV.Models;
 using NzbWebDAV.Models.Nzb;
 using NzbWebDAV.Streams;
 using UsenetSharp.Models;
@@ -85,6 +86,7 @@ public abstract class NntpClient : INntpClient
     {
         if (file.Segments.Count == 0) return 0;
         var headers = await GetYencHeadersAsync(file.Segments[^1].MessageId, ct).ConfigureAwait(false);
+        file.Segments[^1].ByteRange = LongRange.FromStartAndSize(headers.PartOffset, headers.PartSize);
         return headers!.PartOffset + headers!.PartSize;
     }
 
@@ -92,17 +94,27 @@ public abstract class NntpClient : INntpClient
     {
         var segmentIds = nzbFile.GetSegmentIds();
         var fileSize = await GetFileSizeAsync(nzbFile, ct).ConfigureAwait(false);
-        return new NzbFileStream(segmentIds, fileSize, this, articleBufferSize);
+        return new NzbFileStream(segmentIds, fileSize, this, articleBufferSize, nzbFile.GetSegmentByteRanges());
     }
 
     public virtual NzbFileStream GetFileStream(NzbFile nzbFile, long fileSize, int articleBufferSize)
     {
-        return new NzbFileStream(nzbFile.GetSegmentIds(), fileSize, this, articleBufferSize);
+        return new NzbFileStream(
+            nzbFile.GetSegmentIds(),
+            fileSize,
+            this,
+            articleBufferSize,
+            nzbFile.GetSegmentByteRanges()
+        );
     }
 
-    public virtual NzbFileStream GetFileStream(string[] segmentIds, long fileSize, int articleBufferSize)
+    public virtual NzbFileStream GetFileStream(
+        string[] segmentIds,
+        long fileSize,
+        int articleBufferSize,
+        LongRange[]? segmentByteRanges = null)
     {
-        return new NzbFileStream(segmentIds, fileSize, this, articleBufferSize);
+        return new NzbFileStream(segmentIds, fileSize, this, articleBufferSize, segmentByteRanges);
     }
 
     public virtual async Task CheckAllSegmentsAsync

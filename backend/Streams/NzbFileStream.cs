@@ -10,12 +10,17 @@ public class NzbFileStream(
     string[] fileSegmentIds,
     long fileSize,
     INntpClient usenetClient,
-    int articleBufferSize
+    int articleBufferSize,
+    LongRange[]? segmentByteRanges = null
 ) : FastReadOnlyStream
 {
     private long _position;
     private bool _disposed;
     private Stream? _innerStream;
+    private readonly LongRange[]? _segmentByteRanges =
+        AreSegmentByteRangesValid(segmentByteRanges, fileSegmentIds.Length, fileSize)
+            ? segmentByteRanges
+            : null;
 
     public override bool CanSeek => true;
     public override long Length => fileSize;
@@ -54,6 +59,16 @@ public class NzbFileStream(
 
     private async Task<InterpolationSearch.Result> SeekSegment(long byteOffset, CancellationToken ct)
     {
+        if (_segmentByteRanges is not null)
+        {
+            return InterpolationSearch.Find(
+                byteOffset,
+                new LongRange(0, _segmentByteRanges.Length),
+                new LongRange(0, fileSize),
+                guess => _segmentByteRanges[guess]
+            );
+        }
+
         return await InterpolationSearch.Find(
             byteOffset,
             new LongRange(0, fileSegmentIds.Length),
@@ -65,6 +80,20 @@ public class NzbFileStream(
             },
             ct
         ).ConfigureAwait(false);
+    }
+
+    private static bool AreSegmentByteRangesValid(LongRange[]? ranges, int segmentCount, long expectedFileSize)
+    {
+        if (ranges is null || ranges.Length != segmentCount || ranges.Length == 0) return false;
+        if (ranges[0].StartInclusive != 0 || ranges[^1].EndExclusive != expectedFileSize) return false;
+
+        for (var i = 0; i < ranges.Length; i++)
+        {
+            if (ranges[i].Count <= 0) return false;
+            if (i > 0 && ranges[i - 1].EndExclusive != ranges[i].StartInclusive) return false;
+        }
+
+        return true;
     }
 
     private async Task<Stream> GetFileStream(long rangeStart, CancellationToken cancellationToken)

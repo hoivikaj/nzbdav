@@ -41,5 +41,8 @@ public partial class DavMultipartFile
         // note: this range should always be fully contained within the SegmentIdByteRange above.
         [MemoryPackOrder(2)]
         public LongRange FilePartByteRange { get; set; }
+
+        [MemoryPackOrder(3)]
+        public LongRange[]? SegmentByteRanges { get; set; }
     }
 }

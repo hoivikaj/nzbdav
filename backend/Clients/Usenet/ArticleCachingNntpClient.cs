@@ -2,6 +2,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using NzbWebDAV.Clients.Usenet.Models;
+using NzbWebDAV.Models;
+using NzbWebDAV.Models.Nzb;
 using NzbWebDAV.Streams;
 using NzbWebDAV.Utils;
 using UsenetSharp.Models;
@@ -23,11 +25,25 @@ public class ArticleCachingNntpClient(
     private readonly string _cacheDir = Directory.CreateTempSubdirectory().FullName;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _pendingRequests = new();
     private readonly ConcurrentDictionary<string, CacheEntry> _cachedSegments = new();
+    private readonly ConcurrentDictionary<string, ConcurrentBag<NzbSegment>> _trackedSegments = new();
 
     private record CacheEntry(
         UsenetYencHeader YencHeaders,
         bool HasArticleHeaders,
         UsenetArticleHeader? ArticleHeaders);
+
+    public void TrackNzbFiles(IEnumerable<NzbFile> nzbFiles)
+    {
+        foreach (var segment in nzbFiles.SelectMany(x => x.Segments))
+        {
+            _trackedSegments
+                .GetOrAdd(segment.MessageId, _ => [])
+                .Add(segment);
+
+            if (_cachedSegments.TryGetValue(segment.MessageId, out var cacheEntry))
+                segment.ByteRange = GetByteRange(cacheEntry.YencHeaders);
+        }
+    }
 
     public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
         SegmentId segmentId, CancellationToken cancellationToken)
@@ -82,7 +98,7 @@ public class ArticleCachingNntpClient(
             await CacheDecodedStreamAsync(segmentId, stream, cancellationToken).ConfigureAwait(false);
 
             // Mark as cached (body only, no article headers yet)
-            _cachedSegments.TryAdd(segmentId, new CacheEntry(
+            AddCacheEntry(segmentId, new CacheEntry(
                 YencHeaders: yencHeaders,
                 HasArticleHeaders: false,
                 ArticleHeaders: null));
@@ -164,7 +180,7 @@ public class ArticleCachingNntpClient(
             await CacheDecodedStreamAsync(segmentId, stream, cancellationToken).ConfigureAwait(false);
 
             // Mark as cached with both yenc and article headers
-            _cachedSegments.TryAdd(segmentId, new CacheEntry(
+            AddCacheEntry(segmentId, new CacheEntry(
                 YencHeaders: yencHeaders,
                 HasArticleHeaders: true,
                 ArticleHeaders: response.ArticleHeaders));
@@ -225,6 +241,21 @@ public class ArticleCachingNntpClient(
         return _cachedSegments.TryGetValue(segmentId, out var existingEntry)
             ? Task.FromResult(existingEntry.YencHeaders)
             : base.GetYencHeadersAsync(segmentId, ct);
+    }
+
+    private void AddCacheEntry(string segmentId, CacheEntry cacheEntry)
+    {
+        _cachedSegments.TryAdd(segmentId, cacheEntry);
+        if (!_trackedSegments.TryGetValue(segmentId, out var trackedSegments)) return;
+
+        var byteRange = GetByteRange(cacheEntry.YencHeaders);
+        foreach (var segment in trackedSegments)
+            segment.ByteRange = byteRange;
+    }
+
+    private static LongRange GetByteRange(UsenetYencHeader headers)
+    {
+        return LongRange.FromStartAndSize(headers.PartOffset, headers.PartSize);
     }
 
     private async Task CacheDecodedStreamAsync(string segmentId, YencStream stream, CancellationToken cancellationToken)
@@ -288,6 +319,7 @@ public class ArticleCachingNntpClient(
 
         _pendingRequests.Clear();
         _cachedSegments.Clear();
+        _trackedSegments.Clear();
 
         Task.Run(async () => await DeleteCacheDir(_cacheDir));
         GC.SuppressFinalize(this);

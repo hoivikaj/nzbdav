@@ -14,6 +14,67 @@ public class NzbFile
             .ToArray();
     }
 
+    public LongRange[]? GetSegmentByteRanges()
+    {
+        var ranges = Segments
+            .Select(x => x.ByteRange)
+            .ToArray();
+
+        if (ranges.Length == 0) return null;
+
+        if (ranges.All(x => x is not null))
+            return ValidateSegmentByteRanges(ranges.Select(x => x!).ToArray());
+
+        var firstRange = ranges[0];
+        var lastRange = ranges[^1];
+        if (firstRange is null || lastRange is null ||
+            firstRange.StartInclusive != 0 || firstRange.Count <= 0 || lastRange.Count <= 0)
+            return null;
+
+        try
+        {
+            var inferredRanges = Enumerable.Range(0, ranges.Length)
+                .Select(index =>
+                {
+                    var start = checked(firstRange.Count * index);
+                    var end = index == ranges.Length - 1
+                        ? lastRange.EndExclusive
+                        : checked(start + firstRange.Count);
+                    return new LongRange(start, end);
+                })
+                .ToArray();
+
+            if (inferredRanges[^1].StartInclusive != lastRange.StartInclusive) return null;
+
+            for (var i = 0; i < ranges.Length; i++)
+            {
+                if (ranges[i] is { } knownRange &&
+                    (knownRange.StartInclusive != inferredRanges[i].StartInclusive ||
+                     knownRange.EndExclusive != inferredRanges[i].EndExclusive))
+                    return null;
+            }
+
+            return ValidateSegmentByteRanges(inferredRanges);
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
+    }
+
+    private static LongRange[]? ValidateSegmentByteRanges(LongRange[] ranges)
+    {
+        if (ranges[0].StartInclusive != 0) return null;
+
+        for (var i = 0; i < ranges.Length; i++)
+        {
+            if (ranges[i].Count <= 0) return null;
+            if (i > 0 && ranges[i - 1].EndExclusive != ranges[i].StartInclusive) return null;
+        }
+
+        return ranges;
+    }
+
     public long GetTotalYencodedSize()
     {
         return Segments

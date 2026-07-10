@@ -36,6 +36,11 @@ public class DatabaseStoreNzbFile(
 
     private NzbFileStream GetStream(DavNzbFile nzbFile)
     {
-        return usenetClient.GetFileStream(nzbFile.SegmentIds, FileSize, configManager.GetArticleBufferSize());
+        return usenetClient.GetFileStream(
+            nzbFile.SegmentIds,
+            FileSize,
+            configManager.GetArticleBufferSize(),
+            nzbFile.SegmentByteRanges
+        );
     }
 }

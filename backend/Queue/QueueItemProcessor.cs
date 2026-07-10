@@ -115,6 +115,8 @@ public class QueueItemProcessor(
         // read the nzb document
         var nzb = await NzbDocument.LoadAsync(queueNzbStream).ConfigureAwait(false);
         var nzbFiles = nzb.Files.Where(x => x.Segments.Count > 0).ToList();
+        if (usenetClient is ArticleCachingNntpClient cachingUsenetClient)
+            cachingUsenetClient.TrackNzbFiles(nzbFiles);
 
         // Look for a password in filename and nzb document
         // The file name's password takes priority, as an easy override

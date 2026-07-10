@@ -40,6 +40,7 @@ public class MultipartMkvProcessor : BaseProcessor
                 SegmentIds = fileInfo.NzbFile.GetSegmentIds(),
                 SegmentIdByteRange = LongRange.FromStartAndSize(0, partSize),
                 FilePartByteRange = LongRange.FromStartAndSize(0, partSize),
+                SegmentByteRanges = fileInfo.NzbFile.GetSegmentByteRanges(),
             });
         }
 
