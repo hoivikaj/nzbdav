@@ -1,17 +1,8 @@
 version: 2
 
-registries:
-  github-nzbdav:
-    type: nuget-feed
-    url: https://nuget.pkg.github.com/nzbdav/index.json
-    username: nzbdav
-    password: ${{secrets.GITHUB_TOKEN}}
-
 updates:
   - package-ecosystem: nuget
     directory: /backend
-    registries:
-      - github-nzbdav
     schedule:
       interval: weekly
     cooldown:
