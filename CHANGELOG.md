@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.7](https://github.com/nzbdav/nzbdav/compare/v0.6.6...v0.6.7) (2026-07-10)
+
+
+### Bug Fixes
+
+* **ci:** quote pre-release job if for Dependabot parser ([c0f3f48](https://github.com/nzbdav/nzbdav/commit/c0f3f4800eac8b31868987df84a3ce5374c72673))
+* **deps:** align react-router packages and group Dependabot updates ([71d4490](https://github.com/nzbdav/nzbdav/commit/71d4490286b2c8245bc774cc1024c36a4e083c23))
+* **deps:** bump the github-actions group with 3 updates ([#33](https://github.com/nzbdav/nzbdav/issues/33)) ([f4ce334](https://github.com/nzbdav/nzbdav/commit/f4ce334cb59fd56c9d0f4edb503d48e33215ff2c))
+* **deps:** Bump the nuget-minor-and-patch group with 3 updates ([#34](https://github.com/nzbdav/nzbdav/issues/34)) ([4f3864c](https://github.com/nzbdav/nzbdav/commit/4f3864c416fa9e0992d781c96bad9a1d750b27c3))
+* **deps:** configure Dependabot auth for UsenetSharp NuGet feed ([0b676c2](https://github.com/nzbdav/nzbdav/commit/0b676c22723e2d4aacf6cc03090425c7c85167da))
+* **docker:** publish dev tag from pre-release workflow ([409c6ee](https://github.com/nzbdav/nzbdav/commit/409c6ee12dbbfddd6df80ba4156c6e91c246bbd6))
+* **docker:** use vMAJOR and vMAJOR.MINOR rolling tags ([9fd3fb6](https://github.com/nzbdav/nzbdav/commit/9fd3fb63db3c7160d5889e081d957b102b0aa1c1))
+
 ## [0.6.6](https://github.com/nzbdav/nzbdav/compare/v0.6.5...v0.6.6) (2026-07-10)
 
 
