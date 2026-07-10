@@ -63,6 +63,14 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
                 break;
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _streamTasks.Writer.TryComplete();
+        }
+        catch (Exception exception)
+        {
+            _streamTasks.Writer.TryComplete(exception);
+        }
         finally
         {
             _streamTasks.Writer.TryComplete();
