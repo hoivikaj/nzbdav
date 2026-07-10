@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.11](https://github.com/nzbdav/nzbdav/compare/v0.6.10...v0.6.11) (2026-07-10)
+
+
+### Bug Fixes
+
+* **ui:** build custom server with Vite environments ([39dc559](https://github.com/nzbdav/nzbdav/commit/39dc55912b3f9a056805e967fa4c29f2b2899c56))
+
 ## [0.6.10](https://github.com/nzbdav/nzbdav/compare/v0.6.9...v0.6.10) (2026-07-10)
 
 
