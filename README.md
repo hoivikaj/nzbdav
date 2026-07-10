@@ -31,7 +31,7 @@ The easiest way to get started is by using the official Docker image.
 To try it out, run the following command to pull and run the image with port `3000` exposed:
 
 ```bash
-docker run --rm -it -p 3000:3000 nzbdav/nzbdav:latest
+docker run --rm -it -p 3000:3000 ghcr.io/hoivikaj/nzbdav:latest
 ```
 
 And if you would like to persist saved settings, attach a volume at `/config`
@@ -43,7 +43,7 @@ docker run --rm -it \
   -e PUID=1000 \
   -e PGID=1000 \
   -p 3000:3000 \
-  nzbdav/nzbdav:latest
+  ghcr.io/hoivikaj/nzbdav:latest
 ```
 After starting the container, be sure to navigate to the Settings page on the UI to finish setting up your usenet connection settings.
 
@@ -75,7 +75,7 @@ If you'd like to get the most out of NzbDav, check out the [comprehensive guide]
 
 * Many thanks to [@g0ldyy](https://github.com/g0ldyy), who kindly reported an auth-bypass vulnerability in nzbdav on 2026-03-17.
   * The vulnerability affected versions 0.2.46 through 0.6.1
-  * The dockerhub and ghcr images for these versions have since been patched, rebuilt, and republished as of 2026-03-18.
+  * The ghcr images for these versions have since been patched, rebuilt, and republished as of 2026-03-18.
   * Simply **repull whichever image tag you are using to ensure your instance is patched.**
   * To confirm a patched version is running, look for a `+260317` suffix on the version displayed in nzbdav ui (example image below)
   * This is especially important if your instance is public facing and not behind vpn/sso.

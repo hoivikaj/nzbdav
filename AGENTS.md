@@ -204,7 +204,7 @@ Do not accumulate a large uncommitted diff across unrelated areas.
 - Merging to `main` triggers **release-please** (`.github/workflows/release.yml`) which opens/updates a release PR and maintains `CHANGELOG.md` + `version.txt`.
 - `feat` → minor bump; `fix` → patch bump (pre-1.0 rules in `.release-please-config.json`).
 - Pre-release Docker images (`:pre-release`) build on every `main` push except release commits.
-- Versioned releases publish to `ghcr.io` and `docker.io/nzbdav/nzbdav`.
+- Versioned releases publish to `ghcr.io`.
 
 ## Coding guidelines
 
