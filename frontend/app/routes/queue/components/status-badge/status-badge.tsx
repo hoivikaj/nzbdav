@@ -1,6 +1,5 @@
-import { OverlayTrigger, Tooltip } from "react-bootstrap";
-import styles from "./status-badge.module.css";
-import { classNames } from "~/utils/styling";
+import type { ReactNode } from "react";
+import { Badge, Icon, Tooltip } from "~/components/ui";
 
 export type StatusBadgeProps = {
     className?: string,
@@ -14,31 +13,20 @@ export function StatusBadge({ className, status, percentage, error }: StatusBadg
     const statusLower = status?.toLowerCase();
 
     if (statusLower === "completed") {
-        return (
-            <div className={styles.container}>
-                <div className={styles.badge} style={{ backgroundColor: "rgba(var(--bs-success-rgb)" }}>
-                    <div className={styles.badgeText}>{statusLower}</div>
-                </div>
-            </div>
-        );
+        return <StatusShell className="border-emerald-500/40 bg-emerald-500/20 text-emerald-200">{statusLower}</StatusShell>;
     }
 
     if (statusLower === "failed" || statusLower == "upload failed") {
-        const badgeTextClass = statusLower == "upload failed"
-            ? classNames([styles.badgeText, styles.uploadIcon])
-            : styles.badgeText;
-
         if (error?.startsWith("Article with message-id"))
             error = "Missing articles";
 
         return (
-            <OverlayTrigger placement="top" overlay={<Tooltip>{error}</Tooltip>} trigger="click">
-                <div className={classNames([styles.container, styles.failureBadge])}>
-                    <div className={styles.badge} style={{ backgroundColor: "rgba(var(--bs-danger-rgb)" }}>
-                        <div className={badgeTextClass}>{'failed'}</div>
-                    </div>
-                </div>
-            </OverlayTrigger >
+            <Tooltip content={error || "Upload failed"}>
+                <StatusShell className="cursor-help border-red-500/40 bg-red-500/20 text-red-200">
+                    {statusLower === "upload failed" && <Icon name="upload" className="!text-[12px]" />}
+                    failed
+                </StatusShell>
+            </Tooltip>
         );
     }
 
@@ -47,76 +35,62 @@ export function StatusBadge({ className, status, percentage, error }: StatusBadg
         const badgeText = `${percentNum > 100 ? percentNum - 100 : percentNum}%`;
         const isHealthChecking = percentNum > 100;
 
-        // download progress-bar
-        const downloadProgressClass = isHealthChecking
-            ? `${styles.progress} ${styles.gray}`
-            : styles.progress;
         const downloadProgressStyle = (percentNum >= 0)
             ? { width: `${Math.min(percentNum, 100)}%` }
             : undefined;
 
-        // health-check progress-bar
-        const healthCheckProgressClass = `${styles.progress} ${styles.healthcheckProgress}`;
         const healthCheckProgressStyle = isHealthChecking
             ? { width: `${Math.min(percentNum - 100, 100)}%` }
             : undefined;
 
         return (
-            <div className={styles.container}>
-                <div className={styles.badge} style={{ backgroundColor: "#333" }}>
-                    <div className={downloadProgressClass} style={downloadProgressStyle} />
-                    <div className={healthCheckProgressClass} style={healthCheckProgressStyle} />
-                    <div className={styles.badgeText}>{badgeText}</div>
-                </div>
-            </div>
+            <StatusShell>
+                <span className={`absolute inset-y-0 left-0 transition-all duration-500 ${isHealthChecking ? "bg-slate-700" : "bg-blue-600"}`} style={downloadProgressStyle} />
+                <span className="absolute inset-y-0 left-0 bg-emerald-600 transition-all duration-500" style={healthCheckProgressStyle} />
+                <span className="relative">{badgeText}</span>
+            </StatusShell>
         );
     }
 
     if (statusLower === "uploading") {
         const percentNum = Number(percentage);
         const badgeText = `${percentNum}%`;
-        const uploadProgressClass = `${styles.progress} ${styles.uploadProgress}`;
         const uploadProgressStyle = { width: `${Math.min(percentNum, 100)}%` };
 
         return (
-            <div className={styles.container}>
-                <div className={styles.badge} style={{ backgroundColor: "#333" }}>
-                    <div className={uploadProgressClass} style={uploadProgressStyle} />
-                    <div className={classNames([styles.badgeText, styles.uploadIcon])}>{badgeText}</div>
-                </div>
-            </div>
+            <StatusShell>
+                <span className="absolute inset-y-0 left-0 bg-cyan-600 transition-all duration-500" style={uploadProgressStyle} />
+                <span className="relative flex items-center justify-center gap-0.5"><Icon name="upload" className="!text-[12px]" />{badgeText}</span>
+            </StatusShell>
         );
     }
 
     if (statusLower === "pending") {
         return (
-            <div className={styles.container}>
-                <div className={styles.badge} style={{ backgroundColor: "#333" }}>
-                    <div className={classNames([styles.badgeText, styles.uploadIcon])}>pending</div>
-                </div>
-            </div>
+            <StatusShell><Icon name="upload" className="!text-[12px]" />pending</StatusShell>
         );
     }
 
     if (statusLower === "health-checking") {
         const percentNum = Number(percentage);
         const badgeText = `${percentNum}%`;
-        const healthCheckProgressClass = `${styles.progress} ${styles.healthcheckProgress}`;
         const healthCheckProgressStyle = { width: `${Math.min(percentNum, 100)}%` };
 
         return (
-            <div className={classNames([styles.badge, className])} style={{ backgroundColor: "#333" }}>
-                <div className={healthCheckProgressClass} style={healthCheckProgressStyle} />
-                <div className={styles.badgeText}>{badgeText}</div>
-            </div>
+            <StatusShell className={className}>
+                <span className="absolute inset-y-0 left-0 bg-emerald-600 transition-all duration-500" style={healthCheckProgressStyle} />
+                <span className="relative">{badgeText}</span>
+            </StatusShell>
         );
     }
 
+    return <StatusShell>{statusLower}</StatusShell>;
+}
+
+function StatusShell({ className = "", children }: { className?: string, children: ReactNode }) {
     return (
-        <div className={styles.container}>
-            <div className={styles.badge} style={{ backgroundColor: "grey" }}>
-                <div className={styles.badgeText}>{statusLower}</div>
-            </div>
-        </div>
+        <Badge className={`relative inline-flex w-[85px] items-center justify-center gap-0.5 overflow-hidden border-slate-600 bg-slate-800 px-1.5 py-1 font-semibold text-white ${className}`}>
+            {children}
+        </Badge>
     );
 }

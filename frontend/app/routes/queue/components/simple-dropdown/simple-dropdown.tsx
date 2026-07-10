@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState, type ChangeEvent } from "react"
-import styles from "./simple-dropdown.module.css"
-import { classNames } from "~/utils/styling";
+import { Icon } from "~/components/ui";
 
 export type SimpleDropdownProps = {
     type?: "plain" | "bordered"
@@ -24,10 +23,7 @@ export const SimpleDropdown = memo(({ type, options, value, onChange, valueRef }
 
     // derived variables
     const renderedValue = value || internalValue;
-    const containerClassNames = classNames([
-        styles.container,
-        type === "bordered" && styles.bordered
-    ]);
+    const containerClassNames = `relative inline-block ${type === "bordered" ? "rounded border border-slate-600 px-1" : ""}`;
 
     // events
     const toggleDropdown = useCallback(() => {
@@ -79,25 +75,46 @@ export const SimpleDropdown = memo(({ type, options, value, onChange, valueRef }
     return (
         <div className={containerClassNames} ref={dropdownRef}>
             {/* hidden native select for mobile devices */}
-            <select className={styles.nativeSelect} value={renderedValue} onChange={handleNativeChange}>
+            <select
+                aria-label="Select option"
+                className="absolute inset-0 z-10 block min-w-[70px] cursor-pointer opacity-0 min-[900px]:hidden"
+                value={renderedValue}
+                onChange={handleNativeChange}
+            >
                 {options.map(option => (
                     <option key={option} value={option}>{option}</option>
                 ))}
             </select>
 
             {/* styled visible dropdown box */}
-            <div className={styles.selected} onClick={toggleDropdown}>
+            <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={isOpen}
+                className="flex select-none items-center gap-1 py-0 text-xs font-medium text-slate-400 hover:text-slate-300"
+                onClick={toggleDropdown}
+            >
                 {renderedValue}
-                <span className={styles.arrow}></span>
-            </div>
+                <Icon name="expand_more" className={`!text-[16px] transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
+            </button>
 
             {/* styled dropdown selection options for desktop devices */}
             {isOpen && (
-                <div className={classNames([styles.dropdown, openAbove && styles.openAbove])}>
+                <div
+                    role="listbox"
+                    className={`absolute left-0 z-[900] hidden max-h-[300px] min-w-[75px] overflow-y-auto rounded border border-slate-700 bg-slate-900 shadow-xl min-[900px]:block ${openAbove ? "bottom-full mb-1" : "top-full mt-1"}`}
+                >
                     {options.map(option => (
-                        <div key={option} className={styles.option} onClick={() => handleOptionClick(option)}>
+                        <button
+                            type="button"
+                            role="option"
+                            aria-selected={option === renderedValue}
+                            key={option}
+                            className="block w-full select-none whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-slate-400 hover:bg-slate-700/40 hover:text-slate-200"
+                            onClick={() => handleOptionClick(option)}
+                        >
                             {option}
-                        </div>
+                        </button>
                     ))}
                 </div>
             )}

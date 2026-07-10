@@ -1,6 +1,5 @@
-import { Form } from "react-bootstrap";
 import { useEffect, useRef, type ReactNode } from "react";
-import styles from "./tri-checkbox.module.css";
+import { Checkbox } from "~/components/ui";
 
 export type TriCheckboxState = "all" | "some" | "none" | boolean
 export type TriCheckboxProps = {
@@ -18,15 +17,16 @@ export function TriCheckbox({ state, onChange, children }: TriCheckboxProps) {
     }, [checkboxRef, state])
 
     return (
-        <div className={styles.container}>
-            <div className={styles.checkbox}>
-                <Form.Check
+        <div className="flex flex-row items-center">
+            <div className="w-[45px] min-w-[45px] text-center">
+                <Checkbox
                     ref={checkboxRef}
                     checked={state === "all" || state === true}
                     onChange={(e) => onChange && onChange(e.target.checked)}
+                    aria-label="Select row"
                 />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
                 {children}
             </div>
         </div>

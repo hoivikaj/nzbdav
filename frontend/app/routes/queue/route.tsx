@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/route";
-import styles from "./route.module.css"
-import { Alert } from 'react-bootstrap';
+import { Alert } from "~/components/ui";
 import { backendClient, type HistorySlot, type QueueSlot } from "~/clients/backend-client.server";
 import { HistoryTable } from "./components/history-table/history-table";
 import { QueueTable } from "./components/queue-table/queue-table";
@@ -63,23 +62,23 @@ export default function Queue(props: Route.ComponentProps) {
 
     // view
     return (
-        <div className={styles.container}>
+        <div className="min-h-full min-w-full px-4 py-4 text-sm text-slate-300 md:px-8">
 
             {/* warning */}
             {disableLiveView &&
-                <Alert className={styles.alert} variant="warning">
-                    <b>Attention</b>
-                    <ul className={styles.list}>
-                        <li className={styles.listItem}>
+                <Alert className="mb-8" variant="warning">
+                    <b className="font-semibold">Attention</b>
+                    <ul className="mb-0 list-disc pl-5">
+                        <li className="mt-1">
                             Displaying the first {queueSlots.length} of {props.loaderData.totalQueueCount} queue items
                         </li>
-                        <li className={styles.listItem}>
+                        <li className="mt-1">
                             Displaying the first {historySlots.length} of {props.loaderData.totalHistoryCount} history items
                         </li>
-                        <li className={styles.listItem}>
-                            Live view is disabled. Manually <Link to={'/queue'}>refresh</Link> the page for updates.
+                        <li className="mt-1">
+                            Live view is disabled. Manually <Link className="text-blue-400 hover:text-blue-300 hover:underline" to={'/queue'}>refresh</Link> the page for updates.
                         </li>
-                        <li className={styles.listItem}>
+                        <li className="mt-1">
                             (This is a bandaid — Proper pagination will be added soon)
                         </li>
                     </ul>
@@ -87,9 +86,9 @@ export default function Queue(props: Route.ComponentProps) {
             }
 
             {/* queue */}
-            <div className={styles.queueContainer}>
-                <div className={styles.dropzone} {...dropzone.getRootProps()}>
-                    {dropzone.isDragActive && <div className={styles.activeDropzone} />}
+            <div className="mb-12 min-h-[413.9px] min-[450px]:min-h-[382.9px]">
+                <div className="relative" {...dropzone.getRootProps()}>
+                    {dropzone.isDragActive && <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded border-2 border-dashed border-blue-500 bg-blue-500/10" />}
                     <input {...dropzone.getInputProps()} />
                     <QueueTable
                         queueSlots={combinedQueueSlots}

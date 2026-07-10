@@ -1,6 +1,5 @@
 import type { ReactNode } from "react"
 import { memo, useId } from "react"
-import styles from "./thin-viewport.module.css"
 
 export type ThinViewportProps = {
     width: string,
@@ -22,7 +21,7 @@ export const ThinViewport = memo(({ width, children }: ThinViewportProps) => {
                     }
                 `
             }} />
-            <div className={`${styles.container} ${uniqueId}`}>
+            <div className={`block ${uniqueId}`}>
                 {children}
             </div>
         </>

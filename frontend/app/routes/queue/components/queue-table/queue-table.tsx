@@ -7,9 +7,9 @@ import { PageRow, PageTable } from "../page-table/page-table"
 import { PageSection } from "../page-section/page-section"
 import { EmptyQueue } from "../empty-queue/empty-queue"
 import { SimpleDropdown } from "../simple-dropdown/simple-dropdown"
-import styles from "../../route.module.css"
 import { WideViewport } from "../wide-viewport/wide-viewport"
 import { ThinViewport } from "../thin-viewport/thin-viewport"
+import { Tooltip } from "~/components/ui"
 
 export type QueueTableProps = {
     queueSlots: PresentationQueueSlot[],
@@ -94,21 +94,21 @@ export function QueueTable({
 
     // view
     const categoryDropdown = useMemo(() => (
-        <div title="Choose the category for manual nzb uploads.">
+        <Tooltip content="Choose the category for manual nzb uploads.">
             <SimpleDropdown options={categories} valueRef={manualCategoryRef} />
-        </div>
+        </Tooltip>
     ), [categories]);
 
     const sectionTitle = (
-        <div className={styles.sectionTitle}>
-            <h3 onClick={onUploadClicked} style={{ cursor: 'pointer' }}>
+        <div className="flex items-center gap-2.5">
+            <h2 className="cursor-pointer text-xl font-semibold text-white" onClick={onUploadClicked}>
                 Queue
-            </h3>
+            </h2>
             {headerCheckboxState !== 'none' &&
                 <ActionButton type="delete" onClick={onRemove} />
             }
             <WideViewport width="450px">
-                <div style={{ marginLeft: '10px' }}>
+                <div className="ml-2.5">
                     {categoryDropdown}
                 </div>
             </WideViewport>

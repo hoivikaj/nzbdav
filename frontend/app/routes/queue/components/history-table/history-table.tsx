@@ -6,7 +6,6 @@ import { type TriCheckboxState } from "../tri-checkbox/tri-checkbox"
 import type { PresentationHistorySlot } from "../../route"
 import { getLeafDirectoryName } from "~/utils/path"
 import { PageRow, PageTable } from "../page-table/page-table"
-import styles from "../../route.module.css"
 import { PageSection } from "../page-section/page-section"
 import { DropdownOptions } from "~/routes/explore/dropdown-options/dropdown-options"
 import { ExportNzb, Remove } from "~/routes/explore/item-menu/item-menu"
@@ -61,8 +60,8 @@ export function HistoryTable({ historySlots, totalHistoryCount, onIsSelectedChan
     }, [historySlots, setIsConfirmingRemoval, onIsRemovingChanged, onRemoved]);
 
     var sectionTitle = (
-        <div className={styles.sectionTitle}>
-            <h3>History</h3>
+        <div className="flex items-center gap-2.5">
+            <h2 className="text-xl font-semibold text-white">History</h2>
             {headerCheckboxState !== 'none' &&
                 <ActionButton type="delete" onClick={onRemove} />
             }
@@ -197,7 +196,7 @@ export function Actions({ slot, onRemove }: { slot: PresentationHistorySlot, onR
             {isFolderDisabled &&
                 <ActionButton type="explore" disabled />
             }
-            <div style={{ position: "relative" }}>
+            <div className="relative">
                 <ActionButton
                     type="menu"
                     disabled={!!slot.isRemoving}

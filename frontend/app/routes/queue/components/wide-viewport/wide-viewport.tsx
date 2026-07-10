@@ -1,6 +1,5 @@
 import type { ReactNode } from "react"
 import { useId } from "react"
-import styles from "./wide-viewport.module.css"
 
 export type WideViewportProps = {
     width: string,
@@ -22,7 +21,7 @@ export function WideViewport({ width, children }: WideViewportProps) {
                     }
                 `
             }} />
-            <div className={`${styles.container} ${uniqueId}`}>
+            <div className={`block ${uniqueId}`}>
                 {children}
             </div>
         </>
