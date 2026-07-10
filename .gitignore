@@ -9,6 +9,7 @@ riderModule.iml
 /_ReSharper.Caches/
 *.DotSettings.user
 nuget
+BenchmarkDotNet.Artifacts/
 
 ##############
 # IDE config #
