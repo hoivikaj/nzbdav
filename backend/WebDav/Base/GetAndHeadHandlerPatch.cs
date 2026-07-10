@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using System.Buffers;
+using Microsoft.AspNetCore.Http;
 using NWebDav.Server;
 using NWebDav.Server.Handlers;
 using NWebDav.Server.Helpers;
@@ -189,25 +190,33 @@ public class GetAndHeadHandlerPatch : IRequestHandler
         // Determine the number of bytes to read
         var bytesToRead = end - start + 1 ?? long.MaxValue;
 
-        // Read in 64KB blocks
-        var buffer = new byte[64 * 1024];
-
-        // Copy, until we don't get any data anymore
-        while (bytesToRead > 0)
+        // Read in 64KB blocks without allocating a large array for every request.
+        var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
         {
-            // Read the requested bytes into memory
-            var requestedBytes = (int)Math.Min(bytesToRead, buffer.Length);
-            var bytesRead = await src.ReadAsync(buffer, 0, requestedBytes, cancellationToken).ConfigureAwait(false);
+            // Copy, until we don't get any data anymore
+            while (bytesToRead > 0)
+            {
+                // Read the requested bytes into memory
+                var requestedBytes = (int)Math.Min(bytesToRead, buffer.Length);
+                var bytesRead = await src.ReadAsync(
+                    buffer.AsMemory(0, requestedBytes), cancellationToken).ConfigureAwait(false);
 
-            // We're done, if we cannot read any data anymore
-            if (bytesRead == 0)
-                return;
-            
-            // Write the data to the destination stream
-            await dest.WriteAsync(buffer, 0, bytesRead, cancellationToken).ConfigureAwait(false);
+                // We're done, if we cannot read any data anymore
+                if (bytesRead == 0)
+                    return;
 
-            // Decrement the number of bytes left to read
-            bytesToRead -= bytesRead;
+                // Write the data to the destination stream
+                await dest.WriteAsync(
+                    buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+
+                // Decrement the number of bytes left to read
+                bytesToRead -= bytesRead;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 }
