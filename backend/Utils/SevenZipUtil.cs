@@ -22,7 +22,10 @@ public static class SevenZipUtil
 
     public static List<SevenZipEntry> GetSevenZipEntries(Stream stream, string? password = null)
     {
-        using var archive = SevenZipArchive.Open(stream, new ReaderOptions() { Password = password });
+        using var archive = (SevenZipArchive)SevenZipArchive.OpenArchive(
+            stream,
+            new ReaderOptions { Password = password, LeaveStreamOpen = true }
+        );
         return archive.Entries
             .Where(x => !x.IsDirectory)
             .Select((entry, index) => new SevenZipEntry(entry, archive, index, password))

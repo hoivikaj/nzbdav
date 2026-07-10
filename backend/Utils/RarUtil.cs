@@ -24,7 +24,11 @@ public static class RarUtil
     {
         try
         {
-            var readerOptions = new ReaderOptions() { Password = password };
+            var readerOptions = new ReaderOptions
+            {
+                Password = password,
+                LeaveStreamOpen = true,
+            };
             var headerFactory = new RarHeaderFactory(StreamingMode.Seekable, readerOptions);
             var headers = new List<IRarHeader>();
             foreach (var header in headerFactory.ReadHeaders(stream))

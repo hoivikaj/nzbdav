@@ -12,7 +12,8 @@ public static class SevenZipArchiveEntryExtensions
         {
             return entry.CompressionType;
         }
-        catch (NotImplementedException)
+        catch (Exception exception)
+            when (exception is NotImplementedException or InvalidFormatException)
         {
             var coders = entry?.GetCoders();
             var compressionMethodId = GetCoderMethodId(coders?.FirstOrDefault());
