@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.12](https://github.com/nzbdav/nzbdav/compare/v0.6.11...v0.6.12) (2026-07-10)
+
+
+### Bug Fixes
+
+* **nntp:** treat unexpected responses as retryable connection failures ([68b4a01](https://github.com/nzbdav/nzbdav/commit/68b4a01d135e2209802f6f79a9964e102621317d))
+* **webdav:** log human-readable errors for known download failures ([4e9967f](https://github.com/nzbdav/nzbdav/commit/4e9967f33dcee07d4ea5ce6af19c99dd59569fc9))
+
 ## [0.6.11](https://github.com/nzbdav/nzbdav/compare/v0.6.10...v0.6.11) (2026-07-10)
 
 
