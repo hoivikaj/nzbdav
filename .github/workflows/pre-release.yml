@@ -18,7 +18,7 @@ jobs:
       contents: read
       packages: write
     with:
-      tags: ghcr.io/${{ github.repository }}:pre-release
+      tags: "ghcr.io/${{ github.repository }}:pre-release"
       nzbdav_version: pre-${{ github.run_number }}
     secrets:
       registry_token: ${{ secrets.GITHUB_TOKEN }}
