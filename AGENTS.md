@@ -98,8 +98,7 @@ Open `http://localhost:5173` (dev) or `http://localhost:3000` (production build)
 cd frontend && npm run typecheck && npm test
 
 # Backend (from repository root)
-dotnet test tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release \
-  --configfile backend/nuget.config
+dotnet test tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release
 ```
 
 Backend tests use xUnit and live in `tests/NzbWebDAV.Tests/`. They cover streams,
@@ -112,9 +111,10 @@ Performance benchmarks live in `backend.Benchmarks/` and are run manually with
 
 NzbDav consumes `UsenetSharp` from the private GitHub Packages feed. The library is commonly checked out as a sibling repository at `../UsenetSharp`.
 
-- Keep the committed `PackageReference`; use a temporary `ProjectReference` only to validate coordinated local changes, then restore the package reference before committing.
+- During local development, the UsenetSharp package is unavailable from GitHub Packages. Clone the repository at `../UsenetSharp` and temporarily replace the committed `PackageReference` in `backend/NzbWebDAV.csproj` with `<ProjectReference Include="../../UsenetSharp/UsenetSharp/UsenetSharp.csproj" />`.
+- Keep the `PackageReference` in committed code; restore it before committing after using the local `ProjectReference`.
 - Publish and verify the UsenetSharp package before bumping `backend/NzbWebDAV.csproj`. A release tag can exist without a package if the publish workflow fails before its pack/push steps.
-- Local restores need GitHub Packages credentials with `read:packages`. Repository CI authenticates separately and is the authoritative package-consumption check.
+- Repository CI authenticates to GitHub Packages with `read:packages` and is the authoritative package-consumption check.
 - For cross-repository changes, build both projects and run UsenetSharp's deterministic tests:
 
 ```bash
