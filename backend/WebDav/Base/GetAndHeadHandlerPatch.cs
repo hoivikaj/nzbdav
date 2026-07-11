@@ -5,6 +5,8 @@ using NWebDav.Server.Handlers;
 using NWebDav.Server.Helpers;
 using NWebDav.Server.Props;
 using NWebDav.Server.Stores;
+using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Services;
 
 namespace NzbWebDAV.WebDav.Base;
 
@@ -21,10 +23,17 @@ namespace NzbWebDAV.WebDav.Base;
 public class GetAndHeadHandlerPatch : IRequestHandler
 {
     private readonly IStore _store;
+    private readonly ProviderUsageTracker _providerUsageTracker;
+    private readonly ActiveReadRegistry _activeReadRegistry;
 
-    public GetAndHeadHandlerPatch(IStore store)
+    public GetAndHeadHandlerPatch(
+        IStore store,
+        ProviderUsageTracker providerUsageTracker,
+        ActiveReadRegistry activeReadRegistry)
     {
         _store = store;
+        _providerUsageTracker = providerUsageTracker;
+        _activeReadRegistry = activeReadRegistry;
     }
     
     /// <summary>
@@ -163,8 +172,24 @@ public class GetAndHeadHandlerPatch : IRequestHandler
 
                 // HEAD method doesn't require the actual item data
                 if (!isHeadRequest)
-                    await CopyToAsync(
-                        stream, response.Body, copyStart, copyEnd, httpContext.RequestAborted).ConfigureAwait(false);
+                {
+                    var path = request.GetUri().AbsolutePath;
+                    var clientKey = $"{httpContext.Connection.RemoteIpAddress}|{request.Headers.UserAgent}";
+                    // DatabaseStoreIdFile.Name returns the GUID (it backs rclone symlink
+                    // targets), so prefer FriendlyName when that's what we got.
+                    var fileName = entry switch
+                    {
+                        NzbWebDAV.WebDav.DatabaseStoreIdFile idFile => idFile.FriendlyName,
+                        _ => !string.IsNullOrEmpty(entry.Name) ? entry.Name : System.IO.Path.GetFileName(path)
+                    };
+                    var sessionId = _activeReadRegistry.GetOrCreate(
+                        path, clientKey, fileName, stream.CanSeek ? stream.Length : null);
+                    using var scope = _providerUsageTracker.BeginScope(sessionId);
+                    using var metricsScope = MultiProviderNntpClient.BeginReadSessionScope(sessionId);
+                    await CopyToAsync(stream, response.Body, copyStart, copyEnd,
+                        (n, pos) => _activeReadRegistry.Touch(sessionId, n, pos),
+                        httpContext.RequestAborted).ConfigureAwait(false);
+                }
             }
             else
             {
@@ -175,7 +200,13 @@ public class GetAndHeadHandlerPatch : IRequestHandler
         return true;
     }
 
-    private async Task CopyToAsync(Stream src, Stream dest, long start, long? end, CancellationToken cancellationToken)
+    private async Task CopyToAsync(
+        Stream src,
+        Stream dest,
+        long start,
+        long? end,
+        Action<long, long>? onBytesServed,
+        CancellationToken cancellationToken)
     {
         // Skip to the first offset
         if (start > 0)
@@ -183,7 +214,7 @@ public class GetAndHeadHandlerPatch : IRequestHandler
             // We prefer seeking instead of draining data
             if (!src.CanSeek)
                 throw new IOException("Cannot use range, because the source stream isn't seekable");
-            
+
             src.Seek(start, SeekOrigin.Begin);
         }
 
@@ -192,6 +223,7 @@ public class GetAndHeadHandlerPatch : IRequestHandler
 
         // Read in 64KB blocks without allocating a large array for every request.
         var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        var position = start;
         try
         {
             // Copy, until we don't get any data anymore
@@ -209,6 +241,11 @@ public class GetAndHeadHandlerPatch : IRequestHandler
                 // Write the data to the destination stream
                 await dest.WriteAsync(
                     buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+
+                // Report chunk size + new absolute file position so dashboards can
+                // surface real playback location (not cumulative transferred bytes).
+                position += bytesRead;
+                onBytesServed?.Invoke(bytesRead, position);
 
                 // Decrement the number of bytes left to read
                 bytesToRead -= bytesRead;

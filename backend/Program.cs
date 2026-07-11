@@ -11,9 +11,11 @@ using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Extensions;
+using NzbWebDAV.Logging;
 using NzbWebDAV.Middlewares;
 using NzbWebDAV.Queue;
 using NzbWebDAV.Services;
+using NzbWebDAV.Services.Metrics;
 using NzbWebDAV.Utils;
 using NzbWebDAV.WebDav;
 using NzbWebDAV.WebDav.Base;
@@ -40,6 +42,8 @@ class Program
         var defaultLevel = LogEventLevel.Information;
         var envLevel = EnvironmentUtil.GetEnvironmentVariable("LOG_LEVEL");
         var level = Enum.TryParse<LogEventLevel>(envLevel, true, out var parsed) ? parsed : defaultLevel;
+        var bufferSize = (int)Math.Clamp(EnvironmentUtil.GetLongVariable("LOG_BUFFER_SIZE") ?? 2000, 100, 50000);
+        var logBufferSink = new LogBufferSink(bufferSize);
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Is(level)
             .MinimumLevel.Override("NWebDAV", AtLeast(level, LogEventLevel.Warning))
@@ -54,6 +58,7 @@ class Program
                 "{Substring(SourceContext, LastIndexOf(SourceContext, '.') + 1)}: " +
                 "{#end}{@m}\n{@x}",
                 theme: TemplateTheme.Code))
+            .WriteTo.Sink(logBufferSink)
             .CreateLogger();
 
         try
@@ -74,7 +79,6 @@ class Program
                     "PRAGMA journal_mode = WAL;",
                     SigtermUtil.GetCancellationToken())
                 .ConfigureAwait(false);
-
             // run database migration, if necessary.
             if (args.Contains("--db-migration"))
             {
@@ -87,8 +91,22 @@ class Program
                     .MigrateAsync(targetMigration, SigtermUtil.GetCancellationToken())
                     .ConfigureAwait(false);
                 Log.Information("Database migrations completed");
+
+                await using var metricsContext = new MetricsDbContext();
+                await metricsContext.Database
+                    .MigrateAsync(SigtermUtil.GetCancellationToken())
+                    .ConfigureAwait(false);
                 await PerformDatabaseVacuumIfEnabled();
                 return;
+            }
+
+            // The metrics database has its own schema and must also be current on
+            // normal startup, where the operational migration runner is skipped.
+            await using (var metricsBootstrap = new MetricsDbContext())
+            {
+                await metricsBootstrap.Database
+                    .MigrateAsync(SigtermUtil.GetCancellationToken())
+                    .ConfigureAwait(false);
             }
 
             // initialize the config-manager
@@ -112,18 +130,64 @@ class Program
                 .AddWebdavBasicAuthentication(configManager)
                 .AddSingleton(configManager)
                 .AddSingleton(websocketManager)
+                .AddSingleton(logBufferSink)
+                .AddSingleton<BenchmarkGate>()
+                .AddHostedService<LogBroadcaster>()
+                .AddSingleton<ProviderUsageTracker>()
+                .AddSingleton<ActiveReadRegistry>()
+                .AddSingleton<QueueItemSourceTracker>()
                 .AddSingleton<UsenetStreamingClient>()
+                .AddSingleton<LazyRarResolver>()
                 .AddSingleton<QueueManager>()
+                .AddSingleton<NzbResolutionCache>()
+                .AddSingleton<PreferredOrderStore>()
+                .AddSingleton<NzbFetchCoalescer>()
+                .AddSingleton<PlayResolutionCoalescer>()
+                .AddSingleton<CandidateNegativeCache>()
+                .AddSingleton<WardenStore>()
+                .AddSingleton<WardenRemoteSourceService>()
+                .AddHostedService(sp => sp.GetRequiredService<WardenRemoteSourceService>())
+                .AddSingleton<WardenBackupService>()
+                .AddHostedService(sp => sp.GetRequiredService<WardenBackupService>())
+                .AddSingleton<PlaybackFastVerifier>()
+                .AddSingleton<WatchdogLog>()
+                .AddSingleton<PreflightCache>()
+                .AddSingleton<PreflightSessionRegistry>()
+                .AddSingleton<PreflightOrchestrator>()
+                .AddSingleton<NewznabRateLimiter>()
+                .AddSingleton<IndexerHitTracker>()
+                .AddSingleton<TvdbIdResolver>()
+                .AddSingleton<TmdbIdResolver>()
+                .AddSingleton<AnimeListMappingResolver>()
+                .AddSingleton<ExternalIdResolver>()
+                .AddSingleton<ImdbTitleResolver>()
+                .AddSingleton<SearchProfileService>()
+                .AddSingleton<VariantResolver>()
+                .AddSingleton<MetricsWriter>()
+                .AddHostedService(sp => sp.GetRequiredService<MetricsWriter>())
+                .AddSingleton<ProviderBytesTracker>()
+                .AddHostedService<MetricsRollupService>()
+                .AddHostedService<MetricsRetentionService>()
+                .AddSingleton<LiveStatsBroadcaster>()
+                .AddHostedService(sp => sp.GetRequiredService<LiveStatsBroadcaster>())
                 .AddHostedService<HealthCheckService>()
                 .AddHostedService<ArrMonitoringService>()
                 .AddHostedService<BlobCleanupService>()
                 .AddHostedService<NzbBlobCleanupService>()
                 .AddHostedService<HistoryCleanupService>()
+                .AddHostedService<WatchdogPurgeService>()
                 .AddHostedService<DavCleanupService>()
                 .AddHostedService<UsenetFileToBlobstoreMigrationService>()
                 .AddHostedService<RemoveOrphanedFilesSchedulerService>()
+                .AddHostedService<ActiveReadsBroadcaster>()
+                .AddSingleton<WatchtowerStore>()
+                .AddSingleton<ListSourceEnumerator>()
+                .AddSingleton<EpisodeEnumerator>()
+                .AddHostedService<WatchtowerService>()
                 .AddScoped<DavDatabaseContext>()
                 .AddScoped<DavDatabaseClient>()
+                .AddScoped<NzbWebDAV.Services.Benchmark.BenchmarkCorpusProvider>()
+                .AddScoped<NzbWebDAV.Services.Benchmark.UsenetBenchmarkService>()
                 .AddScoped<DatabaseStore>()
                 .AddScoped<IStore, DatabaseStore>()
                 .AddScoped<GetAndHeadHandlerPatch>()

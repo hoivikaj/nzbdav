@@ -4,13 +4,15 @@ using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Services;
 
 namespace NzbWebDAV.Api.SabControllers.GetHistory;
 
 public class GetHistoryController(
     HttpContext httpContext,
     DavDatabaseClient dbClient,
-    ConfigManager configManager
+    ConfigManager configManager,
+    ProviderUsageTracker providerUsageTracker
 ) : SabApiController.BaseController(httpContext, configManager)
 {
     private async Task<GetHistoryResponse> GetHistoryAsync(GetHistoryRequest request)
@@ -45,13 +47,20 @@ public class GetHistoryController(
         var davItemsDict = davItems
             .ToDictionary(x => x.Id, x => x);
 
-        // get slots
+        // get slots (in-memory provider counts only survive until app restart)
+        var providerUsages = providerUsageTracker.SnapshotMany(historyItems.Select(x => x.Id));
+        var nicknamesByHost = configManager.GetUsenetProviderConfig().Providers
+            .Where(p => !string.IsNullOrWhiteSpace(p.Nickname))
+            .GroupBy(p => p.Host, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Nickname, StringComparer.OrdinalIgnoreCase);
         var slots = historyItems
             .Select(x =>
                 GetHistoryResponse.HistorySlot.FromHistoryItem(
                     x,
                     x.DownloadDirId != null ? davItemsDict.GetValueOrDefault(x.DownloadDirId.Value) : null,
-                    configManager
+                    configManager,
+                    providerUsages.GetValueOrDefault(x.Id),
+                    nicknamesByHost
                 )
             )
             .ToList();

@@ -13,6 +13,9 @@ public class HistoryItem
     public string? FailMessage { get; set; }
     public Guid? DownloadDirId { get; set; }
     public Guid? NzbBlobId { get; set; }
+    public string? IndexerName { get; set; }
+    public string? ContentGroupKey { get; set; }
+    public DateTimeOffset? LastPlayedAt { get; set; }
 
     public enum DownloadStatusOption
     {

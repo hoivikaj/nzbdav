@@ -1,0 +1,92 @@
+using System.Collections.Concurrent;
+
+namespace NzbWebDAV.Services.Metrics;
+
+/// <summary>
+/// Tracks bytes pulled from each provider in near-real time. The byte count is
+/// unknown when a SegmentFetch row is queued because bytes flow lazily through
+/// the YencStream after the fetch returns; this service captures them as the
+/// stream is read and folds them into ProviderMinute on the next rollup tick.
+///
+/// Two pieces of state:
+///   - _buckets keyed by (minute, host) -> bytes, drained by the rollup service
+///   - _lifetime keyed by host -> total bytes, exposed for "all-time" tiles
+/// </summary>
+public sealed class ProviderBytesTracker
+{
+    private const long OneMinute = 60_000;
+
+    private readonly ConcurrentDictionary<(long Minute, string Host), long> _buckets = new();
+    private readonly ConcurrentDictionary<string, long> _lifetime = new();
+    private long _lifetimeAll;
+
+    private readonly ConcurrentDictionary<string, double> _bytesPerMs = new();
+    private const double SpeedEwmaAlpha = 0.3;
+
+    public void Add(string host, long bytes)
+    {
+        if (bytes <= 0 || string.IsNullOrEmpty(host)) return;
+        var minute = NowMinute();
+        _buckets.AddOrUpdate((minute, host), bytes, (_, prev) => prev + bytes);
+        _lifetime.AddOrUpdate(host, bytes, (_, prev) => prev + bytes);
+        Interlocked.Add(ref _lifetimeAll, bytes);
+    }
+
+    public long LifetimeAll => Interlocked.Read(ref _lifetimeAll);
+
+    public IReadOnlyDictionary<string, long> LifetimeByHost => _lifetime;
+
+    /// <summary>
+    /// Overwrites the in-memory lifetime counter for a host. Used at startup to
+    /// hydrate from ProviderHourly and after a counter reset to drop back to
+    /// zero. Does not touch <see cref="LifetimeAll"/> since that reflects the
+    /// total bytes observed by this process; rewriting it on every config
+    /// change would make the overview tile jump around for unrelated reasons.
+    /// </summary>
+    public void SetLifetime(string host, long bytes)
+    {
+        if (string.IsNullOrEmpty(host)) return;
+        _lifetime[host] = Math.Max(0, bytes);
+    }
+
+    public long GetLifetime(string host)
+    {
+        if (string.IsNullOrEmpty(host)) return 0;
+        return _lifetime.TryGetValue(host, out var v) ? v : 0;
+    }
+
+    public void RecordSegmentThroughput(string host, long bytes, double activeMs)
+    {
+        if (string.IsNullOrEmpty(host) || bytes <= 0 || activeMs <= 0) return;
+        var sample = bytes / activeMs;
+        _bytesPerMs.AddOrUpdate(host, sample, (_, prev) => prev + SpeedEwmaAlpha * (sample - prev));
+    }
+
+    public double GetBytesPerMs(string host)
+    {
+        if (string.IsNullOrEmpty(host)) return 0;
+        return _bytesPerMs.TryGetValue(host, out var v) ? v : 0;
+    }
+
+    /// <summary>
+    /// Pop all buckets whose minute is strictly older than <paramref name="cutoffMinute"/>.
+    /// Returned in stable order so callers can apply them transactionally.
+    /// </summary>
+    public List<(long Minute, string Host, long Bytes)> DrainClosed(long cutoffMinute)
+    {
+        var drained = new List<(long, string, long)>();
+        foreach (var key in _buckets.Keys)
+        {
+            if (key.Minute >= cutoffMinute) continue;
+            if (_buckets.TryRemove(key, out var bytes))
+                drained.Add((key.Minute, key.Host, bytes));
+        }
+        return drained;
+    }
+
+    private static long NowMinute()
+    {
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return nowMs - (nowMs % OneMinute);
+    }
+}

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
@@ -13,6 +14,8 @@ namespace NzbWebDAV.Clients.Usenet;
 /// </summary>
 public abstract class NntpClient : INntpClient
 {
+    public virtual int PipeliningDepth => 0;
+
     public abstract Task ConnectAsync(
         string host, int port, bool useSsl, CancellationToken cancellationToken);
 
@@ -200,5 +203,101 @@ public abstract class NntpClient : INntpClient
                 throw new UsenetArticleNotFoundException(task.SegmentId, task.Result.ResponseMessage);
             throw new UsenetUnexpectedResponseException(task.SegmentId, task.Result.ResponseMessage);
         }
+    }
+
+    public virtual async IAsyncEnumerable<PipelinedStatResult> StatsPipelinedAsync
+    (
+        IReadOnlyList<string> segmentIds,
+        int depth,
+        [EnumeratorCancellation] CancellationToken cancellationToken
+    )
+    {
+        foreach (var segmentId in segmentIds)
+        {
+            var response = await StatAsync(segmentId, cancellationToken).ConfigureAwait(false);
+            yield return new PipelinedStatResult
+            {
+                SegmentId = segmentId,
+                Exists = response.ResponseType == UsenetResponseType.ArticleExists,
+            };
+        }
+    }
+
+    public virtual async IAsyncEnumerable<PipelinedBodyResult> DecodedBodiesPipelinedAsync
+    (
+        IReadOnlyList<string> segmentIds,
+        int depth,
+        [EnumeratorCancellation] CancellationToken cancellationToken
+    )
+    {
+        foreach (var segmentId in segmentIds)
+        {
+            PipelinedBodyResult result;
+            try
+            {
+                var response = await DecodedBodyAsync(segmentId, cancellationToken).ConfigureAwait(false);
+                result = new PipelinedBodyResult { SegmentId = segmentId, Found = true, Stream = response.Stream };
+            }
+            catch (UsenetArticleNotFoundException)
+            {
+                result = new PipelinedBodyResult { SegmentId = segmentId, Found = false, Stream = null };
+            }
+
+            yield return result;
+        }
+    }
+
+    public virtual async IAsyncEnumerable<PipelinedArticleResult> DecodedArticlesPipelinedAsync
+    (
+        IReadOnlyList<string> segmentIds,
+        int depth,
+        [EnumeratorCancellation] CancellationToken cancellationToken
+    )
+    {
+        foreach (var segmentId in segmentIds)
+        {
+            PipelinedArticleResult result;
+            try
+            {
+                var response = await DecodedArticleAsync(segmentId, cancellationToken).ConfigureAwait(false);
+                result = new PipelinedArticleResult
+                {
+                    SegmentId = segmentId,
+                    Found = true,
+                    Stream = response.Stream,
+                    ArticleHeaders = response.ArticleHeaders,
+                };
+            }
+            catch (UsenetArticleNotFoundException)
+            {
+                result = new PipelinedArticleResult { SegmentId = segmentId, Found = false };
+            }
+
+            yield return result;
+        }
+    }
+
+    public virtual async Task CheckAllSegmentsPipelinedAsync
+    (
+        IReadOnlyList<string> segmentIds,
+        int depth,
+        int fallbackConcurrency,
+        IProgress<int>? progress,
+        CancellationToken cancellationToken
+    )
+    {
+        var processed = 0;
+        var anyMissing = false;
+        await foreach (var result in StatsPipelinedAsync(segmentIds, depth, cancellationToken)
+                           .WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            progress?.Report(++processed);
+            if (result.Exists) continue;
+            anyMissing = true;
+            break;
+        }
+
+        if (anyMissing)
+            await CheckAllSegmentsAsync(segmentIds, fallbackConcurrency, progress, cancellationToken).ConfigureAwait(false);
     }
 }

@@ -15,30 +15,35 @@ namespace NzbWebDAV.Clients.Usenet;
 public class DownloadingNntpClient : WrappingNntpClient
 {
     private readonly ConfigManager _configManager;
-    private readonly PrioritizedSemaphore _semaphore;
+    private readonly PrioritizedSemaphore _streamingSemaphore;
+    private readonly PrioritizedSemaphore _queueSemaphore;
 
     public DownloadingNntpClient(INntpClient usenetClient, ConfigManager configManager) : base(usenetClient)
     {
         var maxDownloadConnections = configManager.GetMaxDownloadConnections();
+        var maxQueueConnections = configManager.GetMaxQueueConnections();
         var streamingPriority = configManager.GetStreamingPriority();
         _configManager = configManager;
-        _semaphore = new PrioritizedSemaphore(maxDownloadConnections, maxDownloadConnections, streamingPriority);
+        _streamingSemaphore = new PrioritizedSemaphore(maxDownloadConnections, maxDownloadConnections, streamingPriority);
+        _queueSemaphore = new PrioritizedSemaphore(maxQueueConnections, maxQueueConnections);
         configManager.OnConfigChanged += OnConfigChanged;
     }
+
+    public override int PipeliningDepth =>
+        _configManager.IsPipeliningEnabled() ? _configManager.GetPipeliningDepth() : 0;
 
     private void OnConfigChanged(object? sender, ConfigManager.ConfigEventArgs e)
     {
         if (e.ChangedConfig.ContainsKey("usenet.max-download-connections"))
-        {
-            var maxDownloadConnections = _configManager.GetMaxDownloadConnections();
-            _semaphore.UpdateMaxAllowed(maxDownloadConnections);
-        }
+            _streamingSemaphore.UpdateMaxAllowed(_configManager.GetMaxDownloadConnections());
+
+        if (e.ChangedConfig.ContainsKey("usenet.max-queue-connections")
+            || e.ChangedConfig.ContainsKey("usenet.max-download-connections")
+            || e.ChangedConfig.ContainsKey("usenet.providers"))
+            _queueSemaphore.UpdateMaxAllowed(_configManager.GetMaxQueueConnections());
 
         if (e.ChangedConfig.ContainsKey("usenet.streaming-priority"))
-        {
-            var streamingPriority = _configManager.GetStreamingPriority();
-            _semaphore.UpdatePriorityOdds(streamingPriority);
-        }
+            _streamingSemaphore.UpdatePriorityOdds(_configManager.GetStreamingPriority());
     }
 
     public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(SegmentId segmentId,
@@ -56,12 +61,12 @@ public class DownloadingNntpClient : WrappingNntpClient
     public override async Task<UsenetDecodedBodyResponse> DecodedBodyAsync(SegmentId segmentId,
         Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken)
     {
-        await AcquireExclusiveConnectionAsync(onConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
+        var semaphore = await AcquireExclusiveConnectionAsync(onConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
         return await base.DecodedBodyAsync(segmentId, OnConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
 
         void OnConnectionReadyAgain(ArticleBodyResult articleBodyResult)
         {
-            _semaphore.Release();
+            semaphore.Release();
             onConnectionReadyAgain?.Invoke(articleBodyResult);
         }
     }
@@ -71,13 +76,13 @@ public class DownloadingNntpClient : WrappingNntpClient
         Action<ArticleBodyResult>? onConnectionReadyAgain,
         CancellationToken cancellationToken)
     {
-        await AcquireExclusiveConnectionAsync(onConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
+        var semaphore = await AcquireExclusiveConnectionAsync(onConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
         return await base.DecodedBodiesAsync(
             segmentIds, OnConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
 
         void OnConnectionReadyAgain(ArticleBodyResult articleBodyResult)
         {
-            _semaphore.Release();
+            semaphore.Release();
             onConnectionReadyAgain?.Invoke(articleBodyResult);
         }
     }
@@ -85,23 +90,23 @@ public class DownloadingNntpClient : WrappingNntpClient
     public override async Task<UsenetDecodedArticleResponse> DecodedArticleAsync(SegmentId segmentId,
         Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken)
     {
-        await AcquireExclusiveConnectionAsync(onConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
+        var semaphore = await AcquireExclusiveConnectionAsync(onConnectionReadyAgain, cancellationToken).ConfigureAwait(false);
         return await base.DecodedArticleAsync(segmentId, OnConnectionReadyAgain, cancellationToken)
             .ConfigureAwait(false);
 
         void OnConnectionReadyAgain(ArticleBodyResult articleBodyResult)
         {
-            _semaphore.Release();
+            semaphore.Release();
             onConnectionReadyAgain?.Invoke(articleBodyResult);
         }
     }
 
-    private async Task AcquireExclusiveConnectionAsync(Action<ArticleBodyResult>? onConnectionReadyAgain,
+    private async Task<PrioritizedSemaphore> AcquireExclusiveConnectionAsync(Action<ArticleBodyResult>? onConnectionReadyAgain,
         CancellationToken cancellationToken)
     {
         try
         {
-            await AcquireExclusiveConnectionAsync(cancellationToken);
+            return await AcquireExclusiveConnectionAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -110,11 +115,13 @@ public class DownloadingNntpClient : WrappingNntpClient
         }
     }
 
-    private Task AcquireExclusiveConnectionAsync(CancellationToken cancellationToken)
+    private async Task<PrioritizedSemaphore> AcquireExclusiveConnectionAsync(CancellationToken cancellationToken)
     {
         var downloadPriorityContext = cancellationToken.GetContext<DownloadPriorityContext>();
         var semaphorePriority = downloadPriorityContext?.Priority ?? SemaphorePriority.Low;
-        return _semaphore.WaitAsync(semaphorePriority, cancellationToken);
+        var semaphore = semaphorePriority == SemaphorePriority.High ? _streamingSemaphore : _queueSemaphore;
+        await semaphore.WaitAsync(semaphorePriority, cancellationToken).ConfigureAwait(false);
+        return semaphore;
     }
 
     public override async Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync
@@ -123,8 +130,8 @@ public class DownloadingNntpClient : WrappingNntpClient
         CancellationToken cancellationToken
     )
     {
-        await AcquireExclusiveConnectionAsync(cancellationToken).ConfigureAwait(false);
-        return new UsenetExclusiveConnection(_ => _semaphore.Release());
+        var semaphore = await AcquireExclusiveConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return new UsenetExclusiveConnection(_ => semaphore.Release());
     }
 
     public override async Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync
@@ -139,8 +146,8 @@ public class DownloadingNntpClient : WrappingNntpClient
             throw new ArgumentException("At least one segment ID is required.", nameof(segmentIds));
         }
 
-        await AcquireExclusiveConnectionAsync(cancellationToken).ConfigureAwait(false);
-        return new UsenetExclusiveConnection(_ => _semaphore.Release());
+        var semaphore = await AcquireExclusiveConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return new UsenetExclusiveConnection(_ => semaphore.Release());
     }
 
     public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(SegmentId segmentId,
@@ -164,6 +171,63 @@ public class DownloadingNntpClient : WrappingNntpClient
     {
         var onConnectionReadyAgain = exclusiveConnection.OnConnectionReadyAgain;
         return base.DecodedArticleAsync(segmentId, onConnectionReadyAgain, cancellationToken);
+    }
+
+    public override async IAsyncEnumerable<PipelinedStatResult> StatsPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var priority = cancellationToken.GetContext<DownloadPriorityContext>()?.Priority ?? SemaphorePriority.Low;
+        var semaphore = priority == SemaphorePriority.High ? _streamingSemaphore : _queueSemaphore;
+        await semaphore.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var result in base.StatsPipelinedAsync(segmentIds, depth, cancellationToken)
+                               .WithCancellation(cancellationToken).ConfigureAwait(false))
+                yield return result;
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
+
+    public override async IAsyncEnumerable<PipelinedBodyResult> DecodedBodiesPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var priority = cancellationToken.GetContext<DownloadPriorityContext>()?.Priority ?? SemaphorePriority.Low;
+        var semaphore = priority == SemaphorePriority.High ? _streamingSemaphore : _queueSemaphore;
+        await semaphore.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var result in base.DecodedBodiesPipelinedAsync(segmentIds, depth, cancellationToken)
+                               .WithCancellation(cancellationToken).ConfigureAwait(false))
+                yield return result;
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
+
+    public override async IAsyncEnumerable<PipelinedArticleResult> DecodedArticlesPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var priority = cancellationToken.GetContext<DownloadPriorityContext>()?.Priority ?? SemaphorePriority.Low;
+        var semaphore = priority == SemaphorePriority.High ? _streamingSemaphore : _queueSemaphore;
+        await semaphore.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var result in base.DecodedArticlesPipelinedAsync(segmentIds, depth, cancellationToken)
+                               .WithCancellation(cancellationToken).ConfigureAwait(false))
+                yield return result;
+        }
+        finally
+        {
+            semaphore.Release();
+        }
     }
 
     public override void Dispose()

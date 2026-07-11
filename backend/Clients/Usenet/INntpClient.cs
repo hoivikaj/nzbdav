@@ -57,6 +57,16 @@ public interface INntpClient : IDisposable
     Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
         SegmentId segmentId, UsenetExclusiveConnection connection, CancellationToken cancellationToken);
 
+    // pipelined batch fetch
+    IAsyncEnumerable<PipelinedStatResult> StatsPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken);
+
+    IAsyncEnumerable<PipelinedBodyResult> DecodedBodiesPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken);
+
+    IAsyncEnumerable<PipelinedArticleResult> DecodedArticlesPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken);
+
     // helpers
     Task<UsenetYencHeader> GetYencHeadersAsync(
         string segmentId, CancellationToken ct);
@@ -85,4 +95,11 @@ public interface INntpClient : IDisposable
 
     Task CheckAllSegmentsAsync(
         IEnumerable<string> segmentIds, int concurrency, IProgress<int>? progress, CancellationToken cancellationToken);
+
+    Task CheckAllSegmentsPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth, int fallbackConcurrency, IProgress<int>? progress,
+        CancellationToken cancellationToken);
+
+    // pipelining config (0 = disabled). Resolved from ConfigManager at the downloading layer.
+    int PipeliningDepth { get; }
 }

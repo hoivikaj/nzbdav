@@ -10,6 +10,8 @@ public static class NWebDavOptionsExtensions
         return context => !context.Request.Path.StartsWithSegments("/api") &&
                           !context.Request.Path.StartsWithSegments("/view") &&
                           !context.Request.Path.StartsWithSegments("/health") &&
-                          !context.Request.Path.StartsWithSegments("/ws");
+                          !context.Request.Path.StartsWithSegments("/ws") &&
+                          !context.Request.Path.StartsWithSegments("/p") &&
+                          !context.Request.Path.StartsWithSegments("/adapters");
     }
 }

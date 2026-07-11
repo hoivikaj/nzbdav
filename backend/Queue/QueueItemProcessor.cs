@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Api.SabControllers.GetHistory;
@@ -28,10 +30,47 @@ public class QueueItemProcessor(
     INntpClient usenetClient,
     ConfigManager configManager,
     WebsocketManager websocketManager,
+    ProviderUsageTracker providerUsageTracker,
+    WatchdogLog watchdogLog,
+    QueueItemSourceTracker sourceTracker,
     IProgress<int> progress,
+    ConcurrentDictionary<Guid, int> retryAttempts,
     CancellationToken ct
 )
 {
+    public QueueItemProcessor(
+        QueueItem queueItem,
+        Stream? queueNzbStream,
+        DavDatabaseClient dbClient,
+        INntpClient usenetClient,
+        ConfigManager configManager,
+        WebsocketManager websocketManager,
+        IProgress<int> progress,
+        CancellationToken ct)
+        : this(
+            queueItem,
+            queueNzbStream,
+            dbClient,
+            usenetClient,
+            configManager,
+            websocketManager,
+            new ProviderUsageTracker(),
+            new WatchdogLog(),
+            new QueueItemSourceTracker(),
+            progress,
+            new ConcurrentDictionary<Guid, int>(),
+            ct)
+    {
+    }
+
+    private const int MaxProviderRetryAttempts = 20;
+
+    private static TimeSpan GetProviderRetryBackoff(int attempt)
+    {
+        var seconds = Math.Min(60d, 10d * Math.Pow(2, attempt - 1));
+        return TimeSpan.FromSeconds(seconds);
+    }
+
     public async Task ProcessAsync()
     {
         // initialize
@@ -42,6 +81,8 @@ public class QueueItemProcessor(
             queueItem.Id,
             queueItem.Category);
         _ = websocketManager.SendMessage(WebsocketTopic.QueueItemStatus, $"{queueItem.Id}|Downloading");
+
+        using var providerScope = providerUsageTracker.BeginScope(queueItem.Id);
 
         // process the job
         try
@@ -57,20 +98,33 @@ public class QueueItemProcessor(
             dbClient.Ctx.ClearChangeTracker();
         }
 
-        // when a retryable error is encountered
-        // let's not remove the item from the queue
-        // to give it a chance to retry. Simply
-        // log the error and retry in a minute.
         catch (Exception e) when (e.IsRetryableDownloadException())
         {
             try
             {
-                Log.Error(
-                    "Failed to process queue item {JobName}; retrying in one minute: {Reason}",
+                var attempt = retryAttempts.AddOrUpdate(queueItem.Id, 1, (_, prev) => prev + 1);
+                if (attempt > MaxProviderRetryAttempts)
+                {
+                    Log.Error(
+                        "Giving up on queue item {JobName} after {Attempts} provider-connection failures: {Reason}",
+                        queueItem.JobName,
+                        attempt - 1,
+                        e.Message);
+                    await MarkQueueItemCompleted(startTime, error: e.Message).ConfigureAwait(false);
+                    return;
+                }
+
+                var backoff = GetProviderRetryBackoff(attempt);
+                Log.Warning(
+                    "Provider connection issue for queue item {JobName} (attempt {Attempt}/{MaxAttempts}); " +
+                    "retrying in {BackoffSeconds:0} seconds: {Reason}",
                     queueItem.JobName,
+                    attempt,
+                    MaxProviderRetryAttempts,
+                    backoff.TotalSeconds,
                     e.Message);
                 dbClient.Ctx.ClearChangeTracker();
-                queueItem.PauseUntil = DateTime.Now.AddMinutes(1);
+                queueItem.PauseUntil = DateTime.Now + backoff;
                 dbClient.Ctx.QueueItems.Attach(queueItem);
                 dbClient.Ctx.Entry(queueItem).Property(x => x.PauseUntil).IsModified = true;
                 await dbClient.Ctx.SaveChangesAsync().ConfigureAwait(false);
@@ -141,30 +195,55 @@ public class QueueItemProcessor(
         HealthCheckService.CheckCachedMissingSegmentIds(articlesToPrecheck);
 
         // step 1 -- get name and size of each nzb file
+        var stepTimer = Stopwatch.StartNew();
         var part1Progress = progress
             .Scale(50, 100)
             .ToPercentage(nzbFiles.Count);
         var segments = await FetchFirstSegmentsStep.FetchFirstSegments(
             nzbFiles, usenetClient, configManager, ct, part1Progress).ConfigureAwait(false);
+        var msFirstSeg = stepTimer.ElapsedMilliseconds;
+        stepTimer.Restart();
         var par2FileDescriptors = await GetPar2FileDescriptorsStep.GetPar2FileDescriptors(
             segments, usenetClient, ct).ConfigureAwait(false);
+        var msPar2 = stepTimer.ElapsedMilliseconds;
+        stepTimer.Restart();
         var fileInfos = GetFileInfosStep.GetFileInfos(
             segments, par2FileDescriptors);
 
-        // step 2 -- perform file processing
-        var fileProcessors = GetFileProcessors(fileInfos, archivePassword).ToList();
+        // step 2a -- try altmount-style lazy RAR mounting for the rar group
+        // when enabled. On success, the entire rar group is handled here
+        // (only the first volume gets parsed) and skipped in step 2b. On
+        // ineligibility — multi-file, compressed, solid, or first-volume
+        // parse failure — fall through to the per-part eager pipeline.
+        LazyRarProcessor.Result? lazyRarResult = null;
+        var rarFiles = fileInfos.Where(x => GetGroupName(x) == "rar").ToList();
+        if (configManager.IsLazyRarParsingEnabled() && rarFiles.Count > 0)
+        {
+            var lazyProc = new LazyRarProcessor(rarFiles, usenetClient, configManager, archivePassword, ct);
+            lazyRarResult = await lazyProc.ProcessAsync().ConfigureAwait(false) as LazyRarProcessor.Result;
+        }
+        var msRar = stepTimer.ElapsedMilliseconds;
+        stepTimer.Restart();
+
+        // step 2b -- per-file processing for everything else (and for the
+        // rar group when lazy mounting was skipped or unsupported).
+        var skipRarGroup = lazyRarResult is not null;
+        var fileProcessors = GetFileProcessors(fileInfos, archivePassword, skipRarGroup).ToList();
         var part2Progress = progress
             .Offset(50)
             .Scale(50, 100)
             .ToMultiProgress(fileProcessors.Count);
         var fileProcessingResultsAll = await fileProcessors
             .Select(x => x!.ProcessAsync(part2Progress.SubProgress))
-            .WithConcurrencyAsync(configManager.GetMaxDownloadConnections() + 5)
+            .WithConcurrencyAsync(configManager.GetMaxQueueConnections() + 5)
             .GetAllAsync(ct).ConfigureAwait(false);
         var fileProcessingResults = fileProcessingResultsAll
             .Where(x => x is not null)
             .Select(x => x!)
             .ToList();
+        if (lazyRarResult is not null) fileProcessingResults.Add(lazyRarResult);
+        var msProcessors = stepTimer.ElapsedMilliseconds;
+        stepTimer.Restart();
 
         // step 3 -- Optionally check full article existence
         var checkedFullHealth = false;
@@ -181,11 +260,24 @@ public class QueueItemProcessor(
             var healthCheckConcurrency = configManager
                 .GetUsenetProviderConfig()
                 .TotalPooledConnections;
-            await usenetClient
-                .CheckAllSegmentsAsync(articlesToCheck, healthCheckConcurrency, part3Progress, ct)
-                .ConfigureAwait(false);
+            if (configManager.IsPipeliningEnabled())
+                await usenetClient
+                    .CheckAllSegmentsPipelinedAsync(articlesToCheck, configManager.GetPipeliningDepth(),
+                        healthCheckConcurrency, part3Progress, ct)
+                    .ConfigureAwait(false);
+            else
+                await usenetClient
+                    .CheckAllSegmentsAsync(articlesToCheck, healthCheckConcurrency, part3Progress, ct)
+                    .ConfigureAwait(false);
             checkedFullHealth = true;
         }
+        var msHealth = stepTimer.ElapsedMilliseconds;
+        stepTimer.Stop();
+
+        Log.Information(
+            "play-timing nzo={NzoId} files={Files} firstSeg={FirstSeg}ms par2={Par2}ms rar={Rar}ms " +
+            "processors={Processors}ms health={Health}ms",
+            queueItem.Id, nzbFiles.Count, msFirstSeg, msPar2, msRar, msProcessors, msHealth);
 
         // update the database
         await MarkQueueItemCompleted(startTime, error: null, async () =>
@@ -218,11 +310,12 @@ public class QueueItemProcessor(
     private IEnumerable<BaseProcessor> GetFileProcessors
     (
         List<GetFileInfosStep.FileInfo> fileInfos,
-        string? archivePassword
+        string? archivePassword,
+        bool skipRarGroup = false
     )
     {
         var groups = fileInfos
-            .GroupBy(GetGroup);
+            .GroupBy(GetGroupName);
 
         foreach (var group in groups)
         {
@@ -230,8 +323,11 @@ public class QueueItemProcessor(
                 yield return new SevenZipProcessor(group.ToList(), usenetClient, configManager, archivePassword, ct);
 
             else if (group.Key == "rar")
+            {
+                if (skipRarGroup) continue;
                 foreach (var fileInfo in group)
                     yield return new RarProcessor(fileInfo, usenetClient, archivePassword, ct);
+            }
 
             else if (group.Key == "multipart-mkv")
                 yield return new MultipartMkvProcessor(group.ToList(), usenetClient, ct);
@@ -240,15 +336,13 @@ public class QueueItemProcessor(
                 foreach (var fileInfo in group)
                     yield return new FileProcessor(fileInfo, usenetClient, ct);
         }
-
-        yield break;
-
-        string GetGroup(GetFileInfosStep.FileInfo x) => false ? "impossible"
-            : FilenameUtil.Is7zFile(x.FileName) ? "7z"
-            : x.IsRar || FilenameUtil.IsRarFile(x.FileName) ? "rar"
-            : FilenameUtil.IsMultipartMkv(x.FileName) ? "multipart-mkv"
-            : "other";
     }
+
+    private static string GetGroupName(GetFileInfosStep.FileInfo x) =>
+        FilenameUtil.Is7zFile(x.FileName) ? "7z"
+        : x.IsRar || FilenameUtil.IsRarFile(x.FileName) ? "rar"
+        : FilenameUtil.IsMultipartMkv(x.FileName) ? "multipart-mkv"
+        : "other";
 
     private async Task<DavItem?> GetMountFolder()
     {
@@ -359,6 +453,8 @@ public class QueueItemProcessor(
             FailMessage = errorMessage,
             DownloadDirId = mountFolder?.Id,
             NzbBlobId = queueItem.Id,
+            IndexerName = queueItem.IndexerName,
+            ContentGroupKey = queueItem.ContentGroupKey,
         };
     }
 
@@ -372,7 +468,8 @@ public class QueueItemProcessor(
         dbClient.Ctx.ClearChangeTracker();
         var mountFolder = databaseOperations != null ? await databaseOperations.Invoke().ConfigureAwait(false) : null;
         var historyItem = CreateHistoryItem(mountFolder, startTime, error);
-        var historySlot = GetHistoryResponse.HistorySlot.FromHistoryItem(historyItem, mountFolder, configManager);
+        var providerUsage = providerUsageTracker.Snapshot(queueItem.Id);
+        var historySlot = GetHistoryResponse.HistorySlot.FromHistoryItem(historyItem, mountFolder, configManager, providerUsage);
         dbClient.Ctx.QueueItems.Remove(queueItem);
         dbClient.Ctx.HistoryItems.Add(historyItem);
         await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -388,6 +485,67 @@ public class QueueItemProcessor(
                 queueItem.Id,
                 historyItem.DownloadTimeSeconds);
         }
+        else
+        {
+            Log.Error(
+                "Failed queue item {JobName} ({QueueItemId}) after {ElapsedSeconds} seconds: {Reason}",
+                queueItem.JobName,
+                queueItem.Id,
+                historyItem.DownloadTimeSeconds,
+                error);
+        }
+
+        RecordWatchdogAttemptIfExternal(startTime, error, providerUsage);
+        retryAttempts.TryRemove(queueItem.Id, out _);
+    }
+
+    // Emits a Watchdog attempt entry for queue items that didn't come through
+    // ProfilePlayController (which writes its own attempts already). Lets users
+    // see third-party SAB-compatible client / Sonarr enqueues with provider attribution
+    // on the /watchdog page.
+    private void RecordWatchdogAttemptIfExternal(
+        DateTime startTime,
+        string? error,
+        IReadOnlyDictionary<string, long> providerUsage)
+    {
+        if (sourceTracker.ConsumeIsProfileFlow(queueItem.Id)) return;
+        if (!configManager.IsPlaybackWatchdogEnabled()) return;
+
+        var attemptedAt = new DateTimeOffset(startTime.ToUniversalTime(), TimeSpan.Zero);
+        var durationMs = (int)Math.Max(0, (DateTime.Now - startTime).TotalMilliseconds);
+        var outcome = error == null
+            ? WatchdogEntry.Outcome.QueueCompleted
+            : WatchdogEntry.Outcome.QueueFailed;
+        var providerHost = FormatProviders(providerUsage);
+
+        watchdogLog.Record(new WatchdogEntry
+        {
+            ClickId = queueItem.Id,
+            AttemptedAt = attemptedAt,
+            ContentType = string.IsNullOrEmpty(queueItem.Category) ? "unknown" : queueItem.Category,
+            RequestedTitle = queueItem.JobName ?? queueItem.FileName,
+            CandidateTitle = queueItem.JobName ?? queueItem.FileName,
+            IndexerName = queueItem.IndexerName ?? "—",
+            Size = queueItem.TotalSegmentBytes,
+            RankIndex = 0,
+            Result = outcome,
+            FailReason = error,
+            DurationMs = durationMs,
+            IsWinner = error == null,
+            ProviderHost = providerHost,
+            QueueItemId = queueItem.Id,
+            ContentGroupKey = queueItem.ContentGroupKey,
+        });
+    }
+
+    private static string? FormatProviders(IReadOnlyDictionary<string, long> usage)
+    {
+        if (usage.Count == 0) return null;
+        var total = usage.Values.Sum();
+        if (total == 0) return string.Join(", ", usage.Keys);
+        return string.Join(", ", usage
+            .OrderByDescending(kv => kv.Value)
+            .Select(kv => $"{kv.Key} ({(int)Math.Round(100.0 * kv.Value / total)}%)"));
     }
 
     private async Task RefreshMonitoredDownloads()

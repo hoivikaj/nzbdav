@@ -64,7 +64,9 @@ public class AddFileController(
                 Category = request.Category,
                 Priority = request.Priority,
                 PostProcessing = request.PostProcessing,
-                PauseUntil = request.PauseUntil
+                PauseUntil = request.PauseUntil,
+                IndexerName = request.IndexerName,
+                ContentGroupKey = request.ContentGroupKey,
             };
 
             // record the original NZB filename so it can be served at download time

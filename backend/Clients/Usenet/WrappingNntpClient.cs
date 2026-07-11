@@ -48,6 +48,8 @@ public class WrappingNntpClient(INntpClient usenetClient) : NntpClient
         SegmentId segmentId, Action<ArticleBodyResult>? onConnectionReadyAgain, CancellationToken cancellationToken) =>
         _usenetClient.DecodedArticleAsync(segmentId, onConnectionReadyAgain, cancellationToken);
 
+    public override int PipeliningDepth => _usenetClient.PipeliningDepth;
+
     public override Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync(
         string segmentId, CancellationToken cancellationToken) =>
         _usenetClient.AcquireExclusiveConnectionAsync(segmentId, cancellationToken);
@@ -69,6 +71,18 @@ public class WrappingNntpClient(INntpClient usenetClient) : NntpClient
         SegmentId segmentId, UsenetExclusiveConnection exclusiveConnection, CancellationToken cancellationToken) =>
         _usenetClient.DecodedArticleAsync(segmentId, exclusiveConnection, cancellationToken);
 
+
+    public override IAsyncEnumerable<PipelinedStatResult> StatsPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken) =>
+        _usenetClient.StatsPipelinedAsync(segmentIds, depth, cancellationToken);
+
+    public override IAsyncEnumerable<PipelinedBodyResult> DecodedBodiesPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken) =>
+        _usenetClient.DecodedBodiesPipelinedAsync(segmentIds, depth, cancellationToken);
+
+    public override IAsyncEnumerable<PipelinedArticleResult> DecodedArticlesPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken) =>
+        _usenetClient.DecodedArticlesPipelinedAsync(segmentIds, depth, cancellationToken);
 
     protected void ReplaceUnderlyingClient(INntpClient usenetClient)
     {

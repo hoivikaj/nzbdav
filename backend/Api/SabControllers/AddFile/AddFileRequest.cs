@@ -14,6 +14,8 @@ public class AddFileRequest()
     public QueueItem.PriorityOption Priority { get; init; }
     public QueueItem.PostProcessingOption PostProcessing { get; init; }
     public DateTime? PauseUntil { get; init; }
+    public string? IndexerName { get; init; }
+    public string? ContentGroupKey { get; init; }
     public CancellationToken CancellationToken { get; init; }
 
     public static async Task<AddFileRequest> New(HttpContext context, ConfigManager configManager)

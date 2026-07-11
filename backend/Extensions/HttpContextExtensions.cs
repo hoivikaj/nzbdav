@@ -35,4 +35,16 @@ public static class HttpContextExtensions
         return httpContext.Request.Headers["x-api-key"].FirstOrDefault()
             ?? httpContext.GetRequestParam("apikey");
     }
+
+    public static string GetPublicBaseUrl(this HttpContext httpContext, string configuredBaseUrl)
+    {
+        var trimmed = configuredBaseUrl.TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(trimmed) && trimmed != "http://localhost:3000")
+            return trimmed;
+        var scheme = httpContext.Request.Headers["X-Forwarded-Proto"].FirstOrDefault()
+                     ?? httpContext.Request.Scheme;
+        var host = httpContext.Request.Headers["X-Forwarded-Host"].FirstOrDefault()
+                   ?? httpContext.Request.Host.Value;
+        return $"{scheme}://{host}";
+    }
 }

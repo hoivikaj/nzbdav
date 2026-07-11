@@ -33,7 +33,7 @@ public sealed class DavDatabaseContext : DbContext
                 DefaultTimeout = 30,
                 Pooling = true
             }.ToString())
-            .AddInterceptors(new SqliteForeignKeyEnabler())
+            .AddInterceptors(new SqliteMainDbPragmas())
             .ReplaceService<IMigrationsSqlGenerator, SqliteMigrationsSqlGenerator<SqliteMigrationsSqlGenerator>>()
             .Options
     );
@@ -55,6 +55,10 @@ public sealed class DavDatabaseContext : DbContext
     public DbSet<DavCleanupItem> DavCleanupItems => Set<DavCleanupItem>();
     public DbSet<NzbName> NzbNames => Set<NzbName>();
     public DbSet<NzbBlobCleanupItem> NzbBlobCleanupItems => Set<NzbBlobCleanupItem>();
+    public DbSet<WatchdogEntry> WatchdogEntries => Set<WatchdogEntry>();
+    public DbSet<IndexerApiHit> IndexerApiHits => Set<IndexerApiHit>();
+    public DbSet<ListSource> ListSources => Set<ListSource>();
+    public DbSet<WantedItem> WantedItems => Set<WantedItem>();
 
     // blob items
     public List<DavNzbFile> BlobNzbFiles = [];
@@ -277,6 +281,12 @@ public sealed class DavDatabaseContext : DbContext
             e.Property(i => i.JobName)
                 .IsRequired();
 
+            e.Property(i => i.IndexerName)
+                .IsRequired(false);
+
+            e.Property(i => i.ContentGroupKey)
+                .IsRequired(false);
+
             e.HasIndex(i => new { i.Category, i.FileName })
                 .IsUnique();
 
@@ -293,6 +303,9 @@ public sealed class DavDatabaseContext : DbContext
                 .IsUnique(false);
 
             e.HasIndex(i => new { i.Category, i.Priority, i.CreatedAt })
+                .IsUnique(false);
+
+            e.HasIndex(i => i.ContentGroupKey)
                 .IsUnique(false);
         });
 
@@ -337,6 +350,19 @@ public sealed class DavDatabaseContext : DbContext
             e.Property(i => i.NzbBlobId)
                 .IsRequired(false);
 
+            e.Property(i => i.IndexerName)
+                .IsRequired(false);
+
+            e.Property(i => i.ContentGroupKey)
+                .IsRequired(false);
+
+            e.Property(i => i.LastPlayedAt)
+                .ValueGeneratedNever()
+                .HasConversion(
+                    x => x.HasValue ? x.Value.ToUnixTimeSeconds() : (long?)null,
+                    x => x.HasValue ? DateTimeOffset.FromUnixTimeSeconds(x.Value) : null
+                );
+
             e.HasIndex(i => new { i.CreatedAt })
                 .IsUnique(false);
 
@@ -350,6 +376,9 @@ public sealed class DavDatabaseContext : DbContext
                 .IsUnique(false);
 
             e.HasIndex(i => i.NzbBlobId)
+                .IsUnique(false);
+
+            e.HasIndex(i => new { i.ContentGroupKey, i.DownloadStatus })
                 .IsUnique(false);
         });
 
@@ -514,6 +543,121 @@ public sealed class DavDatabaseContext : DbContext
 
             e.Property(i => i.Id)
                 .ValueGeneratedNever();
+        });
+
+        // WatchdogEntry
+        b.Entity<WatchdogEntry>(e =>
+        {
+            e.ToTable("WatchdogEntries");
+            e.HasKey(i => i.Id);
+
+            e.Property(i => i.Id)
+                .ValueGeneratedOnAdd();
+
+            e.Property(i => i.ClickId)
+                .IsRequired();
+
+            e.Property(i => i.AttemptedAt)
+                .IsRequired()
+                .HasConversion(
+                    x => x.ToUnixTimeSeconds(),
+                    x => DateTimeOffset.FromUnixTimeSeconds(x)
+                );
+
+            e.Property(i => i.ContentType).IsRequired();
+            e.Property(i => i.RequestedTitle).IsRequired();
+            e.Property(i => i.CandidateTitle).IsRequired();
+            e.Property(i => i.IndexerName).IsRequired();
+            e.Property(i => i.Size).IsRequired();
+            e.Property(i => i.RankIndex).IsRequired();
+
+            e.Property(i => i.Result)
+                .HasConversion<int>()
+                .IsRequired();
+
+            e.Property(i => i.FailReason).IsRequired(false);
+            e.Property(i => i.DurationMs).IsRequired();
+            e.Property(i => i.IsWinner).IsRequired();
+            e.Property(i => i.ProviderHost).IsRequired(false);
+            e.Property(i => i.QueueItemId).IsRequired(false);
+            e.Property(i => i.ContentGroupKey).IsRequired(false);
+
+            e.HasIndex(i => i.AttemptedAt);
+            e.HasIndex(i => i.QueueItemId);
+            e.HasIndex(i => i.ContentGroupKey);
+        });
+
+        // IndexerApiHit
+        b.Entity<IndexerApiHit>(e =>
+        {
+            e.ToTable("IndexerApiHits");
+            e.HasKey(i => i.Id);
+
+            e.Property(i => i.Id)
+                .ValueGeneratedOnAdd();
+
+            e.Property(i => i.IndexerName)
+                .IsRequired();
+
+            e.Property(i => i.Type)
+                .HasConversion<int>()
+                .IsRequired();
+
+            e.Property(i => i.AccessedAt)
+                .IsRequired()
+                .HasConversion(
+                    x => x.ToUnixTimeSeconds(),
+                    x => DateTimeOffset.FromUnixTimeSeconds(x)
+                );
+
+            e.HasIndex(i => new { i.IndexerName, i.Type, i.AccessedAt });
+            e.HasIndex(i => i.AccessedAt);
+        });
+
+        // ListSource
+        b.Entity<ListSource>(e =>
+        {
+            e.ToTable("ListSources");
+            e.HasKey(i => i.Id);
+
+            e.Property(i => i.Id).ValueGeneratedNever();
+            e.Property(i => i.Kind).IsRequired();
+            e.Property(i => i.Name).IsRequired();
+            e.Property(i => i.Url).IsRequired(false);
+            e.Property(i => i.Enabled).IsRequired();
+            e.Property(i => i.Cap).IsRequired();
+            e.Property(i => i.CreatedAtUnix).IsRequired();
+            e.Property(i => i.LastSyncedAtUnix).IsRequired(false);
+            e.Property(i => i.LastSyncError).IsRequired(false);
+        });
+
+        // WantedItem
+        b.Entity<WantedItem>(e =>
+        {
+            e.ToTable("WantedItems");
+            e.HasKey(i => i.Id);
+
+            e.Property(i => i.Id).ValueGeneratedNever();
+            e.Property(i => i.Key).IsRequired();
+            e.Property(i => i.Type).IsRequired();
+            e.Property(i => i.ContentId).IsRequired();
+            e.Property(i => i.Title).IsRequired();
+            e.Property(i => i.State).IsRequired();
+            e.Property(i => i.Provenance).IsRequired();
+            e.Property(i => i.Shortlist).IsRequired();
+            e.Property(i => i.WinnerNzb).IsRequired(false);
+            e.Property(i => i.ResponderHost).IsRequired(false);
+            e.Property(i => i.FailReason).IsRequired(false);
+            e.Property(i => i.CreatedAtUnix).IsRequired();
+            e.Property(i => i.UpdatedAtUnix).IsRequired();
+            e.Property(i => i.LastResolvedAtUnix).IsRequired(false);
+            e.Property(i => i.LastVerifiedAtUnix).IsRequired(false);
+            e.Property(i => i.NextCheckAtUnix).IsRequired(false);
+
+            e.HasIndex(i => i.Key).IsUnique();
+            e.HasIndex(i => i.NextCheckAtUnix);
+            e.HasIndex(i => i.State);
+            e.HasIndex(i => i.UpdatedAtUnix);
         });
     }
 

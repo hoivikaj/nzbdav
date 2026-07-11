@@ -1,15 +1,17 @@
 ﻿using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Clients.Usenet.Concurrency;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Utils;
+using Serilog;
 
 namespace NzbWebDAV.Config;
 
 public class ConfigManager
 {
-    public static readonly string AppVersion = EnvironmentUtil.GetEnvironmentVariable("NZBDAV_VERSION") ?? "unknown";
+    public static readonly string AppVersion = EnvironmentUtil.GetEnvironmentVariable("NZBDAV_VERSION") ?? "0.0.0";
 
     private readonly Dictionary<string, string> _config = new();
     private readonly Dictionary<(string Name, Type Type), object?> _deserializedConfig = new();
@@ -54,6 +56,30 @@ public class ConfigManager
             _deserializedConfig[cacheKey] = value;
             return value;
         }
+    }
+
+    public bool IsWardenHideDeadEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("warden.hide-dead"));
+        return v is null || v == "true";
+    }
+
+    public int GetWardenQuorum()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("warden.quorum"));
+        return v is not null && int.TryParse(v, out var n) && n >= 1 ? n : 2;
+    }
+
+    public int GetWardenMaxSourceEntries()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("warden.max-source-entries"));
+        return v is not null && int.TryParse(v, out var n) && n > 0 ? n : 2_000_000;
+    }
+
+    public bool IsWardenBackboneScopeEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("warden.backbone-scope"));
+        return v is null || v == "true";
     }
 
     public void UpdateValues(List<ConfigItem> configItems)
@@ -159,6 +185,34 @@ public class ConfigManager
         );
     }
 
+    public int GetMaxQueueConnections()
+    {
+        var pool = Math.Max(1, GetUsenetProviderConfig().TotalPooledConnections);
+        var configured = StringUtil.EmptyToNull(GetConfigValue("usenet.max-queue-connections"));
+        if (configured is null || !int.TryParse(configured, out var value))
+            return pool;
+        return Math.Clamp(value, 1, pool);
+    }
+
+    public bool IsPipeliningEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("usenet.pipelining.enabled"));
+        return v != null && bool.Parse(v);
+    }
+
+    public bool IsCascadeEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("usenet.cascade.enabled"));
+        return v != null && bool.Parse(v);
+    }
+
+    public int GetPipeliningDepth()
+    {
+        var configured = StringUtil.EmptyToNull(GetConfigValue("usenet.pipelining.depth"));
+        if (configured is null || !int.TryParse(configured, out var value)) return 8;
+        return Math.Clamp(value, 1, 64);
+    }
+
     public int GetArticleBufferSize()
     {
         return int.Parse(
@@ -172,6 +226,34 @@ public class ConfigManager
         var configValue = StringUtil.EmptyToNull(
             GetConfigValue("usenet.pipelined-body-requests"));
         return configValue == null || bool.Parse(configValue);
+    }
+
+    public bool IsSegmentCacheEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("usenet.segment-cache.enabled"));
+        return v != null && bool.Parse(v);
+    }
+
+    public string GetSegmentCachePath()
+    {
+        return StringUtil.EmptyToNull(GetConfigValue("usenet.segment-cache.path"))
+               ?? "/config/segment-cache";
+    }
+
+    public long GetSegmentCacheMaxBytes()
+    {
+        var gb = long.Parse(StringUtil.EmptyToNull(GetConfigValue("usenet.segment-cache.max-gb")) ?? "10");
+        return Math.Max(1, gb) * 1024L * 1024L * 1024L;
+    }
+
+    // When true, RAR archives are mounted instantly by parsing only the first
+    // volume at import; trailing volumes are resolved on first read. Falls
+    // back to eager parsing for archives that don't fit the supported shape
+    // (multi-file, solid, encrypted, or compressed).
+    public bool IsLazyRarParsingEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("api.lazy-rar-parsing"));
+        return v == null || bool.Parse(v);
     }
 
     public SemaphorePriorityOdds GetStreamingPriority()
@@ -196,6 +278,410 @@ public class ConfigManager
             .Select(x => x.ToLower())
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .ToHashSet();
+    }
+
+    public bool IsPlaybackWatchdogEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("play.watchdog-enabled"));
+        return v == null || bool.Parse(v);
+    }
+
+    public int GetPlayTotalBudgetSeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("play.total-budget-seconds"));
+        if (v == null) return 30;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 3, 180) : 30;
+    }
+
+    public int GetPlayHedgeDelaySeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("play.hedge-delay-seconds"));
+        if (v == null) return 3;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 30) : 3;
+    }
+
+    public int GetPlayMaxCandidates()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("play.max-candidates"));
+        if (v == null) return 3;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 10) : 3;
+    }
+
+    public int GetPlayMaxAttempts()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("play.max-attempts"));
+        if (v == null) return 10;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 200) : 10;
+    }
+
+    public string GetPlayVerifyMode()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("play.verify-mode"));
+        return v switch
+        {
+            "body" => "body",
+            "stat" => "stat",
+            "none" => "none",
+            _ => "none",
+        };
+    }
+
+    public int GetPlayVerifySampleCount()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("play.verify-sample-count"));
+        if (v == null) return 3;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 10) : 3;
+    }
+
+    public TimeSpan GetPlayCandidateNegativeCacheTtl()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("play.candidate-negative-cache-minutes"));
+        if (v == null) return TimeSpan.FromMinutes(5);
+        return int.TryParse(v, out var n) ? TimeSpan.FromMinutes(Math.Clamp(n, 1, 60 * 24)) : TimeSpan.FromMinutes(5);
+    }
+
+    public bool IsGrabStallFailoverEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("grab.stall-failover-enabled"));
+        return v == null || bool.Parse(v);
+    }
+
+    public int GetGrabStallFailoverWindowSeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("grab.stall-failover-window-seconds"));
+        if (v == null) return 2;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 2, 60) : 2;
+    }
+
+    public int GetGrabStallFailoverCeilingSeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("grab.stall-failover-ceiling-seconds"));
+        if (v == null) return 5;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 5, 120) : 5;
+    }
+
+    public IReadOnlyList<Regex> GetSearchExcludePatterns()
+    {
+        var raw = GetConfigValue("search.exclude-patterns");
+        if (string.IsNullOrWhiteSpace(raw)) raw = GetConfigValue("play.exclude-patterns");
+        if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<Regex>();
+
+        var patterns = new List<Regex>();
+        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0 || trimmed.StartsWith('#')) continue;
+            try
+            {
+                patterns.Add(new Regex(
+                    trimmed,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+                    TimeSpan.FromMilliseconds(250)));
+            }
+            catch (ArgumentException e)
+            {
+                Log.Warning("Skipping invalid search.exclude-patterns regex {Pattern}: {Message}", trimmed, e.Message);
+            }
+        }
+        return patterns;
+    }
+
+    public string GetVariantsMode()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("variants.mode"));
+        return v switch
+        {
+            "smart" => "smart",
+            "collect-all" => "collect-all",
+            _ => "off",
+        };
+    }
+
+    public int GetVariantsTolerancePct()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("variants.tolerance-pct"));
+        if (v == null) return 25;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 0, 100) : 25;
+    }
+
+    public int GetVariantsMaxPerGroup()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("variants.max-per-group"));
+        if (v == null) return 3;
+        return int.TryParse(v, out var n) ? Math.Max(0, n) : 3;
+    }
+
+    public string GetVariantsReplayStrategy()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("variants.replay-strategy"));
+        return v switch
+        {
+            "largest" => "largest",
+            "smallest" => "smallest",
+            _ => "closest-to-click",
+        };
+    }
+
+    public bool IsVariantsFallbackOnFailureEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("variants.fallback-on-failure"));
+        return v == null || bool.Parse(v);
+    }
+
+    public string GetVariantsEvictionStrategy()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("variants.eviction-strategy"));
+        return v switch
+        {
+            "largest-first" => "largest-first",
+            "smallest-first" => "smallest-first",
+            "never" => "never",
+            _ => "lru",
+        };
+    }
+
+    public int GetVariantsEvictionActiveGraceSeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("variants.eviction-active-grace-seconds"));
+        if (v == null) return 60;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 0, 300) : 60;
+    }
+
+    public string GetPreflightMode()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("preflight.mode"));
+        return v switch
+        {
+            "light" => "light",
+            "standard" => "standard",
+            "full" => "full",
+            _ => "off",
+        };
+    }
+
+    public int GetPreflightMaxAttempts()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("preflight.max-attempts"));
+        if (v == null) return 20;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 50) : 20;
+    }
+
+    public int GetPreflightTtlSeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("preflight.ttl-seconds"));
+        if (v == null) return 120;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 10, 1800) : 120;
+    }
+
+    public int GetPreflightIndexerMaxWaitSeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("preflight.indexer-max-wait-seconds"));
+        if (v == null) return 5;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 0, 120) : 5;
+    }
+
+
+    public bool IsWatchtowerEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.enabled"));
+        return v != null ? bool.Parse(v) : false;
+    }
+
+    public bool IsWatchtowerAutoThroughput()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.auto-throughput"));
+        return v != null ? bool.Parse(v) : false;
+    }
+
+    public bool IsWatchtowerVerboseLoggingEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.verbose-logging"));
+        return v != null ? bool.Parse(v) : false;
+    }
+
+    public string GetWatchtowerProfileToken()
+    {
+        return StringUtil.EmptyToNull(GetConfigValue("watchtower.profile-token")) ?? "";
+    }
+
+    public string GetWatchtowerRanking()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.ranking"));
+        return v == "largest" ? "largest" : "watchdog";
+    }
+
+    public long GetWatchtowerSizeFloorBytes()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.size-floor-bytes"));
+        if (v == null) return 524288000L;
+        return long.TryParse(v, out var n) ? Math.Max(0, n) : 524288000L;
+    }
+
+    public long GetWatchtowerSizeCeilingBytes()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.size-ceiling-bytes"));
+        if (v == null) return 0L;
+        return long.TryParse(v, out var n) ? Math.Max(0, n) : 0L;
+    }
+
+    public int GetWatchtowerMinGrabs()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.min-grabs"));
+        if (v == null) return 0;
+        return int.TryParse(v, out var n) ? Math.Max(0, n) : 0;
+    }
+
+    public int GetWatchtowerShortlistDepth()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.shortlist-depth"));
+        if (v == null) return 2;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 5) : 2;
+    }
+
+    public int GetWatchtowerGrabCapPerResolve()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.grab-cap-per-resolve"));
+        if (v == null) return 3;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 10) : 3;
+    }
+
+    public int GetWatchtowerVerifySampleCount()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.verify-sample-count"));
+        if (v == null) return 3;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 20) : 3;
+    }
+
+    public int GetWatchtowerVerifyTimeoutSeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.verify-timeout-seconds"));
+        if (v == null) return 10;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 2, 120) : 10;
+    }
+
+    public int GetWatchtowerActiveSetCap()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.active-set-cap"));
+        if (v == null) return 100;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 100000) : 100;
+    }
+
+    public int GetWatchtowerResolveConcurrency()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.resolve-concurrency"));
+        if (v == null) return 3;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 16) : 3;
+    }
+
+    public int GetWatchtowerDailyResolveBudget()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.daily-resolve-budget"));
+        if (v == null) return 60;
+        return int.TryParse(v, out var n) ? Math.Max(0, n) : 60;
+    }
+
+    public int GetWatchtowerSyncIntervalSeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.sync-interval-seconds"));
+        if (v == null) return 3600;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 60, 86400) : 3600;
+    }
+
+    public int GetWatchtowerKeepFreshBaseSeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.keepfresh-base-seconds"));
+        if (v == null) return 21600;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 300, 604800) : 21600;
+    }
+
+    public int GetWatchtowerKeepFreshMaxSeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.keepfresh-max-seconds"));
+        if (v == null) return 604800;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 600, 2592000) : 604800;
+    }
+
+    public int GetWatchtowerUnavailableRetrySeconds()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.unavailable-retry-seconds"));
+        if (v == null) return 21600;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 600, 604800) : 21600;
+    }
+
+    public string GetWatchtowerSeriesScope()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.series-scope"));
+        return NormalizeSeriesScope(v) ?? "latest-season";
+    }
+
+    public static string? NormalizeSeriesScope(string? value)
+    {
+        return StringUtil.EmptyToNull(value) switch
+        {
+            "latest-season" => "latest-season",
+            "first-season" => "first-season",
+            "all-aired" => "all-aired",
+            "recent" => "recent",
+            "off" => "off",
+            _ => null,
+        };
+    }
+
+    public int GetWatchtowerSeriesMaxEpisodes()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.series-max-episodes"));
+        if (v == null) return 50;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 0, 1000) : 50;
+    }
+
+    public string GetWatchtowerSeriesCapKeep()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.series-cap-keep"));
+        return v == "oldest" ? "oldest" : "newest";
+    }
+
+    public int GetWatchtowerSeriesRecentCount()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.series-recent-count"));
+        if (v == null) return 3;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 100) : 3;
+    }
+
+    public bool IsWatchtowerSeasonBundlesEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.season-bundles"));
+        return v != null ? bool.Parse(v) : true;
+    }
+
+    public bool IsWatchtowerSeasonBundleFallbackEnabled()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.season-bundle-fallback"));
+        return v != null ? bool.Parse(v) : false;
+    }
+
+    public string GetWatchtowerSeasonBundleFallbackScope()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.season-bundle-fallback-scope"));
+        return v switch
+        {
+            "all" => "all",
+            "recent" => "recent",
+            _ => "latest-season",
+        };
+    }
+
+    public int GetWatchtowerSeasonBundleFallbackRecentCount()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.season-bundle-fallback-recent-count"));
+        if (v == null) return 2;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 100) : 2;
+    }
+
+    public int GetWatchtowerSeasonBundleFallbackMaxEpisodes()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.season-bundle-fallback-max-episodes"));
+        if (v == null) return 50;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 1000) : 50;
     }
 
     public bool IsPreviewPar2FilesEnabled()
@@ -232,6 +718,16 @@ public class ConfigManager
     {
         var defaultValue = new UsenetProviderConfig();
         return GetConfigValue<UsenetProviderConfig>("usenet.providers") ?? defaultValue;
+    }
+
+    public IndexerConfig GetIndexerConfig()
+    {
+        return GetConfigValue<IndexerConfig>("indexers.instances") ?? new IndexerConfig();
+    }
+
+    public ProfileConfig GetProfileConfig()
+    {
+        return (GetConfigValue<ProfileConfig>("profiles.instances") ?? new ProfileConfig()).Normalized();
     }
 
     public string GetDuplicateNzbBehavior()
@@ -293,6 +789,14 @@ public class ConfigManager
         var defaultValue = $"nzbdav/{AppVersion}";
         return StringUtil.EmptyToNull(GetConfigValue("api.user-agent"))
                ?? EnvironmentUtil.GetEnvironmentVariable("NZB_GRAB_USER_AGENT")
+               ?? defaultValue;
+    }
+
+    public string GetSearchUserAgent()
+    {
+        var defaultValue = $"nzbdav/{AppVersion}";
+        return StringUtil.EmptyToNull(GetConfigValue("api.search-user-agent"))
+               ?? EnvironmentUtil.GetEnvironmentVariable("NZB_SEARCH_USER_AGENT")
                ?? defaultValue;
     }
 

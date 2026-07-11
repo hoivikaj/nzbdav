@@ -21,6 +21,54 @@ public class RarAggregator(DavDatabaseClient dbClient, DavItem mountDirectory, b
             .ToList();
 
         ProcessArchive(fileSegments);
+
+        foreach (var lazy in processorResults.OfType<LazyRarProcessor.Result>())
+            ProcessLazyArchive(lazy);
+    }
+
+    private void ProcessLazyArchive(LazyRarProcessor.Result result)
+    {
+        var pathInArchive = result.PathInArchive;
+        var parentDirectory = EnsureParentDirectory(pathInArchive);
+        var name = Path.GetFileName(pathInArchive);
+
+        // Mirror the eager path's obfuscation rename: when the archive
+        // contains a single obfuscated file, name it after the mount folder.
+        if (ObfuscationUtil.IsProbablyObfuscated(name))
+            name = mountDirectory.Name + Path.GetExtension(name);
+
+        var davMultipartFile = new DavMultipartFile
+        {
+            Id = Guid.NewGuid(),
+            Metadata = new DavMultipartFile.Meta
+            {
+                AesParams = result.AesParams,
+                FileParts = [result.FirstPart],
+                IsLazy = true,
+                PathInArchive = pathInArchive,
+                ArchivePassword = result.Password,
+                PendingParts = result.PendingParts,
+            }
+        };
+
+        var davItem = DavItem.New(
+            id: Guid.NewGuid(),
+            parent: parentDirectory,
+            name: name,
+            fileSize: result.TotalFileSize,
+            type: DavItem.ItemType.UsenetFile,
+            subType: DavItem.ItemSubType.MultipartFile,
+            releaseDate: result.ReleaseDate,
+            // Lazy mounts skip the per-part health check entirely; mark
+            // unchecked so the background health-check sweep covers them.
+            lastHealthCheck: null,
+            historyItemId: MountDirectory.HistoryItemId,
+            fileBlobId: davMultipartFile.Id,
+            nzbBlobId: MountDirectory.HistoryItemId
+        );
+
+        dbClient.Ctx.Items.Add(davItem);
+        dbClient.Ctx.BlobMultipartFiles.Add(davMultipartFile);
     }
 
     private void ProcessArchive(List<RarProcessor.StoredFileSegment> fileSegments)

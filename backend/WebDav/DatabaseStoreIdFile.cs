@@ -4,6 +4,7 @@ using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Services;
 using NzbWebDAV.WebDav.Base;
 
 namespace NzbWebDAV.WebDav;
@@ -13,13 +14,21 @@ public class DatabaseStoreIdFile(
     HttpContext httpContext,
     DavDatabaseClient dbClient,
     UsenetStreamingClient usenetClient,
-    ConfigManager configManager
+    ConfigManager configManager,
+    LazyRarResolver lazyRarResolver
 ) : BaseStoreReadonlyItem
 {
     public override string Name => davItem.Id.ToString();
     public override string UniqueKey => davItem.Id.ToString();
     public override long FileSize => davItem.FileSize!.Value;
     public override DateTime CreatedAt => davItem.CreatedAt;
+
+    // Name is overridden to the GUID so rclone symlink targets stay stable; this
+    // exposes the underlying human-readable filename for surfaces like the
+    // Active Reads widget that need to display something the user recognises.
+    public string FriendlyName => davItem.Name;
+
+    public Guid? HistoryItemId => davItem.HistoryItemId;
 
     public override Task<Stream> GetReadableStreamAsync(CancellationToken cancellationToken)
     {
@@ -35,7 +44,8 @@ public class DatabaseStoreIdFile(
             DavItem.ItemSubType.RarFile =>
                 new DatabaseStoreRarFile(davItem, httpContext, dbClient, usenetClient, configManager),
             DavItem.ItemSubType.MultipartFile =>
-                new DatabaseStoreMultipartFile(davItem, httpContext, dbClient, usenetClient, configManager),
+                new DatabaseStoreMultipartFile(davItem, httpContext, dbClient, usenetClient, configManager,
+                    lazyRarResolver),
             _ => throw new ArgumentException("Unrecognized id child type.")
         };
     }

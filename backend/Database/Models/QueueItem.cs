@@ -12,6 +12,8 @@ public class QueueItem
     public PriorityOption Priority { get; set; }
     public PostProcessingOption PostProcessing { get; set; }
     public DateTime? PauseUntil { get; set; }
+    public string? IndexerName { get; set; }
+    public string? ContentGroupKey { get; set; }
 
     public enum PriorityOption
     {

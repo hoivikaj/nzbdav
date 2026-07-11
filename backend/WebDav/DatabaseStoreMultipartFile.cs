@@ -4,6 +4,7 @@ using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Services;
 using NzbWebDAV.Streams;
 using NzbWebDAV.WebDav.Base;
 
@@ -14,7 +15,8 @@ public class DatabaseStoreMultipartFile(
     HttpContext httpContext,
     DavDatabaseClient dbClient,
     UsenetStreamingClient usenetClient,
-    ConfigManager configManager
+    ConfigManager configManager,
+    LazyRarResolver lazyRarResolver
 ) : BaseStoreStreamFile(httpContext)
 {
     public DavItem DavItem => davMultipartFile;
@@ -32,15 +34,24 @@ public class DatabaseStoreMultipartFile(
         var id = davMultipartFile.Id;
         var multipartFile = await dbClient.GetDavMultipartFileAsync(davMultipartFile, ct).ConfigureAwait(false);
         if (multipartFile is null) throw new FileNotFoundException($"Could not find nzb file with id: {id}");
+
+        if (multipartFile.Metadata.AesParams != null
+            && multipartFile.Metadata.IsLazy
+            && (multipartFile.Metadata.PendingParts?.Length ?? 0) > 0)
+        {
+            await lazyRarResolver.EnsureResolvedThroughAsync(multipartFile, long.MaxValue, ct).ConfigureAwait(false);
+        }
+
         return GetStream(multipartFile);
     }
 
     private Stream GetStream(DavMultipartFile multipartFile)
     {
         var packedStream = new DavMultipartFileStream(
-            multipartFile.Metadata.FileParts,
+            multipartFile,
             usenetClient,
             configManager.GetArticleBufferSize(),
+            lazyRarResolver,
             configManager.IsPipelinedBodyRequestsEnabled()
         );
 

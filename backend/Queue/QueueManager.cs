@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
@@ -13,11 +14,17 @@ public class QueueManager : IDisposable
 {
     private InProgressQueueItem? _inProgressQueueItem;
 
+    private readonly ConcurrentDictionary<Guid, int> _retryAttempts = new();
+
     private readonly UsenetStreamingClient _usenetClient;
     private readonly CancellationTokenSource? _cancellationTokenSource;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private readonly ConfigManager _configManager;
     private readonly WebsocketManager _websocketManager;
+    private readonly ProviderUsageTracker _providerUsageTracker;
+    private readonly WatchdogLog _watchdogLog;
+    private readonly QueueItemSourceTracker _sourceTracker;
+    private readonly BenchmarkGate _benchmarkGate;
 
     private CancellationTokenSource _sleepingQueueToken = new();
     private readonly Lock _sleepingQueueLock = new();
@@ -25,12 +32,20 @@ public class QueueManager : IDisposable
     public QueueManager(
         UsenetStreamingClient usenetClient,
         ConfigManager configManager,
-        WebsocketManager websocketManager
+        WebsocketManager websocketManager,
+        ProviderUsageTracker providerUsageTracker,
+        WatchdogLog watchdogLog,
+        QueueItemSourceTracker sourceTracker,
+        BenchmarkGate benchmarkGate
     )
     {
         _usenetClient = usenetClient;
         _configManager = configManager;
         _websocketManager = websocketManager;
+        _providerUsageTracker = providerUsageTracker;
+        _watchdogLog = watchdogLog;
+        _sourceTracker = sourceTracker;
+        _benchmarkGate = benchmarkGate;
         _cancellationTokenSource = CancellationTokenSource
             .CreateLinkedTokenSource(SigtermUtil.GetCancellationToken());
         _ = ProcessQueueAsync(_cancellationTokenSource.Token);
@@ -72,6 +87,7 @@ public class QueueManager : IDisposable
 
             await dbClient.RemoveQueueItemsAsync(queueItemIds, ct).ConfigureAwait(false);
             await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+            foreach (var id in queueItemIds) _retryAttempts.TryRemove(id, out _);
         }).ConfigureAwait(false);
     }
 
@@ -79,6 +95,17 @@ public class QueueManager : IDisposable
     {
         while (!ct.IsCancellationRequested)
         {
+            // While a speed-test is running, hold off starting new downloads so
+            // it gets the provider's full connection budget. Any item already in
+            // progress finishes naturally; this only gates new work. Resumes
+            // within ~1s of the test ending.
+            if (_benchmarkGate.IsPaused)
+            {
+                try { await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { }
+                continue;
+            }
+
             try
             {
                 // get the next queue-item from the database
@@ -153,7 +180,8 @@ public class QueueManager : IDisposable
         var progressHook = new Progress<int>();
         var task = new QueueItemProcessor(
             queueItem, queueNzbStream, dbClient, usenetClient,
-            _configManager, _websocketManager, progressHook, cts.Token
+            _configManager, _websocketManager, _providerUsageTracker,
+            _watchdogLog, _sourceTracker, progressHook, _retryAttempts, cts.Token
         ).ProcessAsync();
         var inProgressQueueItem = new InProgressQueueItem()
         {
@@ -163,14 +191,52 @@ public class QueueManager : IDisposable
             CancellationTokenSource = cts
         };
         var debounce = DebounceUtil.CreateDebounce(TimeSpan.FromMilliseconds(200));
+        var providersDebounce = DebounceUtil.CreateDebounce(TimeSpan.FromMilliseconds(500));
+        var progressLock = new object();
+        var latestProgress = 0;
+        var lastSentProgress = -1;
+
+        void SendLatestProgress()
+        {
+            int value;
+            lock (progressLock)
+            {
+                if (latestProgress <= lastSentProgress) return;
+                value = latestProgress;
+                lastSentProgress = value;
+            }
+
+            _websocketManager.SendMessage(WebsocketTopic.QueueItemProgress, $"{queueItem.Id}|{value}");
+        }
+
         progressHook.ProgressChanged += (_, progress) =>
         {
-            inProgressQueueItem.ProgressPercentage = progress;
-            var message = $"{queueItem.Id}|{progress}";
-            if (progress is 100 or 200) _websocketManager.SendMessage(WebsocketTopic.QueueItemProgress, message);
-            else debounce(() => _websocketManager.SendMessage(WebsocketTopic.QueueItemProgress, message));
+            lock (progressLock)
+            {
+                if (progress > latestProgress) latestProgress = progress;
+                inProgressQueueItem.ProgressPercentage = latestProgress;
+            }
+
+            if (progress is 100 or 200) SendLatestProgress();
+            else debounce(SendLatestProgress);
+            providersDebounce(() => _websocketManager.SendMessage(
+                WebsocketTopic.QueueItemProviders, BuildProvidersMessage(queueItem.Id)));
         };
         return inProgressQueueItem;
+    }
+
+    private string BuildProvidersMessage(Guid queueItemId)
+    {
+        var snapshot = _providerUsageTracker.Snapshot(queueItemId);
+        var configured = _configManager.GetUsenetProviderConfig().Providers
+            .Select(p => p.Host)
+            .Where(h => !string.IsNullOrEmpty(h))
+            .Distinct();
+        var merged = new Dictionary<string, long>(snapshot);
+        foreach (var host in configured)
+            if (!merged.ContainsKey(host)) merged[host] = 0;
+        var payload = string.Join(",", merged.Select(kv => $"{kv.Key}={kv.Value}"));
+        return $"{queueItemId}|{payload}";
     }
 
     private async Task LockAsync(Func<Task> actionAsync)

@@ -22,6 +22,7 @@ public class HealthCheckService : BackgroundService
     private readonly ConfigManager _configManager;
     private readonly INntpClient _usenetClient;
     private readonly WebsocketManager _websocketManager;
+    private readonly BenchmarkGate _benchmarkGate;
 
     private static readonly HashSet<string> _missingSegmentIds = [];
     private static readonly Queue<string> _missingSegmentOrder = [];
@@ -30,12 +31,14 @@ public class HealthCheckService : BackgroundService
     (
         ConfigManager configManager,
         UsenetStreamingClient usenetClient,
-        WebsocketManager websocketManager
+        WebsocketManager websocketManager,
+        BenchmarkGate benchmarkGate
     )
     {
         _configManager = configManager;
         _usenetClient = usenetClient;
         _websocketManager = websocketManager;
+        _benchmarkGate = benchmarkGate;
 
         _configManager.OnConfigChanged += (_, configEventArgs) =>
         {
@@ -56,6 +59,13 @@ public class HealthCheckService : BackgroundService
         {
             try
             {
+                // pause verification while a connection speed-test is running
+                if (_benchmarkGate.IsPaused)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 // if the repair-job is disabled, then don't do anything
                 if (!_configManager.IsRepairJobEnabled())
                 {

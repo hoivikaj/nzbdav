@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using NzbWebDAV.Clients.Usenet.Concurrency;
 using NzbWebDAV.Clients.Usenet.Connections;
+using NzbWebDAV.Clients.Usenet.Contexts;
 using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
@@ -27,15 +29,34 @@ public class MultiConnectionNntpClient(
     ConnectionPool<INntpClient> connectionPool,
     ProviderType type,
     ProviderCircuitBreaker circuitBreaker,
-    string providerName
+    string providerName,
+    long? byteLimit = null,
+    long bytesUsedOffset = 0,
+    int priority = 0,
+    int? pipeliningDepth = null
 ) : NntpClient
 {
     public ProviderType ProviderType { get; } = type;
+    public int Priority { get; } = priority;
+    public string Host { get; } = providerName;
+
+    public int? ConfiguredPipeliningDepth { get; } = pipeliningDepth;
+    // null or non-positive = uncapped. Routing reads these to decide whether
+    // this provider should be skipped when it has exhausted its block.
+    public long? ByteLimit { get; } = byteLimit;
+    public long BytesUsedOffset { get; } = bytesUsedOffset;
     public bool IsTripped => circuitBreaker.IsTripped;
     public int LiveConnections => connectionPool.LiveConnections;
     public int IdleConnections => connectionPool.IdleConnections;
     public int ActiveConnections => connectionPool.ActiveConnections;
     public int AvailableConnections => connectionPool.AvailableConnections;
+
+    private int _pendingSelections;
+    public int PendingSelections => Volatile.Read(ref _pendingSelections);
+    public void ReservePending() => Interlocked.Increment(ref _pendingSelections);
+    public void ReleasePending() => Interlocked.Decrement(ref _pendingSelections);
+
+    public bool HasSpareConnection => AvailableConnections - PendingSelections > 0;
 
     public override Task ConnectAsync(string host, int port, bool useSsl, CancellationToken cancellationToken)
     {
@@ -74,7 +95,7 @@ public class MultiConnectionNntpClient(
     {
         return RunWithConnection(
             "BODY",
-            SemaphorePriority.High,
+            GetDownloadPriority(ct),
             (connection, onDone) => connection.DecodedBodyAsync(segmentId, onDone, ct),
             onConnectionReadyAgain: null,
             ct
@@ -89,7 +110,7 @@ public class MultiConnectionNntpClient(
     {
         return RunWithConnection(
             "ARTICLE",
-            SemaphorePriority.High,
+            GetDownloadPriority(ct),
             (connection, onDone) => connection.DecodedArticleAsync(segmentId, onDone, ct),
             onConnectionReadyAgain: null,
             ct
@@ -116,7 +137,7 @@ public class MultiConnectionNntpClient(
     {
         return RunWithConnection(
             "BODY",
-            SemaphorePriority.High,
+            GetDownloadPriority(ct),
             (connection, onDone) => connection.DecodedBodyAsync(segmentId, onDone, ct),
             onConnectionReadyAgain,
             ct
@@ -221,7 +242,7 @@ public class MultiConnectionNntpClient(
     {
         return RunWithConnection(
             "ARTICLE",
-            SemaphorePriority.High,
+            GetDownloadPriority(ct),
             (connection, onDone) => connection.DecodedArticleAsync(segmentId, onDone, ct),
             onConnectionReadyAgain,
             ct
@@ -286,6 +307,21 @@ public class MultiConnectionNntpClient(
             catch (Exception e) when (e.TryGetCausingException(out UsenetArticleNotFoundException _))
             {
                 deferredCallback.Discard();
+                LogException(() => connectionLock?.Dispose());
+                LogException(() => onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved));
+                throw;
+            }
+            catch (Exception e) when (name is "BODY" or "ARTICLE" && e.TryGetCausingException(out TimeoutException _))
+            {
+                // Read-timeout on BODY/ARTICLE means the provider stopped responding
+                // mid-command. A fresh socket to the same provider is unlikely to fare
+                // any better, and burning another timeout retrying here just doubles
+                // the wait before MultiProviderNntpClient can fall over to the next
+                // provider. Replace the socket (the read may have left partial bytes
+                // on the wire) and propagate so the outer provider loop moves on.
+                deferredCallback.Discard();
+                circuitBreaker.RecordFailure();
+                LogException(() => connectionLock?.Replace());
                 LogException(() => connectionLock?.Dispose());
                 LogException(() => onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved));
                 throw;
@@ -358,6 +394,65 @@ public class MultiConnectionNntpClient(
 
             return result!;
         }
+    }
+
+    public override IAsyncEnumerable<PipelinedStatResult> StatsPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken)
+        => RunPipelinedAsync(c => c.StatsPipelinedAsync(segmentIds, depth, cancellationToken), cancellationToken);
+
+    public override IAsyncEnumerable<PipelinedBodyResult> DecodedBodiesPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken)
+        => RunPipelinedAsync(c => c.DecodedBodiesPipelinedAsync(segmentIds, depth, cancellationToken), cancellationToken);
+
+    public override IAsyncEnumerable<PipelinedArticleResult> DecodedArticlesPipelinedAsync(
+        IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken)
+        => RunPipelinedAsync(c => c.DecodedArticlesPipelinedAsync(segmentIds, depth, cancellationToken), cancellationToken);
+
+    private async IAsyncEnumerable<T> RunPipelinedAsync<T>(
+        Func<INntpClient, IAsyncEnumerable<T>> batchFactory,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var priority = GetDownloadPriority(cancellationToken);
+        var connectionLock = await connectionPool.GetConnectionLockAsync(priority, cancellationToken).ConfigureAwait(false);
+        var completed = false;
+        try
+        {
+            await using var enumerator = batchFactory(connectionLock.Connection)
+                .GetAsyncEnumerator(cancellationToken);
+            while (true)
+            {
+                T current;
+                try
+                {
+                    if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+                    {
+                        completed = true;
+                        break;
+                    }
+
+                    current = enumerator.Current;
+                }
+                catch (Exception e) when (!e.IsCancellationException())
+                {
+                    circuitBreaker.RecordFailure();
+                    connectionLock.Replace();
+                    throw;
+                }
+
+                circuitBreaker.RecordSuccess();
+                yield return current;
+            }
+        }
+        finally
+        {
+            if (!completed) connectionLock.Replace();
+            connectionLock.Dispose();
+        }
+    }
+
+    private static SemaphorePriority GetDownloadPriority(CancellationToken ct)
+    {
+        return ct.GetContext<DownloadPriorityContext>()?.Priority ?? SemaphorePriority.Low;
     }
 
     private static void LogException(Action? action)

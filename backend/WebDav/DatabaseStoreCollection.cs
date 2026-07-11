@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using NWebDav.Server;
 using NWebDav.Server.Stores;
 using NzbWebDAV.Clients.Usenet;
@@ -7,6 +8,7 @@ using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Extensions;
 using NzbWebDAV.Queue;
+using NzbWebDAV.Services;
 using NzbWebDAV.WebDav.Base;
 using NzbWebDAV.WebDav.Requests;
 using NzbWebDAV.Websocket;
@@ -20,7 +22,8 @@ public class DatabaseStoreCollection(
     ConfigManager configManager,
     UsenetStreamingClient usenetClient,
     QueueManager queueManager,
-    WebsocketManager websocketManager
+    WebsocketManager websocketManager,
+    LazyRarResolver lazyRarResolver
 ) : BaseStoreReadonlyCollection
 {
     public override string Name => davDirectory.Name;
@@ -103,21 +106,48 @@ public class DatabaseStoreCollection(
         // If the item is a file, simply delete it and we're done.
         if (davItem.Type is DavItem.ItemType.UsenetFile)
         {
+            var historyItemId = davItem.HistoryItemId;
             dbClient.Ctx.Items.Remove(davItem);
             await dbClient.Ctx.SaveChangesAsync().ConfigureAwait(false);
+            await PruneEmptyHistoryAsync(historyItemId, request.CancellationToken).ConfigureAwait(false);
             return DavStatusCode.Ok;
         }
 
         // If the item is a directory and it not a protected directory, simply delete it.
         if (davItem.Type == DavItem.ItemType.Directory && !davItem.IsProtected())
         {
+            var historyItemId = davItem.HistoryItemId;
             dbClient.Ctx.Items.Remove(davItem);
             await dbClient.Ctx.SaveChangesAsync().ConfigureAwait(false);
+            await PruneEmptyHistoryAsync(historyItemId, request.CancellationToken).ConfigureAwait(false);
             return DavStatusCode.Ok;
         }
 
         // forbid deletion of any other items
         return DavStatusCode.Forbidden;
+    }
+
+    // After deleting a DavItem, if no other DavItems still reference its HistoryItem,
+    // remove the HistoryItem too. Without this, external tools polling /api?mode=history
+    // (third-party SAB-compatible clients, Sonarr, etc.) see the entry as Completed and hand the
+    // player a URL pointing at the file we just deleted — re-clicking never re-enqueues.
+    private async Task PruneEmptyHistoryAsync(Guid? historyItemId, CancellationToken ct)
+    {
+        if (historyItemId is null) return;
+        var stillReferenced = await dbClient.Ctx.Items
+            .AsNoTracking()
+            .AnyAsync(x => x.HistoryItemId == historyItemId.Value, ct)
+            .ConfigureAwait(false);
+        if (stillReferenced) return;
+
+        var history = await dbClient.Ctx.HistoryItems
+            .FirstOrDefaultAsync(h => h.Id == historyItemId.Value, ct)
+            .ConfigureAwait(false);
+        if (history is null) return;
+
+        dbClient.Ctx.HistoryItems.Remove(history);
+        await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        _ = websocketManager.SendMessage(WebsocketTopic.HistoryItemRemoved, historyItemId.Value.ToString());
     }
 
     private IStoreItem GetItem(DavItem davItem)
@@ -126,13 +156,14 @@ public class DatabaseStoreCollection(
         {
             DavItem.ItemSubType.IdsRoot =>
                 new DatabaseStoreIdsCollection(
-                    davItem.Name, "", httpContext, dbClient, usenetClient, configManager),
+                    davItem.Name, "", httpContext, dbClient, usenetClient, configManager, lazyRarResolver),
             DavItem.ItemSubType.NzbsRoot =>
                 new DatabaseStoreWatchFolder(
                     davItem, httpContext, dbClient, configManager, usenetClient, queueManager, websocketManager),
             DavItem.ItemSubType.Directory or DavItem.ItemSubType.ContentRoot  =>
                 new DatabaseStoreCollection(
-                    davItem, httpContext, dbClient, configManager, usenetClient, queueManager, websocketManager),
+                    davItem, httpContext, dbClient, configManager, usenetClient, queueManager, websocketManager,
+                    lazyRarResolver),
             DavItem.ItemSubType.SymlinkRoot =>
                 new DatabaseStoreSymlinkCollection(
                     davItem, dbClient, configManager),
@@ -144,7 +175,7 @@ public class DatabaseStoreCollection(
                     davItem, httpContext, dbClient, usenetClient, configManager),
             DavItem.ItemSubType.MultipartFile =>
                 new DatabaseStoreMultipartFile(
-                    davItem, httpContext, dbClient, usenetClient, configManager),
+                    davItem, httpContext, dbClient, usenetClient, configManager, lazyRarResolver),
             _ => throw new ArgumentException("Unrecognized directory child type.")
         };
     }

@@ -7,8 +7,6 @@ namespace NzbWebDAV.WebDav.Base;
 
 public class BaseStoreItemPropertyManager() : PropertyManager<BaseStoreItem>(DavProperties)
 {
-    private static readonly XElement DavResourceType = new(WebDavNamespaces.DavNs + "item");
-
     private static readonly DavProperty<BaseStoreItem>[] DavProperties =
     [
         new DavDisplayName<BaseStoreItem>
@@ -33,7 +31,7 @@ public class BaseStoreItemPropertyManager() : PropertyManager<BaseStoreItem>(Dav
         },
         new DavGetResourceType<BaseStoreItem>
         {
-            Getter = _ => [DavResourceType]
+            Getter = _ => []
         },
         new DavIsCollection<BaseStoreItem>
         {

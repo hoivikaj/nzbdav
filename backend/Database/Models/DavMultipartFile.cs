@@ -24,6 +24,22 @@ public partial class DavMultipartFile
 
         [MemoryPackOrder(1)]
         public FilePart[] FileParts { get; set; } = [];
+
+        // Lazy RAR fields. When IsLazy=true, FileParts holds only the
+        // already-resolved leading parts (at least the first). Trailing
+        // parts live in PendingParts and get resolved on demand by
+        // LazyRarResolver, which appends them to FileParts and persists.
+        [MemoryPackOrder(2)]
+        public bool IsLazy { get; set; }
+
+        [MemoryPackOrder(3)]
+        public string? PathInArchive { get; set; }
+
+        [MemoryPackOrder(4)]
+        public string? ArchivePassword { get; set; }
+
+        [MemoryPackOrder(5)]
+        public PendingPart[] PendingParts { get; set; } = [];
     }
 
     [MemoryPackable(GenerateType.VersionTolerant)]
@@ -44,5 +60,24 @@ public partial class DavMultipartFile
 
         [MemoryPackOrder(3)]
         public LongRange[]? SegmentByteRanges { get; set; }
+    }
+
+    // A RAR part whose internal byte range hasn't been parsed yet.
+    // LazyRarResolver materializes it into a FilePart on first read.
+    // EstimatedDataSize is the worst-case data contribution (raw NzbFile
+    // size minus a fixed RAR continuation-header guess) used only to
+    // route seeks before resolution — the exact range replaces it once
+    // resolved, and downstream reads are constrained by the real range.
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class PendingPart
+    {
+        [MemoryPackOrder(0)]
+        public string[] SegmentIds { get; set; } = [];
+
+        [MemoryPackOrder(1)]
+        public LongRange SegmentIdByteRange { get; set; }
+
+        [MemoryPackOrder(2)]
+        public long EstimatedDataSize { get; set; }
     }
 }

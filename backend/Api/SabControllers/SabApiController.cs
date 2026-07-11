@@ -27,7 +27,9 @@ public class SabApiController(
     DavDatabaseClient dbClient,
     ConfigManager configManager,
     QueueManager queueManager,
-    WebsocketManager websocketManager
+    WebsocketManager websocketManager,
+    NzbWebDAV.Services.ProviderUsageTracker providerUsageTracker,
+    NzbWebDAV.Services.IndexerHitTracker hitTracker
 ) : ControllerBase
 {
     [HttpGet]
@@ -90,21 +92,21 @@ public class SabApiController(
                     HttpContext, dbClient, queueManager, configManager, websocketManager);
             case "addurl":
                 return new AddUrlController(
-                    HttpContext, dbClient, queueManager, configManager, websocketManager);
+                    HttpContext, dbClient, queueManager, configManager, websocketManager, hitTracker);
 
             case "queue" when HttpContext.GetRequestParam("name") == "delete":
                 return new RemoveFromQueueController(
                     HttpContext, dbClient, queueManager, configManager, websocketManager);
             case "queue":
                 return new GetQueueController(
-                    HttpContext, dbClient, queueManager, configManager);
+                    HttpContext, dbClient, queueManager, configManager, providerUsageTracker);
 
             case "history" when HttpContext.GetRequestParam("name") == "delete":
                 return new RemoveFromHistoryController(
                     HttpContext, dbClient, configManager, websocketManager);
             case "history":
                 return new GetHistoryController(
-                    HttpContext, dbClient, configManager);
+                    HttpContext, dbClient, configManager, providerUsageTracker);
 
             default:
                 throw new BadHttpRequestException("Invalid mode");

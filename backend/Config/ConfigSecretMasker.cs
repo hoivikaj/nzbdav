@@ -20,6 +20,7 @@ public sealed class ConfigSecretMasker(string signingKey)
     private static readonly Dictionary<string, string> JsonSecretProperties = new(StringComparer.Ordinal)
     {
         ["arr.instances"] = "ApiKey",
+        ["indexers.instances"] = "ApiKey",
         ["usenet.providers"] = "Pass"
     };
 

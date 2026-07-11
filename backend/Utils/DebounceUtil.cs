@@ -7,25 +7,49 @@ public static class DebounceUtil
         ArgumentOutOfRangeException.ThrowIfLessThan(timespan, TimeSpan.Zero);
         var synchronizationLock = new object();
         DateTime lastInvocationTime = default;
-        return actionToMaybeInvoke =>
+        var isFlushScheduled = false;
+        Action? pendingAction = null;
+        Timer? flushTimer = null;
+
+        return actionToInvoke =>
         {
-            var now = DateTime.Now;
-            bool shouldInvoke;
+            Action? invokeNow = null;
             lock (synchronizationLock)
             {
-                if (now - lastInvocationTime >= timespan)
+                var now = DateTime.Now;
+                var elapsed = now - lastInvocationTime;
+                if (elapsed >= timespan && !isFlushScheduled)
                 {
                     lastInvocationTime = now;
-                    shouldInvoke = true;
+                    invokeNow = actionToInvoke;
                 }
                 else
                 {
-                    shouldInvoke = false;
+                    pendingAction = actionToInvoke;
+                    if (!isFlushScheduled)
+                    {
+                        isFlushScheduled = true;
+                        var delay = timespan - elapsed;
+                        if (delay < TimeSpan.Zero) delay = TimeSpan.Zero;
+                        flushTimer ??= new Timer(_ =>
+                        {
+                            Action? trailingAction;
+                            lock (synchronizationLock)
+                            {
+                                isFlushScheduled = false;
+                                lastInvocationTime = DateTime.Now;
+                                trailingAction = pendingAction;
+                                pendingAction = null;
+                            }
+
+                            trailingAction?.Invoke();
+                        });
+                        flushTimer.Change(delay, Timeout.InfiniteTimeSpan);
+                    }
                 }
             }
 
-            if (shouldInvoke)
-                actionToMaybeInvoke?.Invoke();
+            invokeNow?.Invoke();
         };
     }
 
