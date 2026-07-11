@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.13](https://github.com/nzbdav/nzbdav/compare/v0.6.12...v0.6.13) (2026-07-11)
+
+
+### Bug Fixes
+
+* **deps:** bump UsenetSharp 1.2.4 ([c6e9e92](https://github.com/nzbdav/nzbdav/commit/c6e9e92633c469f29489267961c1f3eaecc7fad6))
+* **deps:** bump UsenetSharp to 2.0.0 ([a0a285e](https://github.com/nzbdav/nzbdav/commit/a0a285ec624766a319e776d00f22eba0adc5e032))
+* **deps:** bump UsenetSharp to 2.0.1 ([b65cfd1](https://github.com/nzbdav/nzbdav/commit/b65cfd112e5abaff4fb9601269c3804df918932d))
+* **nntp:** stop reusing connections poisoned by cancellation ([c9ccaf6](https://github.com/nzbdav/nzbdav/commit/c9ccaf6f38f2c1d7ac8f97bb7c8074d3a072b9d1))
+
 ## [0.6.12](https://github.com/nzbdav/nzbdav/compare/v0.6.11...v0.6.12) (2026-07-10)
 
 
