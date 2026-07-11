@@ -29,6 +29,8 @@ public class AddFileController(
     public async Task<AddFileResponse> AddFileAsync(AddFileRequest request)
     {
         var id = Guid.NewGuid();
+        var category = StringUtil.EmptyToNull(request.Category)
+                       ?? configManager.GetManualUploadCategory();
 
         // write the file to the blob-store
         await using var stream = request.NzbFileStream;
@@ -44,7 +46,7 @@ public class AddFileController(
                 var backupLocation = configManager.GetNzbBackupLocation();
                 if (backupLocation != null)
                 {
-                    await BackupNzbAsync(id, request.FileName, request.Category, backupLocation);
+                    await BackupNzbAsync(id, request.FileName, category, backupLocation);
                 }
             }
 
@@ -61,7 +63,7 @@ public class AddFileController(
                 JobName = FilenameUtil.GetJobName(request.FileName),
                 NzbFileSize = nzbFileStream.Length,
                 TotalSegmentBytes = totalSegmentBytes,
-                Category = request.Category,
+                Category = category,
                 Priority = request.Priority,
                 PostProcessing = request.PostProcessing,
                 PauseUntil = request.PauseUntil,

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { isMaskedSecret } from "./config-mask";
 import { formatFileSize } from "./file-size";
-import { getExploreContentLink, getLeafDirectoryName } from "./path";
+import { getExploreContentLink, getLeafDirectoryName, parseExploreWebdavPath } from "./path";
 import { className, classNames } from "./styling";
 import { receiveMessage } from "./websocket-util";
 
@@ -44,6 +44,35 @@ describe("getExploreContentLink", () => {
     expect(getExploreContentLink(null, "movies")).toBeNull();
     expect(getExploreContentLink("/completed/movies/Alien", null)).toBeNull();
     expect(getExploreContentLink("", "movies")).toBeNull();
+  });
+
+  it("returns null when storage or category is whitespace-only", () => {
+    expect(getExploreContentLink("   ", "movies")).toBeNull();
+    expect(getExploreContentLink("/completed/movies/Alien", "   ")).toBeNull();
+    expect(getExploreContentLink("/completed/movies/Alien", "")).toBeNull();
+  });
+});
+
+describe("parseExploreWebdavPath", () => {
+  it("accepts a valid encoded path", () => {
+    expect(parseExploreWebdavPath("content/tv%20shows/Alien")).toEqual({
+      ok: true,
+      path: "content/tv shows/Alien",
+    });
+  });
+
+  it("accepts the WebDAV root", () => {
+    expect(parseExploreWebdavPath("")).toEqual({ ok: true, path: "" });
+    expect(parseExploreWebdavPath("/")).toEqual({ ok: true, path: "" });
+  });
+
+  it("rejects empty path segments from double slashes", () => {
+    expect(parseExploreWebdavPath("content//Release")).toEqual({ ok: false });
+    expect(parseExploreWebdavPath("content//")).toEqual({ ok: false });
+  });
+
+  it("rejects malformed percent-encoding", () => {
+    expect(parseExploreWebdavPath("content/%E0%A4%A")).toEqual({ ok: false });
   });
 });
 

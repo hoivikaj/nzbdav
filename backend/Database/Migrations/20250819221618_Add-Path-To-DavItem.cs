@@ -17,6 +17,15 @@ namespace NzbWebDAV.Database.Migrations
                 nullable: false,
                 defaultValue: "");
 
+            BuildFullPath(migrationBuilder);
+        }
+
+        /// <summary>
+        /// Rebuilds DavItems.Path for every item reachable from the WebDAV root.
+        /// Only updates rows included in the recursive CTE so orphans cannot get NULL Path.
+        /// </summary>
+        public static void BuildFullPath(MigrationBuilder migrationBuilder)
+        {
             // Populate the Path column for every existing DavItem
             // * The root DavItem is given path `/`
             // * Every other DavItem is given path `{PARENT_PATH}/{NAME}`
@@ -42,7 +51,8 @@ namespace NzbWebDAV.Database.Migrations
                 )
 
                 UPDATE DavItems
-                SET Path = (SELECT Path FROM computed WHERE DavItems.Id = computed.Id);
+                SET Path = (SELECT Path FROM computed WHERE DavItems.Id = computed.Id)
+                WHERE Id IN (SELECT Id FROM computed);
                 """
             );
         }

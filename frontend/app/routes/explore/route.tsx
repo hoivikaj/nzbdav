@@ -12,6 +12,7 @@ import { lookup as getMimeType } from 'mime-types';
 import { getDownloadKey } from "~/auth/downloads.server";
 import { Loading } from "../_index/components/loading/loading";
 import { formatFileSize } from "~/utils/file-size";
+import { parseExploreWebdavPath } from "~/utils/path";
 import { ItemMenu } from "./item-menu/item-menu";
 import { ConfirmModal } from "~/components/confirm-modal/confirm-modal";
 import { classNames } from "~/utils/styling";
@@ -36,7 +37,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
     // Single-fetch navigation requests use an internal `.data` URL, so derive
     // the WebDAV path from the matched wildcard rather than request.url.
-    const path = decodeURIComponent(params["*"] ?? "");
+    const parsed = parseExploreWebdavPath(params["*"] ?? "");
+    if (!parsed.ok) {
+        return {
+            parentDirectories: [],
+            items: [],
+            error: "not-found" as const,
+        };
+    }
+    const path = parsed.path;
     try {
         return {
             parentDirectories: getParentDirectories(path),
@@ -630,7 +639,8 @@ function getWebdavPath(pathname: string): string {
 }
 
 function getWebdavPathDecoded(pathname: string): string {
-    return decodeURIComponent(getWebdavPath(pathname));
+    const parsed = parseExploreWebdavPath(getWebdavPath(pathname));
+    return parsed.ok ? parsed.path : "";
 }
 
 function getRelativePath(path: string, filename: string) {
