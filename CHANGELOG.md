@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/nzbdav/nzbdav/compare/v0.7.1...v0.7.2) (2026-07-11)
+
+
+### Bug Fixes
+
+* **nntp:** route pipelined fetches through UsenetSharp batch API ([e019278](https://github.com/nzbdav/nzbdav/commit/e019278061daacc7736f5e9dfa7192e70dbcf882))
+
 ## [0.7.1](https://github.com/nzbdav/nzbdav/compare/v0.7.0...v0.7.1) (2026-07-11)
 
 
