@@ -10,11 +10,14 @@ public class PathUtil
             : [];
     }
 
-    public static string ReplaceExtension(string path, string newExtensions)
+    public static string ReplaceExtension(string path, string? newExtensions)
     {
         var directoryName = Path.GetDirectoryName(path);
         var filenameWithoutExtension = Path.GetFileNameWithoutExtension(path);
-        var newFilename = $"{filenameWithoutExtension}.{newExtensions.TrimStart('.')}";
+        var trimmed = newExtensions?.Trim().TrimStart('.');
+        var newFilename = string.IsNullOrEmpty(trimmed)
+            ? filenameWithoutExtension
+            : $"{filenameWithoutExtension}.{trimmed}";
         return Path.Join(directoryName, newFilename);
     }
 }

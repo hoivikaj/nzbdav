@@ -52,6 +52,19 @@ public class UtilityTests
             PathUtil.ReplaceExtension(Path.Join("one", "two", "file.mkv"), ".strm"));
     }
 
+    [Theory]
+    [InlineData("file.mkv", ".strm", "file.strm")]
+    [InlineData("file.mkv", "strm", "file.strm")]
+    [InlineData("file.mkv", "", "file")]
+    [InlineData("file.mkv", ".", "file")]
+    [InlineData("file.mkv", "   ", "file")]
+    [InlineData("file.mkv", null, "file")]
+    public void ReplaceExtension_HandlesEmptyAndNormalExtensions(
+        string path, string? newExtension, string expectedFilename)
+    {
+        Assert.Equal(expectedFilename, Path.GetFileName(PathUtil.ReplaceExtension(path, newExtension)));
+    }
+
     [Fact]
     public void PasswordHash_RequiresMatchingPasswordAndSalt()
     {
