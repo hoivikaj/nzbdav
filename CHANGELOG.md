@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1](https://github.com/nzbdav/nzbdav/compare/v0.7.0...v0.7.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* **metrics:** restore live telemetry after upgrades ([48e4bea](https://github.com/nzbdav/nzbdav/commit/48e4bea57520403fde2cd9c3646f22190abd9287))
+* **ui:** avoid duplicate version prefix ([8db7c72](https://github.com/nzbdav/nzbdav/commit/8db7c72e697d3c14b3157a0c0beb6d6cf1bc650a))
+
 ## [0.7.0](https://github.com/nzbdav/nzbdav/compare/v0.6.14...v0.7.0) (2026-07-11)
 
 
