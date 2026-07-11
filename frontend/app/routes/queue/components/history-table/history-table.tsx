@@ -4,7 +4,7 @@ import { ConfirmModal } from "~/components/confirm-modal/confirm-modal"
 import { Link } from "react-router"
 import { type TriCheckboxState } from "../tri-checkbox/tri-checkbox"
 import type { PresentationHistorySlot } from "../../route"
-import { getLeafDirectoryName } from "~/utils/path"
+import { getExploreContentLink } from "~/utils/path"
 import { PageRow, PageTable } from "../page-table/page-table"
 import { PageSection } from "../page-section/page-section"
 import { Pagination } from "../pagination/pagination"
@@ -145,6 +145,9 @@ export function HistoryRow({ slot, onIsSelectedChanged, onIsRemovingChanged, onR
         onIsRemovingChanged(slot.nzo_id, false);
     }, [slot.nzo_id, setIsConfirmingRemoval, onIsRemovingChanged, onRemoved]);
 
+    const folderLink = getExploreContentLink(slot.storage, slot.category);
+    const nameHref = folderLink && !slot.isRemoving && !slot.fail_message ? folderLink : null;
+
     // view
     return (
         <>
@@ -152,6 +155,7 @@ export function HistoryRow({ slot, onIsSelectedChanged, onIsRemovingChanged, onR
                 isSelected={!!slot.isSelected}
                 isRemoving={!!slot.isRemoving}
                 name={slot.name}
+                nameHref={nameHref}
                 category={slot.category}
                 status={slot.status}
                 error={slot.fail_message}
@@ -176,11 +180,7 @@ export function HistoryRow({ slot, onIsSelectedChanged, onIsRemovingChanged, onR
 export function Actions({ slot, onRemove }: { slot: PresentationHistorySlot, onRemove: () => void }) {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-    // determine explore action link url
-    var downloadFolder = slot.storage && getLeafDirectoryName(slot.storage);
-    const encodedCategory = downloadFolder && encodeURIComponent(slot.category);
-    const encodedDownloadFolder = downloadFolder && encodeURIComponent(downloadFolder);
-    var folderLink = downloadFolder && `/explore/content/${encodedCategory}/${encodedDownloadFolder}`;
+    const folderLink = getExploreContentLink(slot.storage, slot.category);
 
     // determine nzb download URL
     var nzbDownloadUrl = slot.nzb_blob_id
@@ -188,7 +188,7 @@ export function Actions({ slot, onRemove }: { slot: PresentationHistorySlot, onR
         : null;
 
     // determine whether explore action should be disabled
-    var isFolderDisabled = !downloadFolder || !!slot.isRemoving || !!slot.fail_message;
+    var isFolderDisabled = !folderLink || !!slot.isRemoving || !!slot.fail_message;
 
     const onMenuClick = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
@@ -202,12 +202,12 @@ export function Actions({ slot, onRemove }: { slot: PresentationHistorySlot, onR
 
     return (
         <>
-            {!isFolderDisabled &&
+            {!isFolderDisabled && folderLink &&
                 <Link to={folderLink} >
                     <ActionButton type="explore" />
                 </Link>
             }
-            {isFolderDisabled &&
+            {(isFolderDisabled || !folderLink) &&
                 <ActionButton type="explore" disabled />
             }
             <div className="relative">

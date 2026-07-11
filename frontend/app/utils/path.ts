@@ -19,3 +19,11 @@ export function getLeafDirectoryName(fullPath: string): string {
 
     return leafName;
 }
+
+/** Explore link for a completed history item's content folder, or null when unavailable. */
+export function getExploreContentLink(storage: string | null | undefined, category: string | null | undefined): string | null {
+    if (!storage || !category) return null;
+    const downloadFolder = getLeafDirectoryName(storage);
+    if (!downloadFolder) return null;
+    return `/explore/content/${encodeURIComponent(category)}/${encodeURIComponent(downloadFolder)}`;
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { isMaskedSecret } from "./config-mask";
 import { formatFileSize } from "./file-size";
-import { getLeafDirectoryName } from "./path";
+import { getExploreContentLink, getLeafDirectoryName } from "./path";
 import { className, classNames } from "./styling";
 import { receiveMessage } from "./websocket-util";
 
@@ -26,6 +26,24 @@ describe("getLeafDirectoryName", () => {
     ["Alien", "Alien"],
   ])("gets the leaf from %s", (path, expected) => {
     expect(getLeafDirectoryName(path)).toBe(expected);
+  });
+});
+
+describe("getExploreContentLink", () => {
+  it("builds an explore content URL", () => {
+    expect(getExploreContentLink("/completed/movies/Alien", "movies"))
+      .toBe("/explore/content/movies/Alien");
+  });
+
+  it("encodes category and folder segments", () => {
+    expect(getExploreContentLink("/completed/tv shows/Show Name", "tv shows"))
+      .toBe("/explore/content/tv%20shows/Show%20Name");
+  });
+
+  it("returns null when storage or category is missing", () => {
+    expect(getExploreContentLink(null, "movies")).toBeNull();
+    expect(getExploreContentLink("/completed/movies/Alien", null)).toBeNull();
+    expect(getExploreContentLink("", "movies")).toBeNull();
   });
 });
 

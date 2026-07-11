@@ -1,5 +1,6 @@
 import styles from "./page-table.module.css";
 import type { ReactNode } from "react";
+import { Link } from "react-router";
 import { TriCheckbox, type TriCheckboxState } from "../tri-checkbox/tri-checkbox";
 import { Truncate } from "../truncate/truncate";
 import { StatusBadge } from "../status-badge/status-badge";
@@ -51,6 +52,7 @@ export type PageRowProps = {
     isSelected: boolean,
     isRemoving: boolean,
     name: string,
+    nameHref?: string | null,
     category: string,
     status: string,
     percentage?: string,
@@ -62,11 +64,15 @@ export type PageRowProps = {
     onRowSelectionChanged: (isSelected: boolean) => void
 }
 export function PageRow(props: PageRowProps) {
+    const nameContent = props.nameHref
+        ? <Link to={props.nameHref} className="text-slate-200 hover:text-white hover:underline" onClick={e => e.stopPropagation()}>{props.name}</Link>
+        : props.name;
+
     return (
         <tr className={`${props.isRemoving ? "opacity-20" : ""} ${props.isUploading ? "bg-cyan-400/5 [&+tr]:border-t-[3px] [&+tr]:border-slate-900" : ""}`}>
             <td className="max-w-[200px] whitespace-nowrap border-b border-white/5 py-3 pl-0 pr-1 text-left align-middle text-slate-300">
                 <TriCheckbox state={props.isSelected} onChange={props.onRowSelectionChanged}>
-                    <Truncate>{props.name}</Truncate>
+                    <Truncate>{nameContent}</Truncate>
                     <div className="block min-[900px]:hidden">
                         <div className="mb-1 mt-1 flex gap-2.5">
                             <StatusBadge status={props.status} percentage={props.percentage} error={props.error} />
