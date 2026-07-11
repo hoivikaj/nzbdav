@@ -82,7 +82,7 @@ export function HistoryTable({ historySlots, totalHistoryCount, pageNumber, tota
 
     return (
         <PageSection title={sectionTitle}>
-            <PageTable headerCheckboxState={headerCheckboxState} onHeaderCheckboxChange={onSelectAll} footer={footer}>
+            <PageTable headerCheckboxState={headerCheckboxState} onHeaderCheckboxChange={onSelectAll} footer={footer} showCompleted>
                 {historySlots.map(slot =>
                     <HistoryRow
                         key={slot.nzo_id}
@@ -160,6 +160,8 @@ export function HistoryRow({ slot, onIsSelectedChanged, onIsRemovingChanged, onR
                 status={slot.status}
                 error={slot.fail_message}
                 fileSizeBytes={slot.bytes}
+                completed={slot.completed}
+                showCompleted
                 actions={<Actions slot={slot} onRemove={onRemove} />}
                 onRowSelectionChanged={isSelected => onIsSelectedChanged(slot.nzo_id, isSelected)}
                 indexer={slot.indexer}

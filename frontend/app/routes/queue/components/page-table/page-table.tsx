@@ -15,9 +15,10 @@ export type PageTableProps = {
     headerCheckboxState: TriCheckboxState,
     onHeaderCheckboxChange: (isChecked: boolean) => void,
     footer?: ReactNode,
+    showCompleted?: boolean,
 }
 
-export function PageTable({ children, headerCheckboxState, onHeaderCheckboxChange, footer }: PageTableProps) {
+export function PageTable({ children, headerCheckboxState, onHeaderCheckboxChange, footer, showCompleted }: PageTableProps) {
     return (
         <div className="-mx-4 overflow-x-auto sm:-mx-6">
             <table className="mb-0 w-full table-fixed text-slate-300 [&_tbody_tr:last-child_td]:border-b-0">
@@ -33,6 +34,7 @@ export function PageTable({ children, headerCheckboxState, onHeaderCheckboxChang
                         <th className={desktopHeaderClass}>Provider</th>
                         <th className={desktopHeaderClass}>Status</th>
                         <th className={desktopHeaderClass}>Size</th>
+                        {showCompleted && <th className={desktopHeaderClass}>Completed</th>}
                         <th className="w-[100px] bg-slate-900 px-1 py-4 text-center text-xs font-semibold text-slate-200">Actions</th>
                     </tr>
                 </thead>
@@ -58,6 +60,9 @@ export type PageRowProps = {
     percentage?: string,
     error?: string,
     fileSizeBytes: number,
+    /** Unix seconds from SAB history `completed` field. */
+    completed?: number | null,
+    showCompleted?: boolean,
     actions: ReactNode,
     indexer?: string | null,
     providers?: ProviderUsage[] | null,
@@ -67,6 +72,7 @@ export function PageRow(props: PageRowProps) {
     const nameContent = props.nameHref
         ? <Link to={props.nameHref} className="text-slate-200 hover:text-white hover:underline" onClick={e => e.stopPropagation()}>{props.name}</Link>
         : props.name;
+    const completedLabel = formatCompleted(props.completed);
 
     return (
         <tr className={`${props.isRemoving ? "opacity-20" : ""} ${props.isUploading ? "bg-cyan-400/5 [&+tr]:border-t-[3px] [&+tr]:border-slate-900" : ""}`}>
@@ -81,6 +87,9 @@ export function PageRow(props: PageRowProps) {
                             {props.providers && props.providers.length > 0 && <ProvidersBadge providers={props.providers} />}
                         </div>
                         <div className="font-mono text-xs text-slate-400">{formatFileSize(props.fileSizeBytes)}</div>
+                        {props.showCompleted && completedLabel &&
+                            <div className="font-mono text-xs text-slate-400" title={completedLabel.full}>{completedLabel.short}</div>
+                        }
                     </div>
                 </TriCheckbox>
             </td>
@@ -101,6 +110,11 @@ export function PageRow(props: PageRowProps) {
             <td className="hidden max-w-[200px] whitespace-nowrap border-b border-white/5 px-1 py-3 text-center align-middle font-mono text-xs text-slate-300 min-[900px]:table-cell">
                 {formatFileSize(props.fileSizeBytes)}
             </td>
+            {props.showCompleted &&
+                <td className="hidden max-w-[200px] whitespace-nowrap border-b border-white/5 px-1 py-3 text-center align-middle font-mono text-xs text-slate-300 min-[900px]:table-cell" title={completedLabel?.full}>
+                    {completedLabel?.short ?? "—"}
+                </td>
+            }
             <td className="max-w-[200px] whitespace-nowrap border-b border-white/5 px-1 py-3 text-center align-middle text-slate-300">
                 <div className="flex flex-col items-end justify-center gap-2.5 pr-5 min-[410px]:flex-row min-[410px]:items-center min-[410px]:pr-0">
                     {props.actions}
@@ -108,6 +122,27 @@ export function PageRow(props: PageRowProps) {
             </td>
         </tr>
     );
+}
+
+function formatCompleted(completed: number | null | undefined): { short: string, full: string } | null {
+    if (completed == null || !Number.isFinite(completed) || completed <= 0) return null;
+    try {
+        const datetime = new Date(completed * 1000);
+        const now = new Date();
+        const full = datetime.toLocaleString();
+        const short = isSameDate(datetime, now)
+            ? datetime.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+            : datetime.toLocaleDateString();
+        return { short, full };
+    } catch {
+        return null;
+    }
+}
+
+function isSameDate(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear()
+        && a.getMonth() === b.getMonth()
+        && a.getDate() === b.getDate();
 }
 
 export function CategoryBadge({ category }: { category: string }) {

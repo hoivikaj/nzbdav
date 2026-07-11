@@ -45,6 +45,9 @@ public class GetHistoryResponse : SabBaseResponse
         [JsonPropertyName("download_time")]
         public int DownloadTimeSeconds { get; set; }
 
+        [JsonPropertyName("completed")]
+        public long Completed { get; set; }
+
         [JsonPropertyName("fail_message")]
         public string FailMessage { get; set; }
 
@@ -76,6 +79,7 @@ public class GetHistoryResponse : SabBaseResponse
                 SizeInBytes = historyItem.TotalSegmentBytes,
                 DownloadPath = GetDownloadPath(historyItem, downloadFolder, configManager),
                 DownloadTimeSeconds = historyItem.DownloadTimeSeconds,
+                Completed = new DateTimeOffset(historyItem.CreatedAt).ToUnixTimeSeconds(),
                 FailMessage = historyItem.FailMessage ?? "",
                 NzbBlobId = historyItem.NzbBlobId?.ToString(),
                 Indexer = historyItem.IndexerName,

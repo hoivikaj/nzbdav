@@ -418,6 +418,7 @@ export type HistorySlot = {
     bytes: number,
     storage: string,
     download_time: number,
+    completed: number,
     fail_message: string,
     nzb_blob_id?: string,
     indexer?: string | null,
