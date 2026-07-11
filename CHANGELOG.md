@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.14](https://github.com/nzbdav/nzbdav/compare/v0.6.13...v0.6.14) (2026-07-11)
+
+
+### Features
+
+* **ui:** add pipelined article request toggle ([ae929f6](https://github.com/nzbdav/nzbdav/commit/ae929f6d45a99882b4caf1ae739e2f178f80f3b2))
+* **webdav:** allow disabling pipelined article requests ([823735e](https://github.com/nzbdav/nzbdav/commit/823735e746a5b11cf5cb4616fe66aaeb9c81cd37))
+
+
+### Bug Fixes
+
+* **deps:** bump UsenetSharp to 2.0.2 ([6723e43](https://github.com/nzbdav/nzbdav/commit/6723e432c9859608b1a2ac3d551cf246059a43ec))
+* **nntp:** retry clean article misses on primary provider ([2168830](https://github.com/nzbdav/nzbdav/commit/21688302a325ff9e1e6677a6b7137790a36bcb84))
+
 ## [0.6.13](https://github.com/nzbdav/nzbdav/compare/v0.6.12...v0.6.13) (2026-07-11)
 
 
