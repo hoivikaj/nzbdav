@@ -32,7 +32,7 @@ public static class FetchFirstSegmentsStep
 
         return await files
             .Select(x => FetchFirstSegment(x, usenetClient, cancellationToken))
-            .WithConcurrencyAsync(configManager.GetMaxQueueConnections() + 5)
+            .WithConcurrencyAsync(Math.Min(configManager.GetMaxQueueConnections() + 5, 50))
             .GetAllAsync(cancellationToken, progress).ConfigureAwait(false);
     }
 
@@ -76,7 +76,7 @@ public static class FetchFirstSegmentsStep
         {
             var rescued = await pending
                 .Select(i => RescueFirstSegment(i, files[i], usenetClient, cancellationToken))
-                .WithConcurrencyAsync(configManager.GetMaxQueueConnections() + 5)
+                .WithConcurrencyAsync(Math.Min(configManager.GetMaxQueueConnections() + 5, 50))
                 .GetAllAsync(cancellationToken).ConfigureAwait(false);
             foreach (var (i, result) in rescued)
             {
@@ -100,10 +100,20 @@ public static class FetchFirstSegmentsStep
         {
             return (index, await FetchFirstSegment(nzbFile, usenetClient, cancellationToken).ConfigureAwait(false));
         }
+        catch (UsenetArticleNotFoundException)
+        {
+            Log.Warning("First segment for `{FileName}` missing across all providers",
+                nzbFile.GetSubjectFileName());
+            return (index, BuildMissingFirstSegment(nzbFile));
+        }
         catch (Exception e) when (!e.IsCancellationException())
         {
-            Log.Warning($"First segment for `{nzbFile.GetSubjectFileName()}` unavailable from all providers: {e.Message}");
-            return (index, BuildMissingFirstSegment(nzbFile));
+            // Transient provider errors must not be treated as permanent missing segments
+            // (otherwise fail-fast would mark good NZBs failed — see nzbdav-dev#245).
+            Log.Warning(e,
+                "First segment for `{FileName}` unavailable due to provider error; not treating as permanently missing",
+                nzbFile.GetSubjectFileName());
+            throw;
         }
     }
 

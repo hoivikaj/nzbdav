@@ -73,8 +73,8 @@ public class HealthCheckService : BackgroundService
                     continue;
                 }
 
-                // get concurrency
-                var concurrency = _configManager.GetUsenetProviderConfig().TotalPooledConnections;
+                // get concurrency (capped to avoid saturating the NNTP pool)
+                var concurrency = _configManager.GetHealthCheckConcurrency();
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 
                 // get the davItem to health-check
@@ -110,8 +110,11 @@ public class HealthCheckService : BackgroundService
 
     public static IOrderedQueryable<DavItem> GetHealthCheckQueueItems(DavDatabaseClient dbClient)
     {
+        // Non-null NextHealthCheck first (includes urgent UnixEpoch from dynamic repair),
+        // then ascending NextHealthCheck, then newest releases.
         return GetHealthCheckQueueItemsQuery(dbClient)
-            .OrderBy(x => x.NextHealthCheck)
+            .OrderBy(x => x.NextHealthCheck == null ? 1 : 0)
+            .ThenBy(x => x.NextHealthCheck)
             .ThenByDescending(x => x.ReleaseDate)
             .ThenBy(x => x.Id);
     }
@@ -131,12 +134,26 @@ public class HealthCheckService : BackgroundService
         CancellationToken ct
     )
     {
+        // Urgent sentinel set by ExceptionMiddleware when streaming hits a missing article.
+        // Streaming already confirmed a BODY miss across providers — skip STAT-only recheck
+        // (STAT can pass while BODY returns 430; see nzbdav-dev#209) and repair immediately.
+        var isUrgentRepair = davItem.NextHealthCheck == DateTimeOffset.UnixEpoch;
+        if (isUrgentRepair)
+        {
+            Log.Information("Performing urgent dynamic repair for {FilePath}", davItem.Path);
+            await Repair(davItem, dbClient, ct).ConfigureAwait(false);
+            return;
+        }
+
         try
         {
             // update the release date, if null
             var segments = await GetAllSegments(davItem, dbClient, ct).ConfigureAwait(false);
             if (davItem.ReleaseDate == null) await UpdateReleaseDate(davItem, segments, ct).ConfigureAwait(false);
 
+            // sample large files to reduce NNTP load while keeping head/tail/stride coverage
+            var totalSegments = segments.Count;
+            var sampled = SampleSegments(segments);
 
             // setup progress tracking
             var progressHook = new Progress<int>();
@@ -148,14 +165,17 @@ public class HealthCheckService : BackgroundService
             };
 
             // perform health check
-            var progress = progressHook.ToPercentage(segments.Count);
-            await _usenetClient.CheckAllSegmentsAsync(segments, concurrency, progress, ct).ConfigureAwait(false);
+            var progress = progressHook.ToPercentage(sampled.Count);
+            await _usenetClient.CheckAllSegmentsAsync(sampled, concurrency, progress, ct).ConfigureAwait(false);
             _ = _websocketManager.SendMessage(WebsocketTopic.HealthItemProgress, $"{davItem.Id}|100");
             _ = _websocketManager.SendMessage(WebsocketTopic.HealthItemProgress, $"{davItem.Id}|done");
 
             // update the database
             davItem.LastHealthCheck = DateTimeOffset.UtcNow;
             davItem.NextHealthCheck = davItem.ReleaseDate + 2 * (davItem.LastHealthCheck - davItem.ReleaseDate);
+            var healthyMessage = sampled.Count < totalSegments
+                ? $"File is healthy (sampled {sampled.Count}/{totalSegments} segments)."
+                : "File is healthy.";
             dbClient.Ctx.HealthCheckResults.Add(SendStatus(new HealthCheckResult()
             {
                 Id = Guid.NewGuid(),
@@ -164,7 +184,7 @@ public class HealthCheckService : BackgroundService
                 CreatedAt = DateTimeOffset.UtcNow,
                 Result = HealthCheckResult.HealthResult.Healthy,
                 RepairStatus = HealthCheckResult.RepairAction.None,
-                Message = "File is healthy."
+                Message = healthyMessage
             }));
             await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
         }
@@ -186,6 +206,35 @@ public class HealthCheckService : BackgroundService
             // when usenet article is missing, perform repairs
             await Repair(davItem, dbClient, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// For files with more than 4000 segments, returns a stratified sample:
+    /// first 100, last 100, and evenly-spaced middle segments (~4000 total).
+    /// Small files are checked in full.
+    /// </summary>
+    public static List<string> SampleSegments(List<string> segments)
+    {
+        const int threshold = 4000;
+        if (segments.Count <= threshold) return segments;
+
+        const int headCount = 100;
+        const int tailCount = 100;
+        const int strideTarget = 4000;
+
+        var result = new HashSet<int>();
+
+        for (var i = 0; i < Math.Min(headCount, segments.Count); i++)
+            result.Add(i);
+
+        for (var i = Math.Max(0, segments.Count - tailCount); i < segments.Count; i++)
+            result.Add(i);
+
+        var stride = Math.Max(1, segments.Count / strideTarget);
+        for (var i = 0; i < segments.Count; i += stride)
+            result.Add(i);
+
+        return result.OrderBy(i => i).Select(i => segments[i]).ToList();
     }
 
     private async Task UpdateReleaseDate(DavItem davItem, List<string> segments, CancellationToken ct)

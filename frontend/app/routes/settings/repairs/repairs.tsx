@@ -1,6 +1,6 @@
 import { Checkbox, Input } from "~/components/ui/form";
 import { type Dispatch, type SetStateAction } from "react";
-import { className } from "~/utils/styling";
+import { isPositiveInteger } from "../usenet/usenet";
 
 type RepairsSettingsProps = {
     config: Record<string, string>
@@ -36,6 +36,23 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
             </div>
             <hr />
             <div className="space-y-2">
+                <label className="block text-sm font-medium text-slate-200" htmlFor="healthcheck-concurrency-input">Health Check Concurrency</label>
+                <Input
+                    className={`w-full ${!isPositiveInteger(config["repair.healthcheck-concurrency"] || "50") ? "border-red-500" : ""}`}
+                    type="text"
+                    id="healthcheck-concurrency-input"
+                    aria-describedby="healthcheck-concurrency-help"
+                    placeholder="50"
+                    value={config["repair.healthcheck-concurrency"] ?? ""}
+                    onChange={e => setNewConfig({ ...config, "repair.healthcheck-concurrency": e.target.value })} />
+                <p className="text-xs leading-relaxed text-slate-400" id="healthcheck-concurrency-help">
+                    The maximum number of concurrent NNTP connections used for health check STAT commands.
+                    Lower values reduce connection pressure on your usenet providers during health checks.
+                    Capped at your total provider pool size.
+                </p>
+            </div>
+            <hr />
+            <div className="space-y-2">
                 <label className="block text-sm font-medium text-slate-200" htmlFor="library-dir-input">Library Directory</label>
                 <Input
                     className={'w-full'}
@@ -55,5 +72,11 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
 
 export function isRepairsSettingsUpdated(config: Record<string, string>, newConfig: Record<string, string>) {
     return config["repair.enable"] !== newConfig["repair.enable"]
+        || config["repair.healthcheck-concurrency"] !== newConfig["repair.healthcheck-concurrency"]
         || config["media.library-dir"] !== newConfig["media.library-dir"];
+}
+
+export function isRepairsSettingsValid(newConfig: Record<string, string>) {
+    const value = newConfig["repair.healthcheck-concurrency"];
+    return value === undefined || value === "" || isPositiveInteger(value);
 }

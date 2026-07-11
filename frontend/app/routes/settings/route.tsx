@@ -83,6 +83,7 @@ const defaultConfig = {
     "preflight.ttl-seconds": "120",
     "preflight.indexer-max-wait-seconds": "5",
     "repair.enable": "false",
+    "repair.healthcheck-concurrency": "50",
     "db.is-startup-vacuum-enabled": "false",
     "maintenance.remove-orphaned-schedule-enabled": "false",
     "maintenance.remove-orphaned-schedule-time": "0",

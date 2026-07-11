@@ -504,10 +504,13 @@ public class MultiProviderNntpClient(
 
             if (lastException is not null)
             {
+                var failedProvider = orderedProviders[i - 1];
                 var msg = lastException.SourceException.Message;
-                Log.Debug(
-                    "Encountered error during NNTP operation: {ErrorMessage}. Trying another provider",
-                    msg);
+                Log.Information(
+                    "Provider {FailedProvider} error: {ErrorMessage}. Falling back to {NextProvider}",
+                    failedProvider.Host,
+                    msg,
+                    provider.Host);
             }
 
             var stopwatch = Stopwatch.StartNew();
@@ -560,7 +563,14 @@ public class MultiProviderNntpClient(
             }
         }
 
-        lastException?.Throw();
+        if (lastException is not null)
+        {
+            Log.Warning(
+                "All providers exhausted. Last error from {Provider}: {ErrorMessage}",
+                orderedProviders[^1].Host,
+                lastException.SourceException.Message);
+            lastException.Throw();
+        }
         throw new Exception("There are no usenet providers configured.");
     }
 

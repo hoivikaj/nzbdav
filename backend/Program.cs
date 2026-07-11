@@ -51,6 +51,7 @@ class Program
             .MinimumLevel.Override("Microsoft.AspNetCore.Hosting", AtLeast(level, LogEventLevel.Warning))
             .MinimumLevel.Override("Microsoft.AspNetCore.Mvc", AtLeast(level, LogEventLevel.Warning))
             .MinimumLevel.Override("Microsoft.AspNetCore.Routing", AtLeast(level, LogEventLevel.Warning))
+            .MinimumLevel.Override("Microsoft.AspNetCore.Server.Kestrel", AtLeast(level, LogEventLevel.Error))
             .MinimumLevel.Override("Microsoft.AspNetCore.DataProtection", AtLeast(level, LogEventLevel.Error))
             .WriteTo.Console(new ExpressionTemplate(
                 "[{@t:HH:mm:ss} {@l:u3}] " +

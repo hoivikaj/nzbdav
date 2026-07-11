@@ -188,7 +188,7 @@ public abstract class NntpClient : INntpClient
                 SegmentId: segmentId,
                 Result: await StatAsync(segmentId, token).ConfigureAwait(false)
             ))
-            .WithConcurrencyAsync(concurrency);
+            .WithConcurrencyAsync(concurrency, token);
 
         var processed = 0;
         await foreach (var task in tasks.ConfigureAwait(false))

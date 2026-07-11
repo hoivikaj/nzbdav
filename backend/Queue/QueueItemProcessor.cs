@@ -8,6 +8,7 @@ using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
 using NzbWebDAV.Models.Nzb;
 using NzbWebDAV.Queue.DeobfuscationSteps._1.FetchFirstSegment;
@@ -210,6 +211,29 @@ public class QueueItemProcessor(
         var fileInfos = GetFileInfosStep.GetFileInfos(
             segments, par2FileDescriptors);
 
+        // step 1b -- fail fast if any important file has a permanently missing first segment.
+        // If the first segment is gone across all providers, the rest are too.
+        // Exclude known-unimportant extensions rather than matching important ones so
+        // obfuscated filenames (common on DMCA'd content) still trigger the fast abort.
+        HashSet<string> unimportantExtensions = [".par2", ".nfo", ".txt", ".sfv", ".nzb", ".srr"];
+        var missingNzbFiles = segments
+            .Where(x => x.MissingFirstSegment)
+            .Select(x => x.NzbFile)
+            .ToHashSet();
+        var importantFilesMissing = fileInfos
+            .Where(x => missingNzbFiles.Contains(x.NzbFile))
+            .Where(x => !unimportantExtensions.Contains(Path.GetExtension(x.FileName).ToLowerInvariant()))
+            .ToList();
+        if (importantFilesMissing.Count > 0)
+        {
+            var fileNames = string.Join(", ", importantFilesMissing
+                .Select(x => string.IsNullOrEmpty(x.FileName) ? x.NzbFile.Subject : x.FileName)
+                .Take(3));
+            throw new NonRetryableDownloadException(
+                $"Missing articles: {importantFilesMissing.Count} important file(s) have missing segments " +
+                $"across all providers (e.g. {fileNames}). NZB is likely DMCA'd or expired.");
+        }
+
         // step 2a -- try altmount-style lazy RAR mounting for the rar group
         // when enabled. On success, the entire rar group is handled here
         // (only the first volume gets parsed) and skipped in step 2b. On
@@ -235,7 +259,7 @@ public class QueueItemProcessor(
             .ToMultiProgress(fileProcessors.Count);
         var fileProcessingResultsAll = await fileProcessors
             .Select(x => x!.ProcessAsync(part2Progress.SubProgress))
-            .WithConcurrencyAsync(configManager.GetMaxQueueConnections() + 5)
+            .WithConcurrencyAsync(Math.Min(configManager.GetMaxQueueConnections() + 5, 50))
             .GetAllAsync(ct).ConfigureAwait(false);
         var fileProcessingResults = fileProcessingResultsAll
             .Where(x => x is not null)
@@ -257,9 +281,7 @@ public class QueueItemProcessor(
             var part3Progress = progress
                 .Offset(100)
                 .ToPercentage(articlesToCheck.Count);
-            var healthCheckConcurrency = configManager
-                .GetUsenetProviderConfig()
-                .TotalPooledConnections;
+            var healthCheckConcurrency = configManager.GetHealthCheckConcurrency();
             await usenetClient
                 .CheckAllSegmentsAsync(articlesToCheck, healthCheckConcurrency, part3Progress, ct)
                 .ConfigureAwait(false);

@@ -1,5 +1,8 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using System.Collections.Concurrent;
+using Microsoft.AspNetCore.Http;
 using NWebDav.Server.Helpers;
+using NzbWebDAV.Config;
+using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
@@ -8,8 +11,17 @@ using Serilog;
 
 namespace NzbWebDAV.Middlewares;
 
-public class ExceptionMiddleware(RequestDelegate next)
+public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManager)
 {
+    private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> RecentMissingArticles = new();
+    private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> RecentConnectionLimitErrors = new();
+    private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> RecentSeekErrors = new();
+    private static readonly ConcurrentDictionary<Guid, DateTime> RecentRepairTriggers = new();
+    private static readonly TimeSpan DedupeWindow = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan RepairDedupeWindow = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan CleanupThreshold = TimeSpan.FromMinutes(5);
+    private static int _callCount;
+
     public async Task InvokeAsync(HttpContext context)
     {
         try
@@ -35,10 +47,24 @@ public class ExceptionMiddleware(RequestDelegate next)
             }
 
             var filePath = GetRequestFilePath(context);
-            Log.Error(
-                "File {FilePath} has missing articles: {Reason}",
-                filePath,
-                notFound!.Message);
+            var dedupeKey = $"{filePath}|{notFound!.SegmentId}";
+            LogWithDedup(RecentMissingArticles, dedupeKey, suppressed =>
+            {
+                if (suppressed > 0)
+                    Log.Error(
+                        "File {FilePath} has missing articles: {Reason} (suppressed {SuppressedCount} duplicates in last 60s)",
+                        filePath,
+                        notFound.Message,
+                        suppressed);
+                else
+                    Log.Error(
+                        "File {FilePath} has missing articles: {Reason}",
+                        filePath,
+                        notFound.Message);
+            });
+
+            if (context.Items["DavItem"] is DavItem davItem)
+                ScheduleRepair(davItem.Id);
         }
         catch (SeekPositionNotFoundException)
         {
@@ -50,10 +76,60 @@ public class ExceptionMiddleware(RequestDelegate next)
 
             var filePath = GetRequestFilePath(context);
             var seekPosition = context.Request.GetRange()?.Start?.ToString() ?? "unknown";
-            Log.Error(
-                "File {FilePath} could not seek to byte position {SeekPosition}",
-                filePath,
-                seekPosition);
+            var dedupeKey = $"{filePath}|{seekPosition}";
+            LogWithDedup(RecentSeekErrors, dedupeKey, suppressed =>
+            {
+                if (suppressed > 0)
+                    Log.Error(
+                        "File {FilePath} could not seek to byte position {SeekPosition} (suppressed {SuppressedCount} duplicates in last 60s)",
+                        filePath,
+                        seekPosition,
+                        suppressed);
+                else
+                    Log.Error(
+                        "File {FilePath} could not seek to byte position {SeekPosition}",
+                        filePath,
+                        seekPosition);
+            });
+        }
+        catch (CouldNotLoginToUsenetException e)
+        {
+            if (!context.Response.HasStarted)
+            {
+                context.Response.Clear();
+                context.Response.StatusCode = 503;
+            }
+
+            var filePath = GetRequestFilePath(context);
+            var errorDetail = e.InnerException?.Message ?? e.Message;
+            if (errorDetail.Contains("connection limit", StringComparison.OrdinalIgnoreCase))
+            {
+                LogWithDedup(RecentConnectionLimitErrors, errorDetail, suppressed =>
+                {
+                    if (suppressed > 0)
+                        Log.Warning(
+                            "Provider connection limit reached: {ErrorMessage} (suppressed {SuppressedCount} duplicates in last 60s)",
+                            errorDetail,
+                            suppressed);
+                    else
+                        Log.Warning("Provider connection limit reached: {ErrorMessage}", errorDetail);
+                });
+            }
+            else
+            {
+                Log.Error("File {FilePath} provider authentication failed: {ErrorMessage}", filePath, errorDetail);
+            }
+        }
+        catch (CouldNotConnectToUsenetException e)
+        {
+            if (!context.Response.HasStarted)
+            {
+                context.Response.Clear();
+                context.Response.StatusCode = 503;
+            }
+
+            var filePath = GetRequestFilePath(context);
+            Log.Error("File {FilePath} could not connect to usenet provider: {ErrorMessage}", filePath, e.Message);
         }
         catch (Exception e) when (IsDavItemRequest(context))
         {
@@ -84,6 +160,118 @@ public class ExceptionMiddleware(RequestDelegate next)
                     filePath,
                     seekPosition);
             }
+        }
+    }
+
+    private void ScheduleRepair(Guid davItemId)
+    {
+        if (!configManager.IsRepairJobEnabled())
+            return;
+
+        var now = DateTime.UtcNow;
+        var isDuplicate = false;
+        RecentRepairTriggers.AddOrUpdate(
+            davItemId,
+            _ => now,
+            (_, existing) =>
+            {
+                if (now - existing < RepairDedupeWindow)
+                {
+                    isDuplicate = true;
+                    return existing;
+                }
+                return now;
+            });
+
+        if (isDuplicate)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var dbContext = new DavDatabaseContext();
+                var item = await dbContext.Items.FindAsync(davItemId).ConfigureAwait(false);
+                if (item == null)
+                    return;
+
+                // UnixEpoch sorts first in HealthCheckService (non-null before null, then ascending).
+                // Only skip if already urgent — overdue items must still be bumped (Pukabyte#4).
+                var urgent = DateTimeOffset.UnixEpoch;
+                if (item.NextHealthCheck == urgent)
+                    return;
+
+                item.NextHealthCheck = urgent;
+                await dbContext.SaveChangesAsync().ConfigureAwait(false);
+                Log.Information("Scheduled dynamic repair for {FilePath}", item.Path);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to schedule dynamic repair for DavItem {DavItemId}", davItemId);
+            }
+        });
+    }
+
+    private static void LogWithDedup(
+        ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> store,
+        string key,
+        Action<int> logAction)
+    {
+        var now = DateTime.UtcNow;
+        var suppressed = 0;
+        var shouldLog = false;
+
+        store.AddOrUpdate(
+            key,
+            _ =>
+            {
+                shouldLog = true;
+                return (now, 0);
+            },
+            (_, existing) =>
+            {
+                if (now - existing.LastLogged < DedupeWindow)
+                {
+                    suppressed = existing.SuppressedCount + 1;
+                    return (existing.LastLogged, suppressed);
+                }
+
+                shouldLog = true;
+                suppressed = existing.SuppressedCount;
+                return (now, 0);
+            });
+
+        if (shouldLog)
+            logAction(suppressed);
+
+        CleanupStaleEntries();
+    }
+
+    private static void CleanupStaleEntries()
+    {
+        if (Interlocked.Increment(ref _callCount) % 100 != 0)
+            return;
+
+        var cutoff = DateTime.UtcNow - CleanupThreshold;
+        foreach (var kvp in RecentMissingArticles)
+        {
+            if (kvp.Value.LastLogged < cutoff)
+                RecentMissingArticles.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in RecentConnectionLimitErrors)
+        {
+            if (kvp.Value.LastLogged < cutoff)
+                RecentConnectionLimitErrors.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in RecentSeekErrors)
+        {
+            if (kvp.Value.LastLogged < cutoff)
+                RecentSeekErrors.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in RecentRepairTriggers)
+        {
+            if (kvp.Value < cutoff)
+                RecentRepairTriggers.TryRemove(kvp.Key, out _);
         }
     }
 

@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using NzbWebDAV.Clients.Usenet.Concurrency;
 using NzbWebDAV.Clients.Usenet.Connections;
@@ -39,6 +40,31 @@ public class MultiConnectionNntpClient(
     public ProviderType ProviderType { get; } = type;
     public int Priority { get; } = priority;
     public string Host { get; } = providerName;
+
+    private static readonly ConcurrentDictionary<string, int> TimeoutCounts = new();
+    private static long _lastTimeoutFlushTicks = DateTime.UtcNow.Ticks;
+
+    private static void IncrementTimeoutCount(string provider)
+    {
+        TimeoutCounts.AddOrUpdate(provider, 1, (_, existing) => existing + 1);
+        MaybeFlushTimeoutCounts();
+    }
+
+    private static void MaybeFlushTimeoutCounts()
+    {
+        var nowTicks = DateTime.UtcNow.Ticks;
+        var last = Interlocked.Read(ref _lastTimeoutFlushTicks);
+        if (nowTicks - last < TimeSpan.FromSeconds(60).Ticks)
+            return;
+        if (Interlocked.CompareExchange(ref _lastTimeoutFlushTicks, nowTicks, last) != last)
+            return;
+
+        foreach (var key in TimeoutCounts.Keys)
+        {
+            if (TimeoutCounts.TryRemove(key, out var count) && count > 0)
+                Log.Warning("[{ProviderName}] {Count} NNTP timeouts in the last 60 seconds", key, count);
+        }
+    }
 
     public int? ConfiguredPipeliningDepth { get; } = pipeliningDepth;
     // null or non-positive = uncapped. Routing reads these to decide whether
@@ -319,6 +345,7 @@ public class MultiConnectionNntpClient(
                 // the wait before MultiProviderNntpClient can fall over to the next
                 // provider. Replace the socket (the read may have left partial bytes
                 // on the wire) and propagate so the outer provider loop moves on.
+                IncrementTimeoutCount(providerName);
                 deferredCallback.Discard();
                 circuitBreaker.RecordFailure();
                 LogException(() => connectionLock?.Replace());

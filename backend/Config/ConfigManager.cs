@@ -708,6 +708,20 @@ public class ConfigManager
                && GetArrConfig().GetInstanceCount() > 0;
     }
 
+    /// <summary>
+    /// Max concurrent NNTP STAT connections for health checks.
+    /// Capped at the configured provider pool size to avoid pool starvation.
+    /// </summary>
+    public int GetHealthCheckConcurrency()
+    {
+        var poolSize = GetUsenetProviderConfig().TotalPooledConnections;
+        var configured = int.Parse(
+            StringUtil.EmptyToNull(GetConfigValue("repair.healthcheck-concurrency"))
+            ?? "50"
+        );
+        return Math.Clamp(configured, 1, Math.Max(1, poolSize));
+    }
+
     public ArrConfig GetArrConfig()
     {
         var defaultValue = new ArrConfig();
