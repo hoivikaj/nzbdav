@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/nzbdav/nzbdav/compare/v0.6.14...v0.7.0) (2026-07-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* Introduces new persistence schemas and operational configuration for the 0.7 release line.
+
+### Features
+
+* add proactive Usenet discovery and playback resilience ([97f9baa](https://github.com/nzbdav/nzbdav/commit/97f9baa4eed66802cecfabce4bd68e8caa3f3960))
+* **ui:** expose observability and discovery workflows ([e4300e9](https://github.com/nzbdav/nzbdav/commit/e4300e9c3738f561b4a3e0bd6257ae81faa61a42))
+
 ## [0.6.14](https://github.com/nzbdav/nzbdav/compare/v0.6.13...v0.6.14) (2026-07-11)
 
 
