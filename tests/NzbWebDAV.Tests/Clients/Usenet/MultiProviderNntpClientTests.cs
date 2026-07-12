@@ -1,3 +1,4 @@
+using System.IO;
 using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Clients.Usenet.Connections;
 using NzbWebDAV.Clients.Usenet.Models;
@@ -136,12 +137,182 @@ public class MultiProviderNntpClientTests
         Assert.Equal(0, connection.SingularRequests);
     }
 
-    private static MultiConnectionNntpClient CreateProvider(INntpClient connection)
+    [Fact]
+    public async Task StorageGroup_SameGroupMiss_SkipsSiblingProvider()
+    {
+        var first = new ScriptedNntpClient
+        {
+            BatchResponseCode = 430,
+            SingularResponseCode = 430,
+        };
+        var sibling = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(first, host: "a.example", storageGroup: "omicron"),
+            CreateProvider(sibling, host: "b.example", storageGroup: "omicron"),
+        ]);
+
+        var response = await client.DecodedBodyAsync("segment", CancellationToken.None);
+
+        Assert.Equal(UsenetResponseType.NoArticleWithThatMessageId, response.ResponseType);
+        Assert.Equal(1, first.SingularRequests);
+        Assert.Equal(0, sibling.SingularRequests);
+    }
+
+    [Fact]
+    public async Task StorageGroup_ConnectionError_DoesNotSkipSibling()
+    {
+        var first = new ScriptedNntpClient
+        {
+            BatchResponseCode = 430,
+            SingularException = _ => new IOException("connection reset"),
+        };
+        var sibling = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(first, host: "a.example", storageGroup: "omicron"),
+            CreateProvider(sibling, host: "b.example", storageGroup: "omicron"),
+        ]);
+
+        var response = await client.DecodedBodyAsync("segment", CancellationToken.None);
+
+        Assert.Equal(UsenetResponseType.ArticleRetrievedBodyFollows, response.ResponseType);
+        // MultiConnectionNntpClient retries the failed connection once before failing over.
+        Assert.True(first.SingularRequests >= 1);
+        Assert.Equal(1, sibling.SingularRequests);
+    }
+
+    [Fact]
+    public async Task StorageGroup_DifferentGroups_StillFailsOver()
+    {
+        var first = new ScriptedNntpClient
+        {
+            BatchResponseCode = 430,
+            SingularResponseCode = 430,
+        };
+        var other = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(first, host: "a.example", storageGroup: "omicron"),
+            CreateProvider(other, host: "b.example", storageGroup: "eweka"),
+        ]);
+
+        var response = await client.DecodedBodyAsync("segment", CancellationToken.None);
+
+        Assert.Equal(UsenetResponseType.ArticleRetrievedBodyFollows, response.ResponseType);
+        Assert.Equal(1, first.SingularRequests);
+        Assert.Equal(1, other.SingularRequests);
+    }
+
+    [Fact]
+    public async Task StorageGroup_Empty_PreservesFailover()
+    {
+        var first = new ScriptedNntpClient
+        {
+            BatchResponseCode = 430,
+            SingularResponseCode = 430,
+        };
+        var second = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(first, host: "a.example"),
+            CreateProvider(second, host: "b.example"),
+        ]);
+
+        var response = await client.DecodedBodyAsync("segment", CancellationToken.None);
+
+        Assert.Equal(UsenetResponseType.ArticleRetrievedBodyFollows, response.ResponseType);
+        Assert.Equal(1, first.SingularRequests);
+        Assert.Equal(1, second.SingularRequests);
+    }
+
+    [Fact]
+    public async Task StorageGroup_BatchPrimaryRetry_NotSkippedBySameGroupSibling()
+    {
+        var primary = new ScriptedNntpClient
+        {
+            BatchResponseCode = 430,
+            SingularResponseCode = 222,
+        };
+        var sibling = new ScriptedNntpClient
+        {
+            BatchResponseCode = 430,
+            SingularResponseCode = 430,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(primary, host: "a.example", storageGroup: "omicron"),
+            CreateProvider(sibling, host: "b.example", storageGroup: "omicron"),
+        ]);
+
+        var batch = await client.DecodedBodiesAsync(
+            ["segment"], onConnectionReadyAgain: null, CancellationToken.None);
+        var response = await batch.Responses[0];
+
+        Assert.Equal(UsenetResponseType.ArticleRetrievedBodyFollows, response.ResponseType);
+        Assert.Equal(1, primary.SingularRequests);
+        Assert.Equal(0, sibling.SingularRequests);
+    }
+
+    [Fact]
+    public async Task StorageGroup_StreamingTerminalMiss_FiresCompletionCallbackOnce()
+    {
+        var first = new ScriptedNntpClient
+        {
+            BatchResponseCode = 430,
+            SingularResponseCode = 430,
+        };
+        var sibling = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        var callbacks = new List<ArticleBodyResult>();
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(first, host: "a.example", storageGroup: "omicron"),
+            CreateProvider(sibling, host: "b.example", storageGroup: "omicron"),
+        ]);
+
+        var response = await client.DecodedBodyAsync(
+            "segment", callbacks.Add, CancellationToken.None);
+
+        Assert.Equal(UsenetResponseType.NoArticleWithThatMessageId, response.ResponseType);
+        Assert.Equal(1, first.SingularRequests);
+        Assert.Equal(0, sibling.SingularRequests);
+        Assert.Single(callbacks);
+        Assert.Equal(ArticleBodyResult.NotRetrieved, callbacks[0]);
+    }
+
+    private static MultiConnectionNntpClient CreateProvider(
+        INntpClient connection,
+        string host = "test",
+        string storageGroup = "")
     {
         var pool = new ConnectionPool<INntpClient>(
             maxConnections: 1, _ => ValueTask.FromResult(connection));
         return new MultiConnectionNntpClient(
-            pool, ProviderType.Pooled, new ProviderCircuitBreaker("test"), "test");
+            pool,
+            ProviderType.Pooled,
+            new ProviderCircuitBreaker(host),
+            host,
+            storageGroup: storageGroup);
     }
 
     private sealed class ScriptedNntpClient : NntpClient
@@ -166,12 +337,7 @@ public class MultiProviderNntpClientTests
             var responses = segmentIds
                 .Select(segmentId => Task.FromResult(CreateResponse(segmentId, BatchResponseCode)))
                 .ToArray();
-            onConnectionReadyAgain?.Invoke(BatchResponseCode switch
-            {
-                (int)UsenetResponseType.ArticleRetrievedBodyFollows => ArticleBodyResult.Retrieved,
-                (int)UsenetResponseType.NoArticleWithThatMessageId => ArticleBodyResult.NotFound,
-                _ => ArticleBodyResult.NotRetrieved,
-            });
+            onConnectionReadyAgain?.Invoke(ToArticleBodyResult(BatchResponseCode));
             return Task.FromResult(new UsenetDecodedBodyBatch { Responses = responses });
         }
 
@@ -185,9 +351,16 @@ public class MultiProviderNntpClientTests
                 throw SingularException(segmentId.ToString());
 
             var response = CreateResponse(segmentId, SingularResponseCode);
-            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            onConnectionReadyAgain?.Invoke(ToArticleBodyResult(SingularResponseCode));
             return Task.FromResult(response);
         }
+
+        private static ArticleBodyResult ToArticleBodyResult(int responseCode) => responseCode switch
+        {
+            (int)UsenetResponseType.ArticleRetrievedBodyFollows => ArticleBodyResult.Retrieved,
+            (int)UsenetResponseType.NoArticleWithThatMessageId => ArticleBodyResult.NotFound,
+            _ => ArticleBodyResult.NotRetrieved,
+        };
 
         private static UsenetDecodedBodyResponse CreateResponse(SegmentId segmentId, int responseCode)
         {

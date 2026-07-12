@@ -34,12 +34,14 @@ public class MultiConnectionNntpClient(
     long? byteLimit = null,
     long bytesUsedOffset = 0,
     int priority = 0,
-    int? pipeliningDepth = null
+    int? pipeliningDepth = null,
+    string storageGroup = ""
 ) : NntpClient
 {
     public ProviderType ProviderType { get; } = type;
     public int Priority { get; } = priority;
     public string Host { get; } = providerName;
+    public string StorageGroup { get; } = storageGroup;
 
     private static readonly ConcurrentDictionary<string, int> TimeoutCounts = new();
     private static long _lastTimeoutFlushTicks = DateTime.UtcNow.Ticks;

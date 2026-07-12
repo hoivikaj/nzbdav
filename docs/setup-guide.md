@@ -138,6 +138,9 @@ Set your username and password.
 | Max Connections | Your provider's allowed maximum (for example, `20`) |
 | Type | `Pool Connections` |
 | Use SSL | Checked |
+| Storage group (optional) | Leave blank unless multiple providers share the same upstream storage |
+
+**Storage group (optional):** If you have multiple providers that resell the *same* upstream storage (identical article availability), give them the same free-text label. When one reports an article missing (NNTP 430), NzbDav skips the remaining providers sharing that label for that request instead of re-probing the same storage. Connection errors never trigger a skip. Only group providers you are sure share storage *and* the same takedown/retention policy — otherwise a miss on one reseller could hide an article still available on another.
 
 **C. WebDAV settings (`Settings` → `WebDAV`)**
 

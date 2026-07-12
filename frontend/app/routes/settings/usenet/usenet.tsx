@@ -83,6 +83,10 @@ type ConnectionDetails = {
     // Optional user-set label. Shown in the UI in place of Host when present;
     // Host stays the real NNTP target.
     Nickname?: string;
+    // Optional label for providers that share upstream storage. When one reports
+    // an article missing (NNTP 430), siblings with the same label are skipped
+    // for that request.
+    StorageGroup?: string;
     PreviousType?: ProviderType;
     // null/0 = uncapped. Stored as bytes; the modal lets the user type a
     // friendlier MB/GB/TB value that gets converted on save.
@@ -533,6 +537,18 @@ export function UsenetSettings({ config, setNewConfig }: UsenetSettingsProps) {
                                                 </div>
                                             </div>
 
+                                            {provider.StorageGroup?.trim() && (
+                                                <div className={'relative flex min-w-0 items-center gap-2'}>
+                                                    <div className={'text-blue-400'}>
+                                                        <Icon name="storage" className="!text-[18px]" />
+                                                    </div>
+                                                    <div className={'flex min-w-0 flex-col'}>
+                                                        <span className={'text-[11px] uppercase tracking-wide text-slate-500'}>Storage group</span>
+                                                        <span className={'truncate text-sm text-slate-200'}>{provider.StorageGroup.trim()}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+
                                         </div>
 
                                         <UsageRow
@@ -731,6 +747,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
     const initialUsed = bytesToValueAndUnit(provider?.BytesUsedOffset);
 
     const [nickname, setNickname] = useState(provider?.Nickname || "");
+    const [storageGroup, setStorageGroup] = useState(provider?.StorageGroup || "");
     const [host, setHost] = useState(provider?.Host || "");
     const [port, setPort] = useState(provider?.Port?.toString() || "");
     const [useSsl, setUseSsl] = useState(provider?.UseSsl ?? true);
@@ -761,6 +778,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
             const lim = bytesToValueAndUnit(provider?.ByteLimit);
             const used = bytesToValueAndUnit(provider?.BytesUsedOffset);
             setNickname(provider?.Nickname || "");
+            setStorageGroup(provider?.StorageGroup || "");
             setHost(provider?.Host || "");
             setPort(provider?.Port?.toString() || "");
             setUseSsl(provider?.UseSsl ?? true);
@@ -943,6 +961,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
             : (provider?.BytesUsedResetAt ?? 0);
 
         const trimmedNickname = nickname.trim();
+        const trimmedStorageGroup = storageGroup.trim();
         onSave({
             Type: type,
             Host: host,
@@ -954,12 +973,13 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
             PipeliningDepth: pipeliningDepth.trim() === "" ? null : parseInt(pipeliningDepth, 10),
             Priority: provider?.Priority ?? 0,
             Nickname: trimmedNickname === "" ? undefined : trimmedNickname,
+            StorageGroup: trimmedStorageGroup,
             PreviousType: type === ProviderType.Disabled ? provider?.PreviousType : undefined,
             ByteLimit: byteLimit,
             BytesUsedOffset: offsetToPersist,
             BytesUsedResetAt: resetAtToPersist,
         });
-    }, [type, host, port, useSsl, user, pass, maxConnections, pipeliningDepth, nickname, provider, isEditing, limitValue, limitUnit, initialUsedValue, initialUsedUnit, onSave]);
+    }, [type, host, port, useSsl, user, pass, maxConnections, pipeliningDepth, nickname, storageGroup, provider, isEditing, limitValue, limitUnit, initialUsedValue, initialUsedUnit, onSave]);
 
     const handleOverlayClick = useCallback((e: React.MouseEvent) => {
         if (e.target === e.currentTarget) {
@@ -1016,6 +1036,26 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
                             />
                             <div className={styles["form-hint"]}>
                                 Friendly label shown in the UI in place of the hostname.
+                            </div>
+                        </div>
+
+                        <div className={`${styles["form-group"]} ${styles["full-width"]}`}>
+                            <label htmlFor="provider-storage-group" className={styles["form-label"]}>
+                                Storage group (optional)
+                            </label>
+                            <input
+                                type="text"
+                                id="provider-storage-group"
+                                className={styles["form-input"]}
+                                placeholder="e.g. omicron"
+                                value={storageGroup}
+                                onChange={(e) => setStorageGroup(e.target.value)}
+                            />
+                            <div className={styles["form-hint"]}>
+                                Give providers that share the same upstream storage (identical article
+                                availability) the same label. When one reports an article missing, the others
+                                with this label are skipped for that request to reduce latency. Leave blank
+                                unless you are sure they share storage and the same takedown/retention policy.
                             </div>
                         </div>
 

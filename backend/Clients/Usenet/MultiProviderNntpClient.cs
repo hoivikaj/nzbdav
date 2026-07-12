@@ -188,6 +188,9 @@ public class MultiProviderNntpClient(
         var fallbackCompletionOwnedByTransfer = false;
         var primaryStopwatch = Stopwatch.StartNew();
         List<(string Host, SegmentFetch.FetchStatus Reason)>? priorMisses = null;
+        // Fresh per article resolution. Do not mark on the initial batch 430 so the
+        // intentional primary retry below is never skipped by its own miss.
+        var missingGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             UsenetDecodedBodyResponse? response = null;
@@ -242,6 +245,16 @@ public class MultiProviderNntpClient(
             foreach (var provider in retryProviders)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var group = NormalizeStorageGroup(provider.StorageGroup);
+                if (group.Length > 0 && missingGroups.Contains(group))
+                {
+                    Log.Debug(
+                        "Skipping provider `{Host}` on storage group `{Group}` — " +
+                        "a sibling provider already reported the article missing.",
+                        provider.Host, group);
+                    continue;
+                }
+
                 coordinator.AddTransfer();
                 var deferredCallback = new DeferredArticleBodyCallback();
                 var stopwatch = Stopwatch.StartNew();
@@ -280,6 +293,11 @@ public class MultiProviderNntpClient(
                         RecordFetch(provider.Host, SegmentFetch.FetchStatus.Missing,
                             stopwatch.ElapsedMilliseconds, priorMisses?.Count ?? 0);
                         (priorMisses ??= []).Add((provider.Host, SegmentFetch.FetchStatus.Missing));
+                        if (responseType == UsenetResponseType.NoArticleWithThatMessageId &&
+                            group.Length > 0)
+                        {
+                            missingGroups.Add(group);
+                        }
                         deferredCallback.Discard();
                         coordinator.CompleteAttempt();
                     }
@@ -415,12 +433,25 @@ public class MultiProviderNntpClient(
         var attribution = AttributionContext.Value;
         if (attribution != null) attribution.Host = null;
         ExceptionDispatchInfo? lastException = null;
+        T? lastNoArticleResult = null;
+        var lastOutcomeWasException = false;
         List<(string Host, SegmentFetch.FetchStatus Reason)>? priorMisses = null;
+        var missingGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var orderedProviders = SelectOrderedProviders(out var reserved);
         using var releasePending = new ScopeReleaser(() => reserved?.ReleasePending());
-        for (var index = 0; index < orderedProviders.Count; index++)
+        var attemptIndex = 0;
+        foreach (var provider in orderedProviders)
         {
-            var provider = orderedProviders[index];
+            var group = NormalizeStorageGroup(provider.StorageGroup);
+            if (group.Length > 0 && missingGroups.Contains(group))
+            {
+                Log.Debug(
+                    "Skipping provider `{Host}` on storage group `{Group}` — " +
+                    "a sibling provider already reported the article missing.",
+                    provider.Host, group);
+                continue;
+            }
+
             var deferredCallback = new DeferredArticleBodyCallback();
             var stopwatch = Stopwatch.StartNew();
             try
@@ -434,8 +465,8 @@ public class MultiProviderNntpClient(
                     if (attribution != null) attribution.Host = provider.Host;
                     _usageTracker.RecordSuccess(provider.Host);
                     RecordFetch(provider.Host, SegmentFetch.FetchStatus.Ok,
-                        stopwatch.ElapsedMilliseconds, index);
-                    if (index > 0)
+                        stopwatch.ElapsedMilliseconds, attemptIndex);
+                    if (attemptIndex > 0)
                     {
                         _usageTracker.RecordFailoverSave();
                         RecordFailoverMisses(priorMisses, provider.Host);
@@ -446,17 +477,20 @@ public class MultiProviderNntpClient(
                 }
 
                 deferredCallback.Discard();
-                if (result.ResponseType == UsenetResponseType.NoArticleWithThatMessageId &&
-                    index < orderedProviders.Count - 1)
+                if (result.ResponseType == UsenetResponseType.NoArticleWithThatMessageId)
                 {
                     RecordFetch(provider.Host, SegmentFetch.FetchStatus.Missing,
-                        stopwatch.ElapsedMilliseconds, index);
+                        stopwatch.ElapsedMilliseconds, attemptIndex);
                     (priorMisses ??= []).Add((provider.Host, SegmentFetch.FetchStatus.Missing));
+                    lastNoArticleResult = result;
+                    lastOutcomeWasException = false;
+                    if (group.Length > 0) missingGroups.Add(group);
+                    attemptIndex++;
                     continue;
                 }
 
                 RecordFetch(provider.Host, SegmentFetch.FetchStatus.Missing,
-                    stopwatch.ElapsedMilliseconds, index);
+                    stopwatch.ElapsedMilliseconds, attemptIndex);
                 InvokeCompletionCallback(
                     onConnectionReadyAgain, ArticleBodyResult.NotRetrieved);
                 return result;
@@ -465,10 +499,12 @@ public class MultiProviderNntpClient(
             {
                 stopwatch.Stop();
                 var reason = ClassifyException(e);
-                RecordFetch(provider.Host, reason, stopwatch.ElapsedMilliseconds, index);
+                RecordFetch(provider.Host, reason, stopwatch.ElapsedMilliseconds, attemptIndex);
                 (priorMisses ??= []).Add((provider.Host, reason));
                 deferredCallback.Discard();
                 lastException = ExceptionDispatchInfo.Capture(e);
+                lastOutcomeWasException = true;
+                attemptIndex++;
             }
             catch
             {
@@ -479,8 +515,10 @@ public class MultiProviderNntpClient(
             }
         }
 
+        // Terminal 430 after skips/exhaustion must fire the completion callback exactly once.
         InvokeCompletionCallback(onConnectionReadyAgain, ArticleBodyResult.NotRetrieved);
-        lastException?.Throw();
+        if (lastOutcomeWasException) lastException!.Throw();
+        if (lastNoArticleResult is not null) return lastNoArticleResult;
         throw new Exception("There are no usenet providers configured.");
     }
 
@@ -493,26 +531,38 @@ public class MultiProviderNntpClient(
         var attribution = AttributionContext.Value;
         if (attribution != null) attribution.Host = null;
         ExceptionDispatchInfo? lastException = null;
+        T? lastNoArticleResult = null;
+        var lastOutcomeWasException = false;
+        MultiConnectionNntpClient? lastAttemptedProvider = null;
         List<(string Host, SegmentFetch.FetchStatus Reason)>? priorMisses = null;
+        var missingGroups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var orderedProviders = SelectOrderedProviders(out var reserved);
         using var releasePending = new ScopeReleaser(() => reserved?.ReleasePending());
-        for (var i = 0; i < orderedProviders.Count; i++)
+        var attemptIndex = 0;
+        foreach (var provider in orderedProviders)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var provider = orderedProviders[i];
-            var isLastProvider = i == orderedProviders.Count - 1;
-
-            if (lastException is not null)
+            var group = NormalizeStorageGroup(provider.StorageGroup);
+            if (group.Length > 0 && missingGroups.Contains(group))
             {
-                var failedProvider = orderedProviders[i - 1];
+                Log.Debug(
+                    "Skipping provider `{Host}` on storage group `{Group}` — " +
+                    "a sibling provider already reported the article missing.",
+                    provider.Host, group);
+                continue;
+            }
+
+            if (lastException is not null && lastAttemptedProvider is not null)
+            {
                 var msg = lastException.SourceException.Message;
                 Log.Information(
                     "Provider {FailedProvider} error: {ErrorMessage}. Falling back to {NextProvider}",
-                    failedProvider.Host,
+                    lastAttemptedProvider.Host,
                     msg,
                     provider.Host);
             }
 
+            lastAttemptedProvider = provider;
             var stopwatch = Stopwatch.StartNew();
             try
             {
@@ -520,16 +570,21 @@ public class MultiProviderNntpClient(
                 stopwatch.Stop();
 
                 // if no article with that message-id is found, try again with the next provider.
-                if (!isLastProvider && result.ResponseType == UsenetResponseType.NoArticleWithThatMessageId)
+                // Only a definitive 430 marks the storage group missing — never a connection error.
+                if (result.ResponseType == UsenetResponseType.NoArticleWithThatMessageId)
                 {
-                    RecordFetch(provider.Host, SegmentFetch.FetchStatus.Missing, stopwatch.ElapsedMilliseconds, i);
+                    RecordFetch(provider.Host, SegmentFetch.FetchStatus.Missing, stopwatch.ElapsedMilliseconds, attemptIndex);
                     (priorMisses ??= new()).Add((provider.Host, SegmentFetch.FetchStatus.Missing));
+                    lastNoArticleResult = result;
+                    lastOutcomeWasException = false;
+                    if (group.Length > 0) missingGroups.Add(group);
+                    attemptIndex++;
                     continue;
                 }
 
                 // attribute the response to this provider, unless it was a "missing" hit
                 // from the last provider (in which case nobody actually answered).
-                if (attribution != null && result.ResponseType != UsenetResponseType.NoArticleWithThatMessageId)
+                if (attribution != null)
                     attribution.Host = provider.Host;
 
                 // record per-queue-item attribution only for bytes-bearing responses (BODY/ARTICLE).
@@ -538,8 +593,8 @@ public class MultiProviderNntpClient(
                                           or UsenetResponseType.ArticleRetrievedHeadAndBodyFollow)
                 {
                     _usageTracker.RecordSuccess(provider.Host);
-                    RecordFetch(provider.Host, SegmentFetch.FetchStatus.Ok, stopwatch.ElapsedMilliseconds, i);
-                    if (i > 0)
+                    RecordFetch(provider.Host, SegmentFetch.FetchStatus.Ok, stopwatch.ElapsedMilliseconds, attemptIndex);
+                    if (attemptIndex > 0)
                     {
                         _usageTracker.RecordFailoverSave();
                         RecordFailoverMisses(priorMisses, rescuer: provider.Host);
@@ -548,7 +603,7 @@ public class MultiProviderNntpClient(
                 }
                 else
                 {
-                    RecordFetch(provider.Host, SegmentFetch.FetchStatus.Missing, stopwatch.ElapsedMilliseconds, i);
+                    RecordFetch(provider.Host, SegmentFetch.FetchStatus.Missing, stopwatch.ElapsedMilliseconds, attemptIndex);
                 }
 
                 return result;
@@ -557,20 +612,26 @@ public class MultiProviderNntpClient(
             {
                 stopwatch.Stop();
                 var reason = ClassifyException(e);
-                RecordFetch(provider.Host, reason, stopwatch.ElapsedMilliseconds, i);
+                RecordFetch(provider.Host, reason, stopwatch.ElapsedMilliseconds, attemptIndex);
                 (priorMisses ??= new()).Add((provider.Host, reason));
                 lastException = ExceptionDispatchInfo.Capture(e);
+                lastOutcomeWasException = true;
+                attemptIndex++;
             }
         }
 
-        if (lastException is not null)
+        // Whichever terminal outcome occurred on the last attempted provider wins,
+        // matching the original fallback precedence (a later connection error beats
+        // an earlier 430, and a later 430 beats an earlier error).
+        if (lastOutcomeWasException)
         {
             Log.Warning(
                 "All providers exhausted. Last error from {Provider}: {ErrorMessage}",
-                orderedProviders[^1].Host,
-                lastException.SourceException.Message);
+                lastAttemptedProvider?.Host ?? "unknown",
+                lastException!.SourceException.Message);
             lastException.Throw();
         }
+        if (lastNoArticleResult is not null) return lastNoArticleResult;
         throw new Exception("There are no usenet providers configured.");
     }
 
@@ -627,6 +688,8 @@ public class MultiProviderNntpClient(
         if (ex is System.IO.IOException || ex is System.Net.Sockets.SocketException) return SegmentFetch.FetchStatus.Network;
         return SegmentFetch.FetchStatus.Other;
     }
+
+    private static string NormalizeStorageGroup(string? value) => value?.Trim() ?? "";
 
     private List<MultiConnectionNntpClient> SelectOrderedProviders(out MultiConnectionNntpClient? reserved)
     {

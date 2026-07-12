@@ -29,6 +29,15 @@ public class UsenetProviderConfig
         // still the real NNTP target and the stable key used for metrics/logs.
         public string? Nickname { get; set; }
 
+        /// <summary>
+        /// Optional label grouping providers that share the same upstream storage
+        /// (identical article availability). When set, and one provider on the
+        /// group reports an article as missing (NNTP 430), remaining providers
+        /// sharing the same label are skipped for that request. Empty (default)
+        /// means the provider is never grouped or skipped.
+        /// </summary>
+        public string StorageGroup { get; set; } = "";
+
         // null or 0 = no cap. Used by block-account holders to stop a paid block
         // from being drained beyond its purchased size.
         public long? ByteLimit { get; set; }
