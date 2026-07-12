@@ -484,6 +484,17 @@ For series, pass `type=series&id=tt0944947&season=1&episode=1`. Hitting the `pla
 
 ## Phase 7 — Operations
 
+### Database retention
+
+NzbDav can prune aged health-check history so `db.sqlite` does not grow without bound:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DATABASE_HEALTHCHECK_RETENTION_DAYS` | `30` | Keep health-check result rows for this many days. Set to `0` to retain everything. |
+| `DATABASE_MAINTENANCE_INTERVAL_HOURS` | `6` | How often the background retention sweep runs. |
+
+These can also be set under **Settings → Maintenance** (`database.healthcheck-retention-days`). Use **Reset Health-Check Statistics** on that page to clear all counters immediately.
+
 ### Back up NzbDav
 
 Back up the host directory mapped to `/config` (shown as `./config` in this guide). It contains the database, settings, credentials, and persisted application data, so store the backup securely. Stop the container or use a filesystem snapshot to get a consistent backup:

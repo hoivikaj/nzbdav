@@ -173,6 +173,7 @@ class Program
                 .AddSingleton<LiveStatsBroadcaster>()
                 .AddHostedService(sp => sp.GetRequiredService<LiveStatsBroadcaster>())
                 .AddHostedService<HealthCheckService>()
+                .AddHostedService<HealthCheckRetentionService>()
                 .AddHostedService<ArrMonitoringService>()
                 .AddHostedService<BlobCleanupService>()
                 .AddHostedService<NzbBlobCleanupService>()

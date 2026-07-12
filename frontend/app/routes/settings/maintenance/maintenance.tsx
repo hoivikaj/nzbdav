@@ -1,7 +1,8 @@
-import { Checkbox, Select } from "~/components/ui/form";
+import { Checkbox, Input, Select } from "~/components/ui/form";
 import { RemoveUnlinkedFiles } from "./remove-unlinked-files/remove-unlinked-files";
 import { ConvertStrmToSymlinks } from "./strm-to-symlinks/strm-to-symlinks";
 import { MigrateDatabaseFilesToBlobstore } from "./migrate-database-files-to-blobstore/migrate-database-files-to-blobstore";
+import { ResetHealthCheckStats } from "./reset-health-check-stats/reset-health-check-stats";
 import type { Dispatch, SetStateAction } from "react";
 
 type MaintenanceProps = {
@@ -25,6 +26,28 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
                 </label>
                     <p className="text-xs leading-relaxed text-slate-400" id="db-startup-vacuum-enabled-help">
                         When enabled, nzbdav will run a SQLite VACUUM on the database at every startup. This reclaims unused disk space and can improve query performance over time, but may increase startup time for large databases.
+                    </p>
+                </div>
+                <hr />
+                <div className="space-y-2">
+                    <label className="block text-sm text-slate-300" htmlFor="healthcheck-retention-days">
+                        Health-Check History Retention (days)
+                    </label>
+                    <Input
+                        id="healthcheck-retention-days"
+                        type="number"
+                        min={0}
+                        aria-describedby="healthcheck-retention-days-help"
+                        value={config["database.healthcheck-retention-days"] ?? "30"}
+                        onChange={e => setNewConfig({
+                            ...config,
+                            "database.healthcheck-retention-days": e.target.value,
+                        })}
+                        className="max-w-xs"
+                    />
+                    <p className="text-xs leading-relaxed text-slate-400" id="healthcheck-retention-days-help">
+                        Automatically prune health-check result rows older than this many days. Set to 0 to keep everything.
+                        Can also be set with the DATABASE_HEALTHCHECK_RETENTION_DAYS environment variable.
                     </p>
                 </div>
                 <hr />
@@ -117,6 +140,14 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
                             <MigrateDatabaseFilesToBlobstore savedConfig={savedConfig} />
                         </div>
                     </details>
+                    <details className={'overflow-hidden rounded border border-slate-700/70'}>
+                        <summary className="flex cursor-pointer items-center justify-between px-4 py-3 text-sm font-semibold text-white hover:bg-white/5">
+                            Reset Health-Check Statistics
+                        </summary>
+                        <div className={'border-t border-slate-700/70 p-4'}>
+                            <ResetHealthCheckStats />
+                        </div>
+                    </details>
                 </div>
             </div>
         </div>
@@ -125,6 +156,7 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
 
 export function isMaintenanceSettingsUpdated(config: Record<string, string>, newConfig: Record<string, string>) {
     return config["db.is-startup-vacuum-enabled"] !== newConfig["db.is-startup-vacuum-enabled"]
+        || config["database.healthcheck-retention-days"] !== newConfig["database.healthcheck-retention-days"]
         || config["maintenance.remove-orphaned-schedule-enabled"] !== newConfig["maintenance.remove-orphaned-schedule-enabled"]
         || config["maintenance.remove-orphaned-schedule-time"] !== newConfig["maintenance.remove-orphaned-schedule-time"];
 }
