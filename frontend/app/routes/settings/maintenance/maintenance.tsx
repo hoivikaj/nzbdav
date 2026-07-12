@@ -1,4 +1,4 @@
-import { Checkbox, Select } from "~/components/ui/form";
+import { Checkbox, Input, Select } from "~/components/ui/form";
 import { RemoveUnlinkedFiles } from "./remove-unlinked-files/remove-unlinked-files";
 import { ConvertStrmToSymlinks } from "./strm-to-symlinks/strm-to-symlinks";
 import { MigrateDatabaseFilesToBlobstore } from "./migrate-database-files-to-blobstore/migrate-database-files-to-blobstore";
@@ -25,6 +25,28 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
                 </label>
                     <p className="text-xs leading-relaxed text-slate-400" id="db-startup-vacuum-enabled-help">
                         When enabled, nzbdav will run a SQLite VACUUM on the database at every startup. This reclaims unused disk space and can improve query performance over time, but may increase startup time for large databases.
+                    </p>
+                </div>
+                <hr />
+                <div className="space-y-2">
+                    <label className="block text-sm text-slate-300" htmlFor="history-retention-days">
+                        SAB History Retention (days)
+                    </label>
+                    <Input
+                        id="history-retention-days"
+                        type="number"
+                        min={0}
+                        aria-describedby="history-retention-days-help"
+                        value={config["database.history-retention-days"] ?? "90"}
+                        onChange={e => setNewConfig({
+                            ...config,
+                            "database.history-retention-days": e.target.value,
+                        })}
+                        className="max-w-xs"
+                    />
+                    <p className="text-xs leading-relaxed text-slate-400" id="history-retention-days-help">
+                        Automatically prune SAB history rows older than this many days. Mounted WebDAV content is preserved.
+                        Set to 0 to keep everything. Can also be set with DATABASE_HISTORY_RETENTION_DAYS.
                     </p>
                 </div>
                 <hr />
@@ -125,6 +147,7 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
 
 export function isMaintenanceSettingsUpdated(config: Record<string, string>, newConfig: Record<string, string>) {
     return config["db.is-startup-vacuum-enabled"] !== newConfig["db.is-startup-vacuum-enabled"]
+        || config["database.history-retention-days"] !== newConfig["database.history-retention-days"]
         || config["maintenance.remove-orphaned-schedule-enabled"] !== newConfig["maintenance.remove-orphaned-schedule-enabled"]
         || config["maintenance.remove-orphaned-schedule-time"] !== newConfig["maintenance.remove-orphaned-schedule-time"];
 }

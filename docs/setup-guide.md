@@ -484,6 +484,17 @@ For series, pass `type=series&id=tt0944947&season=1&episode=1`. Hitting the `pla
 
 ## Phase 7 — Operations
 
+### Database retention
+
+NzbDav can prune aged SAB history rows so the history table does not grow without bound:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `DATABASE_HISTORY_RETENTION_DAYS` | `90` | Keep SAB history entries for this many days. Set to `0` to retain everything. Mounted WebDAV content is **not** deleted. |
+| `DATABASE_MAINTENANCE_INTERVAL_HOURS` | `6` | How often the background retention sweep runs. |
+
+These can also be set under **Settings → Maintenance** (`database.history-retention-days`).
+
 ### Back up NzbDav
 
 Back up the host directory mapped to `/config` (shown as `./config` in this guide). It contains the database, settings, credentials, and persisted application data, so store the backup securely. Stop the container or use a filesystem snapshot to get a consistent backup:

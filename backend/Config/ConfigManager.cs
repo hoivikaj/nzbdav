@@ -821,6 +821,26 @@ public class ConfigManager
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
+    /// <summary>
+    /// Days to keep SAB history rows. 0 disables age-based pruning.
+    /// Config key wins over DATABASE_HISTORY_RETENTION_DAYS; default is 90.
+    /// Automatic retention never deletes mounted WebDAV content.
+    /// </summary>
+    public int GetHistoryRetentionDays()
+    {
+        return GetRetentionDaysSetting(
+            "database.history-retention-days",
+            "DATABASE_HISTORY_RETENTION_DAYS",
+            defaultValue: 90);
+    }
+
+    private int GetRetentionDaysSetting(string configKey, string environmentVariable, int defaultValue)
+    {
+        var rawValue = StringUtil.EmptyToNull(GetConfigValue(configKey))
+                       ?? EnvironmentUtil.GetEnvironmentVariable(environmentVariable);
+        return int.TryParse(rawValue, out var parsed) && parsed >= 0 ? parsed : defaultValue;
+    }
+
     public bool IsNzbBackupEnabled()
     {
         var defaultValue = false;

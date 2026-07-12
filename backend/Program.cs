@@ -177,6 +177,7 @@ class Program
                 .AddHostedService<BlobCleanupService>()
                 .AddHostedService<NzbBlobCleanupService>()
                 .AddHostedService<HistoryCleanupService>()
+                .AddHostedService<HistoryRetentionService>()
                 .AddHostedService<WatchdogPurgeService>()
                 .AddHostedService<DavCleanupService>()
                 .AddHostedService<UsenetFileToBlobstoreMigrationService>()

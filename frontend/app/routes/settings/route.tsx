@@ -85,6 +85,7 @@ const defaultConfig = {
     "repair.enable": "false",
     "repair.healthcheck-concurrency": "50",
     "db.is-startup-vacuum-enabled": "false",
+    "database.history-retention-days": "90",
     "maintenance.remove-orphaned-schedule-enabled": "false",
     "maintenance.remove-orphaned-schedule-time": "0",
     "api.nzb-backup-enabled": "false",
