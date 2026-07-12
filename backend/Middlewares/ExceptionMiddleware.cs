@@ -16,6 +16,7 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
     private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> RecentMissingArticles = new();
     private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> RecentConnectionLimitErrors = new();
     private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> RecentSeekErrors = new();
+    private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> RecentReadErrors = new();
     private static readonly ConcurrentDictionary<Guid, DateTime> RecentRepairTriggers = new();
     private static readonly TimeSpan DedupeWindow = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan RepairDedupeWindow = TimeSpan.FromMinutes(5);
@@ -141,25 +142,55 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
 
             var filePath = GetRequestFilePath(context);
             var seekPosition = context.Request.GetRange()?.Start?.ToString() ?? "0";
+            var userAgent = context.Request.Headers.UserAgent.ToString();
+            if (string.IsNullOrWhiteSpace(userAgent))
+                userAgent = "unknown";
 
             // Known download errors carry a human-readable message;
             // reserve full stack traces for unexpected failures.
-            if (IsKnownDownloadException(e, out var knownError))
+            var isKnown = IsKnownDownloadException(e, out var knownError);
+            var reason = isKnown ? knownError : e.GetType().Name;
+            var dedupeKey = $"{filePath}|{seekPosition}|{reason}";
+            LogWithDedup(RecentReadErrors, dedupeKey, suppressed =>
             {
-                Log.Error(
-                    "File {FilePath} could not be read from byte position {SeekPosition}: {Reason}",
-                    filePath,
-                    seekPosition,
-                    knownError);
-            }
-            else
-            {
-                Log.Error(
-                    e,
-                    "File {FilePath} could not be read from byte position {SeekPosition}",
-                    filePath,
-                    seekPosition);
-            }
+                if (isKnown)
+                {
+                    if (suppressed > 0)
+                        Log.Error(
+                            "File {FilePath} could not be read from byte position {SeekPosition}: {Reason} (client {UserAgent}, suppressed {SuppressedCount} duplicates in last 60s)",
+                            filePath,
+                            seekPosition,
+                            knownError,
+                            userAgent,
+                            suppressed);
+                    else
+                        Log.Error(
+                            "File {FilePath} could not be read from byte position {SeekPosition}: {Reason} (client {UserAgent})",
+                            filePath,
+                            seekPosition,
+                            knownError,
+                            userAgent);
+                }
+                else if (suppressed > 0)
+                {
+                    Log.Error(
+                        e,
+                        "File {FilePath} could not be read from byte position {SeekPosition} (client {UserAgent}, suppressed {SuppressedCount} duplicates in last 60s)",
+                        filePath,
+                        seekPosition,
+                        userAgent,
+                        suppressed);
+                }
+                else
+                {
+                    Log.Error(
+                        e,
+                        "File {FilePath} could not be read from byte position {SeekPosition} (client {UserAgent})",
+                        filePath,
+                        seekPosition,
+                        userAgent);
+                }
+            });
         }
     }
 
@@ -267,6 +298,11 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
         {
             if (kvp.Value.LastLogged < cutoff)
                 RecentSeekErrors.TryRemove(kvp.Key, out _);
+        }
+        foreach (var kvp in RecentReadErrors)
+        {
+            if (kvp.Value.LastLogged < cutoff)
+                RecentReadErrors.TryRemove(kvp.Key, out _);
         }
         foreach (var kvp in RecentRepairTriggers)
         {
