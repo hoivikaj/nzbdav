@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Serilog;
 
 namespace NzbWebDAV.Database.Interceptors;
 
@@ -13,15 +14,43 @@ public class SqliteMetricsPragmas : DbConnectionInterceptor
 {
     public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
     {
-        using var command = connection.CreateCommand();
-        command.CommandText =
-            "PRAGMA journal_mode = WAL;" +
-            "PRAGMA synchronous = NORMAL;" +
-            "PRAGMA temp_store = MEMORY;" +
-            "PRAGMA mmap_size = 268435456;" +
-            "PRAGMA cache_size = -65536;" +
-            "PRAGMA journal_size_limit = 67108864;" +
-            "PRAGMA auto_vacuum = INCREMENTAL;";
-        command.ExecuteNonQuery();
+        try
+        {
+            using var command = connection.CreateCommand();
+
+            if (SqliteMainDbPragmas.IsExplicitlyReadOnly(connection.ConnectionString))
+            {
+                // Still apply read-only-safe settings that do not rewrite the DB header.
+                command.CommandText =
+                    "PRAGMA temp_store = MEMORY;" +
+                    "PRAGMA mmap_size = 268435456;" +
+                    "PRAGMA cache_size = -65536;";
+                command.ExecuteNonQuery();
+                return;
+            }
+
+            try
+            {
+                command.CommandText =
+                    "PRAGMA journal_mode = WAL;" +
+                    "PRAGMA synchronous = NORMAL;" +
+                    "PRAGMA temp_store = MEMORY;" +
+                    "PRAGMA mmap_size = 268435456;" +
+                    "PRAGMA cache_size = -65536;" +
+                    "PRAGMA journal_size_limit = 67108864;" +
+                    "PRAGMA auto_vacuum = INCREMENTAL;";
+                command.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(
+                    ex,
+                    "Could not set metrics SQLite PRAGMAs; database may be read-only.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "SQLite metrics connection opened but PRAGMA commands failed. Continuing without PRAGMA changes.");
+        }
     }
 }
