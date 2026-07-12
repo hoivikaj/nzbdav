@@ -25,9 +25,14 @@ public class AddFileRequest()
             context.Request.Form.Files["name"] ??
             throw new BadHttpRequestException("Invalid nzbFile/name param");
 
+        // Prefer the nzbname query/form param (set by some SAB clients); fall back to the
+        // form file's filename. Without this, file.FileName can be null/empty and downstream
+        // Regex.Match throws a 500. Adopted from elfhosted/rebased-v3.
+        var fileName = ResolveFileName(context.GetRequestParam("nzbname"), file.FileName);
+
         return new AddFileRequest()
         {
-            FileName = file.FileName,
+            FileName = fileName,
             ContentType = file.ContentType,
             NzbFileStream = file.OpenReadStream(),
             Category = context.GetRequestParam("cat") ?? configManager.GetManualUploadCategory(),
@@ -35,6 +40,21 @@ public class AddFileRequest()
             PostProcessing = MapPostProcessingOption(context.GetRequestParam("pp")),
             CancellationToken = context.RequestAborted
         };
+    }
+
+    /// <summary>
+    /// Resolve the NZB filename from an optional SAB <c>nzbname</c> param and the uploaded file name.
+    /// </summary>
+    internal static string ResolveFileName(string? nzbName, string? formFileName)
+    {
+        var fileName = !string.IsNullOrWhiteSpace(nzbName)
+            ? (nzbName.EndsWith(".nzb", StringComparison.OrdinalIgnoreCase) ? nzbName : $"{nzbName}.nzb")
+            : formFileName;
+
+        if (string.IsNullOrWhiteSpace(fileName))
+            throw new BadHttpRequestException("NZB filename could not be determined.");
+
+        return fileName;
     }
 
     protected static QueueItem.PriorityOption MapPriorityOption(string? priority)
