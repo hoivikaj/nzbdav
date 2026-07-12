@@ -41,7 +41,7 @@ public class FileAggregator(DavDatabaseClient dbClient, DavItem mountDirectory, 
             );
 
             dbClient.Ctx.Items.Add(davItem);
-            dbClient.Ctx.BlobNzbFiles.Add(davNzbFile);
+            dbClient.Ctx.AddBlob(davNzbFile);
         }
     }
 }

@@ -54,7 +54,7 @@ public class MultipartMkvAggregator(
             );
 
             dbClient.Ctx.Items.Add(davItem);
-            dbClient.Ctx.BlobMultipartFiles.Add(davMultipartFile);
+            dbClient.Ctx.AddBlob(davMultipartFile);
         }
     }
 }
