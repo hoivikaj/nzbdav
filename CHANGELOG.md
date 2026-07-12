@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.4](https://github.com/nzbdav/nzbdav/compare/v0.7.3...v0.7.4) (2026-07-12)
+
+
+### Features
+
+* **ui:** remind users to speed-test before enabling NNTP pipelining ([8eb61e0](https://github.com/nzbdav/nzbdav/commit/8eb61e0d2d38c203be7bf1566a9449f031b6fc94))
+
+
+### Bug Fixes
+
+* **sab:** adopt elfhosted addfile nzbname + JSON converter fallback ([#164](https://github.com/nzbdav/nzbdav/issues/164)) ([3fe3d7a](https://github.com/nzbdav/nzbdav/commit/3fe3d7ab7874f7c49f34a783bf073d187a8f4cfa))
+* **ui:** adopt elfhosted healthz, ErrorBoundary, unhandledRejection hardening ([#166](https://github.com/nzbdav/nzbdav/issues/166)) ([578c77b](https://github.com/nzbdav/nzbdav/commit/578c77b99fc9e4ce8df30a909d00a1b6111f2f31))
+* **ui:** keep Overview route free of .server imports ([aec1426](https://github.com/nzbdav/nzbdav/commit/aec142635e1153b1f959fee58e3a1347697b57fb))
+* **usenet:** resolve masked passwords for speed test and connection test ([#173](https://github.com/nzbdav/nzbdav/issues/173)) ([dc8d89a](https://github.com/nzbdav/nzbdav/commit/dc8d89a45d3d042e7ec5ed8f01249f1d603e08a2))
+* **webdav:** adopt elfhosted PROPFIND resourcetype XElement clone ([#165](https://github.com/nzbdav/nzbdav/issues/165)) ([13220c1](https://github.com/nzbdav/nzbdav/commit/13220c1e399481caf0bee9f4f2aa5ec66cfd1038))
+* **webdav:** harden RemoveUnlinkedFiles against partial library scans ([#172](https://github.com/nzbdav/nzbdav/issues/172)) ([bb38192](https://github.com/nzbdav/nzbdav/commit/bb38192201a8879063629ad46b4c079e4ac2b03f))
+* **webdav:** log RAR header parse failures without stack dumps ([bedd22a](https://github.com/nzbdav/nzbdav/commit/bedd22a39bf6fd4599e419b0b8ae0518137b0055))
+
+
+### Performance Improvements
+
+* **ui:** speed up Overview with sectioned stats and 24h rollups ([#174](https://github.com/nzbdav/nzbdav/issues/174)) ([d3bc59a](https://github.com/nzbdav/nzbdav/commit/d3bc59acff8d0f7ecb0abbd60162cea400b3de4a))
+
 ## [0.7.3](https://github.com/nzbdav/nzbdav/compare/v0.7.2...v0.7.3) (2026-07-12)
 
 
