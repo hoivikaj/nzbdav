@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.3](https://github.com/nzbdav/nzbdav/compare/v0.7.2...v0.7.3) (2026-07-12)
+
+
+### Features
+
+* adopt Pukabyte fork repair, queue, and logging fixes ([#156](https://github.com/nzbdav/nzbdav/issues/156)) ([4b39e20](https://github.com/nzbdav/nzbdav/commit/4b39e206575dd6741d1dc30e4826f5e531414ea2))
+* **db:** adopt elfhosted SAB history retention ([#159](https://github.com/nzbdav/nzbdav/issues/159)) ([0a6b46e](https://github.com/nzbdav/nzbdav/commit/0a6b46efc8399e2942b80017250ffac087cc002e))
+* **health:** adopt elfhosted health-check retention and reset ([#78](https://github.com/nzbdav/nzbdav/issues/78)) ([#157](https://github.com/nzbdav/nzbdav/issues/157)) ([e7aadf0](https://github.com/nzbdav/nzbdav/commit/e7aadf0853cf2969cee4cabe5afa847d58ea3a0d))
+* **sab:** expose history completed timestamp in API and UI ([#153](https://github.com/nzbdav/nzbdav/issues/153)) ([37ce880](https://github.com/nzbdav/nzbdav/commit/37ce88095fa593e5190dcf0f5c2d4e553ce60983)), closes [#66](https://github.com/nzbdav/nzbdav/issues/66)
+* **ui:** hyperlink history job names to explore folders ([#152](https://github.com/nzbdav/nzbdav/issues/152)) ([0f2f9d7](https://github.com/nzbdav/nzbdav/commit/0f2f9d7bc72d3ea335a6a708ed29a1c8ff524198)), closes [#72](https://github.com/nzbdav/nzbdav/issues/72)
+
+
+### Bug Fixes
+
+* **db:** adopt elfhosted read-only SQLite PRAGMA hardening ([#161](https://github.com/nzbdav/nzbdav/issues/161)) ([a0f3502](https://github.com/nzbdav/nzbdav/commit/a0f3502f267c3097563606a9af43d9b9d77aa86b))
+* **db:** repair empty categories and harden explore paths ([#155](https://github.com/nzbdav/nzbdav/issues/155)) ([04b841b](https://github.com/nzbdav/nzbdav/commit/04b841b8dd6b9f73083f3f3a64407ac5f10d8ff1)), closes [#48](https://github.com/nzbdav/nzbdav/issues/48) [#94](https://github.com/nzbdav/nzbdav/issues/94)
+* **ui:** return 405 for POST requests to index route ([#148](https://github.com/nzbdav/nzbdav/issues/148)) ([0c3f304](https://github.com/nzbdav/nzbdav/commit/0c3f304de2f9fd8ecdb2a199553e63b8d82fc833)), closes [#100](https://github.com/nzbdav/nzbdav/issues/100)
+* **usenet:** log host/port on test-connection failures ([#150](https://github.com/nzbdav/nzbdav/issues/150)) ([6a5de27](https://github.com/nzbdav/nzbdav/commit/6a5de27ab5153d21e0bed32597c55623c1b395b3)), closes [#57](https://github.com/nzbdav/nzbdav/issues/57)
+* **webdav:** guard empty extension in PathUtil.ReplaceExtension ([#151](https://github.com/nzbdav/nzbdav/issues/151)) ([e699567](https://github.com/nzbdav/nzbdav/commit/e6995670b1030379e4c501868a0d884f188136ce)), closes [#50](https://github.com/nzbdav/nzbdav/issues/50)
+
 ## [0.7.2](https://github.com/nzbdav/nzbdav/compare/v0.7.1...v0.7.2) (2026-07-11)
 
 
