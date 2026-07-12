@@ -1,6 +1,6 @@
 import type { Route } from "./+types/route";
 import styles from "./route.module.css";
-import { backendClient, type LiveStatsMessage, type OverviewStatsResponse, type OverviewWindow } from "~/clients/backend-client.server";
+import { type LiveStatsMessage, type OverviewStatsResponse, type OverviewWindow } from "~/clients/backend-client.server";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { receiveMessage } from "~/utils/websocket-util";
 import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from "@dnd-kit/core";
@@ -21,6 +21,7 @@ import { RecordsBlock } from "./components/records-block/records-block";
 import { FailoverSaves } from "./components/failover-saves/failover-saves";
 import { SortableRow } from "./components/sortable-row/sortable-row";
 import { useRowOrder } from "./utils/use-row-order";
+import { EMPTY_OVERVIEW_STATS, mergeOverviewStats } from "./utils/merge-overview-stats";
 
 const topicNames = {
     liveStats: 'ls',
@@ -51,49 +52,103 @@ const DEFAULT_ROW_ORDER = [
     "lifetime",
 ] as const;
 
+/** Shell-only loader — stats load client-side in sections so first paint is instant. */
 export async function loader() {
-    const stats = await backendClient.getOverviewStats("24h");
-    return { stats };
+    return { stats: null as OverviewStatsResponse | null };
 }
 
-export default function Overview({ loaderData }: Route.ComponentProps) {
-    const [stats, setStats] = useState<OverviewStatsResponse>(loaderData.stats);
+export function shouldRevalidate() {
+    return false;
+}
+
+function Skeleton({ height = 120 }: { height?: number }) {
+    return (
+        <div
+            className={styles.skeleton}
+            style={{ minHeight: height }}
+            aria-hidden="true"
+        />
+    );
+}
+
+export default function Overview(_props: Route.ComponentProps) {
+    const [stats, setStats] = useState<OverviewStatsResponse>(EMPTY_OVERVIEW_STATS);
     const [window, setWindow] = useState<OverviewWindow>("24h");
     const [editMode, setEditMode] = useState(false);
     const [connectedAt, setConnectedAt] = useState<number | null>(null);
     const [lastLiveStatsAt, setLastLiveStatsAt] = useState<number | null>(null);
     const [transportFailed, setTransportFailed] = useState(false);
     const [liveClock, setLiveClock] = useState(() => Date.now());
+    const [windowLoaded, setWindowLoaded] = useState(false);
+    const [detailLoaded, setDetailLoaded] = useState(false);
+    const [staticLoaded, setStaticLoaded] = useState(false);
     const { order, save, reset } = useRowOrder(DEFAULT_ROW_ORDER);
 
     const liveTiles = stats.tiles;
     const isLongWindow = window === "7d" || window === "30d" || window === "all";
 
-    // Re-fetch on window change + every 30s so chart, heatmap, providers, etc.
-    // stay fresh without manual refresh. Skipped when the tab is hidden so
-    // background tabs don't churn the backend; an immediate refetch fires when
-    // the tab becomes visible again.
+    // Window section: load on mount / window change, poll every 30s while visible.
     useEffect(() => {
         let cancelled = false;
-        const refetch = async () => {
+        setWindowLoaded(false);
+        if (isLongWindow) setDetailLoaded(true);
+        else setDetailLoaded(false);
+
+        const fetchWindow = async () => {
             if (typeof document !== "undefined" && document.hidden) return;
             try {
-                const res = await fetch(`/api/get-overview-stats?window=${window}`);
+                const res = await fetch(`/api/get-overview-stats?window=${window}&sections=window`);
                 if (!res.ok || cancelled) return;
                 const data: OverviewStatsResponse = await res.json();
-                if (!cancelled) setStats(data);
+                if (cancelled) return;
+                setStats(s => mergeOverviewStats(s, data));
+                setWindowLoaded(true);
             } catch { /* network blip, retry next tick */ }
         };
-        refetch();
-        const interval = setInterval(refetch, 30_000);
-        const onVisible = () => { if (!document.hidden) refetch(); };
+
+        fetchWindow();
+        const interval = setInterval(fetchWindow, 30_000);
+        const onVisible = () => { if (!document.hidden) fetchWindow(); };
         document.addEventListener("visibilitychange", onVisible);
         return () => {
             cancelled = true;
             clearInterval(interval);
             document.removeEventListener("visibilitychange", onVisible);
         };
-    }, [window]);
+    }, [window, isLongWindow]);
+
+    // Detail (latency + errors): once per 24h window selection — not on the 30s poll.
+    useEffect(() => {
+        if (isLongWindow) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`/api/get-overview-stats?window=${window}&sections=detail`);
+                if (!res.ok || cancelled) return;
+                const data: OverviewStatsResponse = await res.json();
+                if (cancelled) return;
+                setStats(s => mergeOverviewStats(s, data));
+                setDetailLoaded(true);
+            } catch { /* ignore */ }
+        })();
+        return () => { cancelled = true; };
+    }, [window, isLongWindow]);
+
+    // Static blocks: once per page visit.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`/api/get-overview-stats?window=${window}&sections=static`);
+                if (!res.ok || cancelled) return;
+                const data: OverviewStatsResponse = await res.json();
+                if (cancelled) return;
+                setStats(s => mergeOverviewStats(s, data));
+                setStaticLoaded(true);
+            } catch { /* ignore */ }
+        })();
+        return () => { cancelled = true; };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once per visit
 
     const onWsMessage = useCallback((topic: string, message: string) => {
         if (topic !== topicNames.liveStats) return;
@@ -151,54 +206,80 @@ export default function Overview({ loaderData }: Route.ComponentProps) {
     const rowContent = useMemo<Record<string, ReactNode>>(() => ({
         liveTiles: <LiveTiles tiles={liveTiles} />,
         liveReads: <LiveReadsPanel />,
-        throughput: (
-            <ThroughputChart
-                points={stats.throughput}
-                totalArticles={stats.totalArticles}
-                totalErrors={stats.totalErrors}
-                totalBytesServed={stats.sessions.totalBytesServed}
-                window={window}
-            />
-        ),
-        activity: (
-            <ActivityHeatmap
-                maxCell={stats.heatmap.maxCell}
-                mode={stats.heatmap.mode}
-                windowStartMs={stats.heatmap.windowStartMs}
-                windowEndMs={stats.heatmap.windowEndMs}
-                bucketSizeMs={stats.heatmap.bucketSizeMs}
-                cells={stats.heatmap.cells}
-            />
-        ),
-        latency: !isLongWindow
+        throughput: windowLoaded
             ? (
-                <LatencyHistogram
-                    p50Ms={stats.latency.p50Ms}
-                    p95Ms={stats.latency.p95Ms}
-                    p99Ms={stats.latency.p99Ms}
-                    samples={stats.latency.samples}
-                    buckets={stats.latency.buckets}
+                <ThroughputChart
+                    points={stats.throughput}
+                    totalArticles={stats.totalArticles}
+                    totalErrors={stats.totalErrors}
+                    totalBytesServed={stats.sessions.totalBytesServed}
+                    window={window}
                 />
             )
+            : <Skeleton height={180} />,
+        activity: windowLoaded
+            ? (
+                <ActivityHeatmap
+                    maxCell={stats.heatmap.maxCell}
+                    mode={stats.heatmap.mode}
+                    windowStartMs={stats.heatmap.windowStartMs}
+                    windowEndMs={stats.heatmap.windowEndMs}
+                    bucketSizeMs={stats.heatmap.bucketSizeMs}
+                    cells={stats.heatmap.cells}
+                />
+            )
+            : <Skeleton height={140} />,
+        latency: !isLongWindow
+            ? (detailLoaded
+                ? (
+                    <LatencyHistogram
+                        p50Ms={stats.latency.p50Ms}
+                        p95Ms={stats.latency.p95Ms}
+                        p99Ms={stats.latency.p99Ms}
+                        samples={stats.latency.samples}
+                        buckets={stats.latency.buckets}
+                    />
+                )
+                : <Skeleton height={160} />)
             : null,
         errorsSessions: (
             <div className={styles.twoCol}>
-                {!isLongWindow && <ErrorDonut errors={stats.errors} />}
-                <SessionsBlock sessions={stats.sessions} window={window} />
+                {!isLongWindow && (
+                    detailLoaded
+                        ? <ErrorDonut errors={stats.errors} />
+                        : <Skeleton height={160} />
+                )}
+                {windowLoaded
+                    ? <SessionsBlock sessions={stats.sessions} window={window} />
+                    : <Skeleton height={160} />}
             </div>
         ),
-        providers: <ProviderScoreboard providers={stats.providers} window={window} />,
-        failover: <FailoverSaves failover={stats.failover} window={window} />,
-        indexers: <IndexerScoreboard indexers={stats.indexers} />,
-        indexerApiUsage: <IndexerApiUsage rows={stats.indexerApiUsage} />,
+        providers: windowLoaded
+            ? <ProviderScoreboard providers={stats.providers} window={window} />
+            : <Skeleton height={160} />,
+        failover: windowLoaded
+            ? <FailoverSaves failover={stats.failover} window={window} />
+            : <Skeleton height={180} />,
+        indexers: staticLoaded
+            ? <IndexerScoreboard indexers={stats.indexers} />
+            : <Skeleton height={140} />,
+        indexerApiUsage: staticLoaded
+            ? <IndexerApiUsage rows={stats.indexerApiUsage} />
+            : <Skeleton height={120} />,
         recordsCatalogue: (
             <div className={styles.twoCol}>
-                <RecordsBlock records={stats.records} />
-                <CatalogueBlock catalogue={stats.catalogue} />
+                {staticLoaded
+                    ? <RecordsBlock records={stats.records} />
+                    : <Skeleton height={120} />}
+                {staticLoaded
+                    ? <CatalogueBlock catalogue={stats.catalogue} />
+                    : <Skeleton height={120} />}
             </div>
         ),
-        lifetime: <LifetimeBlock lifetime={stats.lifetime} />,
-    }), [liveTiles, stats, window, isLongWindow]);
+        lifetime: staticLoaded
+            ? <LifetimeBlock lifetime={stats.lifetime} />
+            : <Skeleton height={120} />,
+    }), [liveTiles, stats, window, isLongWindow, windowLoaded, detailLoaded, staticLoaded]);
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),

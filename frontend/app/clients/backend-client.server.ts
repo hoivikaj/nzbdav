@@ -316,8 +316,11 @@ class BackendClient {
         return data;
     }
 
-    public async getOverviewStats(window: OverviewWindow = "24h"): Promise<OverviewStatsResponse> {
-        const url = `${process.env.BACKEND_URL}/api/get-overview-stats?window=${window}`;
+    public async getOverviewStats(
+        window: OverviewWindow = "24h",
+        sections: OverviewSections = "all",
+    ): Promise<OverviewStatsResponse> {
+        const url = `${process.env.BACKEND_URL}/api/get-overview-stats?window=${window}&sections=${sections}`;
         const apiKey = process.env.FRONTEND_BACKEND_API_KEY || "";
         const response = await fetch(url, {
             method: "GET",
@@ -635,9 +638,11 @@ export enum RepairAction {
 }
 
 export type OverviewWindow = "24h" | "7d" | "30d" | "all";
+export type OverviewSections = "all" | "window" | "detail" | "static" | string;
 
 export type OverviewStatsResponse = {
     window: OverviewWindow,
+    includedSections?: string[],
     tiles: {
         activeReads: number,
         articlesPerMinute: number,

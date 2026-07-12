@@ -41,130 +41,102 @@ public class GetOverviewStatsController(
     {
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var window = request.Window;
+        var sections = request.Sections;
         var (windowMs, bucketSize, label) = ResolveWindow(window, nowMs);
         var windowStart = window == GetOverviewStatsRequest.OverviewWindow.AllTime
             ? 0
             : nowMs - windowMs;
+        var wantWindow = sections.HasFlag(GetOverviewStatsRequest.OverviewSections.Window);
+        var wantDetail = sections.HasFlag(GetOverviewStatsRequest.OverviewSections.Detail);
+        var wantStatic = sections.HasFlag(GetOverviewStatsRequest.OverviewSections.Static);
+        var useRollups =
+            window == GetOverviewStatsRequest.OverviewWindow.Last7Days ||
+            window == GetOverviewStatsRequest.OverviewWindow.Last30Days ||
+            window == GetOverviewStatsRequest.OverviewWindow.AllTime;
 
         var nicknamesByHost = configManager.GetUsenetProviderConfig().Providers
             .Where(p => !string.IsNullOrWhiteSpace(p.Nickname))
             .GroupBy(p => p.Host, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().Nickname, StringComparer.OrdinalIgnoreCase);
 
-        await using var metrics = new MetricsDbContext();
-        var useRollups =
-            window == GetOverviewStatsRequest.OverviewWindow.Last7Days ||
-            window == GetOverviewStatsRequest.OverviewWindow.Last30Days ||
-            window == GetOverviewStatsRequest.OverviewWindow.AllTime;
+        var included = new List<string>();
+        var tiles = new GetOverviewStatsResponse.LiveTiles();
+        var throughput = new List<GetOverviewStatsResponse.ThroughputPoint>();
+        var providers = new List<GetOverviewStatsResponse.ProviderRow>();
+        var sessionsBlock = new GetOverviewStatsResponse.SessionsBlock();
+        var heatmap = new GetOverviewStatsResponse.HeatmapBlock();
+        var failover = new GetOverviewStatsResponse.FailoverBlock();
+        var latency = new GetOverviewStatsResponse.LatencyBlock();
+        var errors = new List<GetOverviewStatsResponse.ErrorSlice>();
+        var catalogue = new GetOverviewStatsResponse.CatalogueBlock();
+        var indexers = new List<GetOverviewStatsResponse.IndexerRow>();
+        var indexerApiUsage = new List<GetOverviewStatsResponse.IndexerApiUsageRow>();
+        var lifetime = new GetOverviewStatsResponse.LifetimeBlock();
+        var records = new GetOverviewStatsResponse.RecordsBlock();
+        long totalArticles = 0, totalErrors = 0, totalBytesFetched = 0;
 
-        // Sessions live up to 90 d, so they work fine for every window. We keep using
-        // the raw ReadSessions table for sessions stats regardless of `useRollups`.
-        var sessions = await metrics.ReadSessions
-            .Where(x => x.EndedAt >= windowStart)
-            .Select(x => new { x.StartedAt, x.EndedAt, x.DurationMs, x.BytesServed, x.FailoverSaves })
-            .ToListAsync().ConfigureAwait(false);
+        Task<WindowSectionResult>? windowTask = null;
+        Task<DetailSectionResult>? detailTask = null;
+        Task<StaticSectionResult>? staticTask = null;
 
-        GetOverviewStatsResponse.LiveTiles liveTiles;
-        List<GetOverviewStatsResponse.ThroughputPoint> throughput;
-        List<GetOverviewStatsResponse.ProviderRow> providers;
-        GetOverviewStatsResponse.LatencyBlock latency;
-        List<GetOverviewStatsResponse.ErrorSlice> errors;
-        long totalArticles, totalErrors, totalBytesFetched;
-        GetOverviewStatsResponse.FailoverBlock failover;
+        if (wantWindow)
+            windowTask = BuildWindowSectionAsync(window, windowStart, windowMs, bucketSize, nowMs, useRollups, nicknamesByHost);
+        if (wantDetail && !useRollups)
+            detailTask = BuildDetailSectionAsync(windowStart);
+        if (wantStatic)
+            staticTask = BuildStaticSectionAsync();
 
-        var readsSaved = sessions.LongCount(s => s.FailoverSaves > 0);
-        var failoverBucket = ResolveFailoverBucket(window);
+        var tasks = new List<Task>();
+        if (windowTask is not null) tasks.Add(windowTask);
+        if (detailTask is not null) tasks.Add(detailTask);
+        if (staticTask is not null) tasks.Add(staticTask);
+        if (tasks.Count > 0)
+            await Task.WhenAll(tasks).ConfigureAwait(false);
 
-        long? previousSaves = null;
-        if (window != GetOverviewStatsRequest.OverviewWindow.AllTime)
+        if (windowTask is not null)
         {
-            var prevStart = windowStart - windowMs;
-            previousSaves = await metrics.ProviderHourly
-                .Where(h => h.Hour >= prevStart && h.Hour < windowStart)
-                .SumAsync(h => (long?)h.FailoverSaves).ConfigureAwait(false) ?? 0L;
+            var w = await windowTask.ConfigureAwait(false);
+            included.Add("window");
+            tiles = w.Tiles;
+            throughput = w.Throughput;
+            providers = w.Providers;
+            sessionsBlock = w.Sessions;
+            heatmap = w.Heatmap;
+            failover = w.Failover;
+            totalArticles = w.TotalArticles;
+            totalErrors = w.TotalErrors;
+            totalBytesFetched = w.TotalBytesFetched;
         }
 
-        var heatmap = await BuildHeatmapAsync(metrics, window, nowMs).ConfigureAwait(false);
-
-        if (useRollups)
+        if (detailTask is not null)
         {
-            var hours = await metrics.ProviderHourly
-                .Where(h => h.Hour >= windowStart)
-                .Select(h => new { h.Hour, h.Provider, h.Articles, h.BytesFetched, h.Errors, h.Retries, h.FailoverSaves, h.SumDurationMs })
-                .ToListAsync().ConfigureAwait(false);
-
-            var sinceMinute = nowMs - OneMinute;
-            var recentStatuses = await metrics.SegmentFetches
-                .Where(x => x.At >= sinceMinute)
-                .Select(x => x.Status)
-                .ToListAsync().ConfigureAwait(false);
-            liveTiles = BuildLiveTiles(
-                recentStatuses.Count,
-                recentStatuses.Count(status => status != SegmentFetch.FetchStatus.Ok));
-            throughput = BuildThroughputFromHourly(hours.Select(h => (h.Hour, h.Articles, h.Errors, h.BytesFetched)), sessions.Select(s => (s.EndedAt, s.BytesServed)), bucketSize);
-            providers = BuildProvidersFromHourly(hours, windowStart, bucketSize, nowMs, nicknamesByHost);
-            latency = new GetOverviewStatsResponse.LatencyBlock();
-            errors = new List<GetOverviewStatsResponse.ErrorSlice>();
-            totalArticles = hours.Sum(h => h.Articles);
-            totalErrors = hours.Sum(h => h.Errors);
-            totalBytesFetched = hours.Sum(h => h.BytesFetched);
-            var failoverEdges = await metrics.FailoverHourly
-                .Where(f => f.Hour >= windowStart)
-                .Select(f => new { f.FromProvider, f.Reason, f.Count })
-                .ToListAsync().ConfigureAwait(false);
-            failover = BuildFailover(
-                hours.Where(h => h.FailoverSaves > 0).Select(h => (h.Hour, h.Provider, h.FailoverSaves)),
-                failoverEdges.Select(e => (e.FromProvider, e.Reason, e.Count)),
-                totalArticles, sessions.Count, readsSaved, previousSaves, failoverBucket, nicknamesByHost);
+            var d = await detailTask.ConfigureAwait(false);
+            included.Add("detail");
+            latency = d.Latency;
+            errors = d.Errors;
         }
-        else
+        else if (wantDetail && useRollups)
         {
-            // Short windows: raw fetches give us per-event detail (heatmap, latency, errors).
-            var fetches = await metrics.SegmentFetches
-                .Where(x => x.At >= windowStart)
-                .Select(x => new { x.At, x.Provider, x.Status, x.DurationMs, x.Retries })
-                .ToListAsync().ConfigureAwait(false);
-
-            var perMinuteBytes = await metrics.ProviderMinutes
-                .Where(p => p.Minute >= windowStart)
-                .GroupBy(p => p.Provider)
-                .Select(g => new { Provider = g.Key, Bytes = g.Sum(x => x.BytesFetched) })
-                .ToDictionaryAsync(x => x.Provider, x => x.Bytes).ConfigureAwait(false);
-
-            var sinceMinute = nowMs - OneMinute;
-            var articlesLastMinute = fetches.Count(f => f.At >= sinceMinute);
-            var errorsLastMinute = fetches.Count(f => f.At >= sinceMinute && f.Status != SegmentFetch.FetchStatus.Ok);
-
-            liveTiles = BuildLiveTiles(articlesLastMinute, errorsLastMinute);
-            throughput = BuildThroughput(fetches.Select(f => (f.At, f.Status)), sessions.Select(s => (s.EndedAt, s.BytesServed)), bucketSize);
-            providers = BuildProviders(fetches, perMinuteBytes, windowStart, bucketSize, window, nicknamesByHost);
-            latency = BuildLatency(fetches.Where(f => f.Status == SegmentFetch.FetchStatus.Ok).Select(f => f.DurationMs));
-            errors = BuildErrors(fetches.Select(f => f.Status));
-            totalArticles = throughput.Sum(p => p.Articles);
-            totalErrors = throughput.Sum(p => p.Errors);
-            totalBytesFetched = perMinuteBytes.Values.Sum();
-            var failoverEdges = await metrics.FailoverMisses
-                .Where(f => f.At >= windowStart)
-                .Select(f => new { f.FromProvider, f.Reason })
-                .ToListAsync().ConfigureAwait(false);
-            failover = BuildFailover(
-                fetches.Where(f => f.Status == SegmentFetch.FetchStatus.Ok && f.Retries > 0)
-                    .Select(f => (f.At, f.Provider, 1L)),
-                failoverEdges.Select(e => (e.FromProvider, e.Reason, 1L)),
-                totalArticles, sessions.Count, readsSaved, previousSaves, failoverBucket, nicknamesByHost);
+            // Long windows hide latency/errors in the UI; acknowledge the section as empty.
+            included.Add("detail");
         }
 
-        var catalogue = await BuildCatalogueAsync().ConfigureAwait(false);
-        var sessionsBlock = BuildSessionsBlock(sessions.Select(s => (s.DurationMs, s.BytesServed)));
-        var indexers = await BuildIndexersAsync().ConfigureAwait(false);
-        var indexerApiUsage = await BuildIndexerApiUsageAsync().ConfigureAwait(false);
-        var lifetime = await BuildLifetimeAsync(metrics).ConfigureAwait(false);
-        var records = await BuildRecordsAsync(metrics).ConfigureAwait(false);
+        if (staticTask is not null)
+        {
+            var s = await staticTask.ConfigureAwait(false);
+            included.Add("static");
+            catalogue = s.Catalogue;
+            indexers = s.Indexers;
+            indexerApiUsage = s.IndexerApiUsage;
+            lifetime = s.Lifetime;
+            records = s.Records;
+        }
 
         return new GetOverviewStatsResponse
         {
             Window = label,
-            Tiles = liveTiles,
+            IncludedSections = included,
+            Tiles = tiles,
             Throughput = throughput,
             TotalArticles = totalArticles,
             TotalErrors = totalErrors,
@@ -180,8 +152,238 @@ public class GetOverviewStatsController(
             Lifetime = lifetime,
             Records = records,
             Failover = failover,
-            MetricsHealth = BuildMetricsHealth(),
+            MetricsHealth = wantWindow || wantStatic ? BuildMetricsHealth() : new GetOverviewStatsResponse.MetricsHealthBlock(),
         };
+    }
+
+    private sealed record WindowSectionResult(
+        GetOverviewStatsResponse.LiveTiles Tiles,
+        List<GetOverviewStatsResponse.ThroughputPoint> Throughput,
+        List<GetOverviewStatsResponse.ProviderRow> Providers,
+        GetOverviewStatsResponse.SessionsBlock Sessions,
+        GetOverviewStatsResponse.HeatmapBlock Heatmap,
+        GetOverviewStatsResponse.FailoverBlock Failover,
+        long TotalArticles,
+        long TotalErrors,
+        long TotalBytesFetched);
+
+    private sealed record DetailSectionResult(
+        GetOverviewStatsResponse.LatencyBlock Latency,
+        List<GetOverviewStatsResponse.ErrorSlice> Errors);
+
+    private sealed record StaticSectionResult(
+        GetOverviewStatsResponse.CatalogueBlock Catalogue,
+        List<GetOverviewStatsResponse.IndexerRow> Indexers,
+        List<GetOverviewStatsResponse.IndexerApiUsageRow> IndexerApiUsage,
+        GetOverviewStatsResponse.LifetimeBlock Lifetime,
+        GetOverviewStatsResponse.RecordsBlock Records);
+
+    private async Task<WindowSectionResult> BuildWindowSectionAsync(
+        GetOverviewStatsRequest.OverviewWindow window,
+        long windowStart,
+        long windowMs,
+        long bucketSize,
+        long nowMs,
+        bool useRollups,
+        IReadOnlyDictionary<string, string?> nicknamesByHost)
+    {
+        await using var metricsSessions = new MetricsDbContext();
+        await using var metricsHeatmap = new MetricsDbContext();
+        await using var metricsPrev = new MetricsDbContext();
+        await using var metricsA = new MetricsDbContext();
+        await using var metricsB = new MetricsDbContext();
+        await using var metricsLive = new MetricsDbContext();
+
+        var sessionsTask = metricsSessions.ReadSessions
+            .Where(x => x.EndedAt >= windowStart)
+            .Select(x => new { x.StartedAt, x.EndedAt, x.DurationMs, x.BytesServed, x.FailoverSaves })
+            .ToListAsync();
+        var heatmapTask = BuildHeatmapAsync(metricsHeatmap, window, nowMs);
+        var previousSavesTask = LoadPreviousFailoverSavesAsync(metricsPrev, window, windowStart, windowMs);
+        var sinceMinute = nowMs - OneMinute;
+        var liveCountsTask = metricsLive.SegmentFetches
+            .Where(x => x.At >= sinceMinute)
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Articles = g.Count(),
+                Errors = g.Count(x => x.Status != SegmentFetch.FetchStatus.Ok),
+            })
+            .FirstOrDefaultAsync();
+
+        List<(long At, string Provider, long Saves)> rescues;
+        List<(string From, SegmentFetch.FetchStatus Reason, long Count)> misses;
+        List<GetOverviewStatsResponse.ThroughputPoint> throughput;
+        List<GetOverviewStatsResponse.ProviderRow> providers;
+        long totalArticles, totalErrors, totalBytesFetched;
+
+        if (useRollups)
+        {
+            var hoursTask = metricsA.ProviderHourly
+                .Where(h => h.Hour >= windowStart)
+                .Select(h => new { h.Hour, h.Provider, h.Articles, h.BytesFetched, h.Errors, h.Retries, h.FailoverSaves, h.SumDurationMs })
+                .ToListAsync();
+            var failoverEdgesTask = metricsB.FailoverHourly
+                .Where(f => f.Hour >= windowStart)
+                .Select(f => new { f.FromProvider, f.Reason, f.Count })
+                .ToListAsync();
+
+            await Task.WhenAll(sessionsTask, heatmapTask, previousSavesTask, liveCountsTask, hoursTask, failoverEdgesTask)
+                .ConfigureAwait(false);
+
+            var hours = await hoursTask.ConfigureAwait(false);
+            var sessions = await sessionsTask.ConfigureAwait(false);
+            var failoverEdges = await failoverEdgesTask.ConfigureAwait(false);
+
+            throughput = BuildThroughputFromHourly(
+                hours.Select(h => (h.Hour, h.Articles, h.Errors, h.BytesFetched)),
+                sessions.Select(s => (s.EndedAt, s.BytesServed)),
+                bucketSize);
+            providers = BuildProvidersFromHourly(hours, windowStart, bucketSize, nowMs, nicknamesByHost);
+            totalArticles = hours.Sum(h => h.Articles);
+            totalErrors = hours.Sum(h => h.Errors);
+            totalBytesFetched = hours.Sum(h => h.BytesFetched);
+            rescues = hours.Where(h => h.FailoverSaves > 0)
+                .Select(h => (h.Hour, h.Provider, h.FailoverSaves))
+                .ToList();
+            misses = failoverEdges.Select(e => (e.FromProvider, e.Reason, e.Count)).ToList();
+        }
+        else
+        {
+            // 24h: use minute rollups — do not materialize every SegmentFetch row.
+            await using var metricsC = new MetricsDbContext();
+            var minutesTask = metricsA.ProviderMinutes
+                .Where(p => p.Minute >= windowStart)
+                .Select(p => new
+                {
+                    p.Minute, p.Provider, p.Articles, p.BytesFetched, p.Errors, p.Retries,
+                    p.FailoverSaves, p.SumDurationMs
+                })
+                .ToListAsync();
+            var throughputMinutesTask = metricsB.ThroughputMinutes
+                .Where(t => t.Minute >= windowStart)
+                .Select(t => new { t.Minute, t.Articles, t.Errors, t.BytesServed })
+                .ToListAsync();
+            var failoverMissesTask = metricsC.FailoverMisses
+                .Where(f => f.At >= windowStart)
+                .Select(f => new { f.FromProvider, f.Reason })
+                .ToListAsync();
+
+            await Task.WhenAll(
+                    sessionsTask, heatmapTask, previousSavesTask, liveCountsTask,
+                    minutesTask, throughputMinutesTask, failoverMissesTask)
+                .ConfigureAwait(false);
+
+            var minutes = await minutesTask.ConfigureAwait(false);
+            var throughputMinutes = await throughputMinutesTask.ConfigureAwait(false);
+            var failoverMisses = await failoverMissesTask.ConfigureAwait(false);
+
+            throughput = BuildThroughputFromMinutes(
+                throughputMinutes.Select(t => (t.Minute, t.Articles, t.Errors, t.BytesServed)),
+                bucketSize);
+            providers = BuildProvidersFromMinutes(
+                minutes.Select(m => (m.Minute, m.Provider, m.Articles, m.BytesFetched, m.Errors, m.Retries, m.SumDurationMs)),
+                windowStart, window, nicknamesByHost);
+            totalArticles = minutes.Sum(m => m.Articles);
+            totalErrors = minutes.Sum(m => m.Errors);
+            totalBytesFetched = minutes.Sum(m => m.BytesFetched);
+            rescues = minutes.Where(m => m.FailoverSaves > 0)
+                .Select(m => (m.Minute, m.Provider, m.FailoverSaves))
+                .ToList();
+            misses = failoverMisses.Select(e => (e.FromProvider, e.Reason, 1L)).ToList();
+        }
+
+        var sessionsRows = await sessionsTask.ConfigureAwait(false);
+        var heatmap = await heatmapTask.ConfigureAwait(false);
+        var previousSaves = await previousSavesTask.ConfigureAwait(false);
+        var liveCounts = await liveCountsTask.ConfigureAwait(false);
+
+        var readsSaved = sessionsRows.LongCount(s => s.FailoverSaves > 0);
+        var failover = BuildFailover(
+            rescues,
+            misses,
+            totalArticles,
+            sessionsRows.Count,
+            readsSaved,
+            previousSaves,
+            ResolveFailoverBucket(window),
+            nicknamesByHost);
+
+        var tiles = BuildLiveTiles(liveCounts?.Articles ?? 0, liveCounts?.Errors ?? 0);
+        var sessionsBlock = BuildSessionsBlock(sessionsRows.Select(s => (s.DurationMs, s.BytesServed)));
+
+        return new WindowSectionResult(
+            tiles, throughput, providers, sessionsBlock, heatmap, failover,
+            totalArticles, totalErrors, totalBytesFetched);
+    }
+
+    private static async Task<long?> LoadPreviousFailoverSavesAsync(
+        MetricsDbContext metrics,
+        GetOverviewStatsRequest.OverviewWindow window,
+        long windowStart,
+        long windowMs)
+    {
+        if (window == GetOverviewStatsRequest.OverviewWindow.AllTime)
+            return null;
+        return await metrics.ProviderHourly
+            .Where(h => h.Hour >= windowStart - windowMs && h.Hour < windowStart)
+            .SumAsync(h => (long?)h.FailoverSaves)
+            .ConfigureAwait(false) ?? 0L;
+    }
+
+    private async Task<DetailSectionResult> BuildDetailSectionAsync(long windowStart)
+    {
+        await using var metricsLatency = new MetricsDbContext();
+        await using var metricsErrors = new MetricsDbContext();
+
+        var durationsTask = metricsLatency.SegmentFetches
+            .Where(x => x.At >= windowStart && x.Status == SegmentFetch.FetchStatus.Ok)
+            .Select(x => x.DurationMs)
+            .ToListAsync();
+        var errorGroupsTask = metricsErrors.SegmentFetches
+            .Where(x => x.At >= windowStart && x.Status != SegmentFetch.FetchStatus.Ok)
+            .GroupBy(x => x.Status)
+            .Select(g => new { Status = g.Key, Count = (long)g.Count() })
+            .ToListAsync();
+
+        await Task.WhenAll(durationsTask, errorGroupsTask).ConfigureAwait(false);
+
+        var durations = await durationsTask.ConfigureAwait(false);
+        var errorGroups = await errorGroupsTask.ConfigureAwait(false);
+
+        return new DetailSectionResult(
+            BuildLatency(durations),
+            errorGroups
+                .Select(e => new GetOverviewStatsResponse.ErrorSlice
+                {
+                    Status = e.Status.ToString(),
+                    Count = e.Count,
+                })
+                .OrderByDescending(s => s.Count)
+                .ToList());
+    }
+
+    private async Task<StaticSectionResult> BuildStaticSectionAsync()
+    {
+        await using var metricsLifetime = new MetricsDbContext();
+        await using var metricsRecords = new MetricsDbContext();
+        await using var davIndexers = new DavDatabaseContext();
+
+        var catalogueTask = BuildCatalogueAsync(davDb.Ctx);
+        var indexersTask = BuildIndexersAsync(davIndexers);
+        var apiUsageTask = BuildIndexerApiUsageAsync();
+        var lifetimeTask = BuildLifetimeAsync(metricsLifetime);
+        var recordsTask = BuildRecordsAsync(metricsRecords);
+
+        await Task.WhenAll(catalogueTask, indexersTask, apiUsageTask, lifetimeTask, recordsTask)
+            .ConfigureAwait(false);
+
+        return new StaticSectionResult(
+            await catalogueTask.ConfigureAwait(false),
+            await indexersTask.ConfigureAwait(false),
+            await apiUsageTask.ConfigureAwait(false),
+            await lifetimeTask.ConfigureAwait(false),
+            await recordsTask.ConfigureAwait(false));
     }
 
     private GetOverviewStatsResponse.MetricsHealthBlock BuildMetricsHealth()
@@ -220,7 +422,6 @@ public class GetOverviewStatsController(
                 ResetAtMs = s.ResetAt.ToUnixTimeMilliseconds(),
                 ResetHourUtc = resetHourByName.GetValueOrDefault(s.IndexerName),
             })
-            // Surface indexers with the most usage first, then by name for stability.
             .OrderByDescending(r => r.ApiHits + r.DownloadHits)
             .ThenBy(r => r.Name)
             .ToList();
@@ -354,23 +555,16 @@ public class GetOverviewStatsController(
         };
     }
 
-    private static List<GetOverviewStatsResponse.ThroughputPoint> BuildThroughput(
-        IEnumerable<(long At, SegmentFetch.FetchStatus Status)> fetches,
-        IEnumerable<(long EndedAt, long BytesServed)> sessions,
+    private static List<GetOverviewStatsResponse.ThroughputPoint> BuildThroughputFromMinutes(
+        IEnumerable<(long Minute, long Articles, long Errors, long BytesServed)> minutes,
         long bucketSize)
     {
         var byBucket = new Dictionary<long, (long Articles, long Errors, long BytesServed)>();
-        foreach (var (at, status) in fetches)
+        foreach (var m in minutes)
         {
-            var b = at - (at % bucketSize);
+            var b = m.Minute - (m.Minute % bucketSize);
             byBucket.TryGetValue(b, out var cur);
-            byBucket[b] = (cur.Articles + 1, cur.Errors + (status != SegmentFetch.FetchStatus.Ok ? 1 : 0), cur.BytesServed);
-        }
-        foreach (var (endedAt, bytes) in sessions)
-        {
-            var b = endedAt - (endedAt % bucketSize);
-            byBucket.TryGetValue(b, out var cur);
-            byBucket[b] = (cur.Articles, cur.Errors, cur.BytesServed + bytes);
+            byBucket[b] = (cur.Articles + m.Articles, cur.Errors + m.Errors, cur.BytesServed + m.BytesServed);
         }
 
         return byBucket
@@ -416,32 +610,29 @@ public class GetOverviewStatsController(
             .ToList();
     }
 
-    private static List<GetOverviewStatsResponse.ProviderRow> BuildProviders<T>(
-        List<T> fetches,
-        IReadOnlyDictionary<string, long> bytesByProvider,
+    private static List<GetOverviewStatsResponse.ProviderRow> BuildProvidersFromMinutes(
+        IEnumerable<(long Minute, string Provider, long Articles, long BytesFetched, long Errors, long Retries, long SumDurationMs)> minutes,
         long windowStart,
-        long bucketSize,
         GetOverviewStatsRequest.OverviewWindow window,
-        IReadOnlyDictionary<string, string?> nicknamesByHost) where T : class
+        IReadOnlyDictionary<string, string?> nicknamesByHost)
     {
-        var is7d = window == GetOverviewStatsRequest.OverviewWindow.Last7Days;
-        var sparkBuckets = is7d ? 168 : 24;
+        var sparkBuckets = window == GetOverviewStatsRequest.OverviewWindow.Last7Days ? 168 : 24;
         var sparkSize = OneHour;
         var sparkStart = windowStart - (windowStart % sparkSize);
 
         var byProvider = new Dictionary<string, ProviderAccumulator>();
-        foreach (var f in fetches.Cast<dynamic>())
+        foreach (var m in minutes)
         {
-            string host = f.Provider;
-            if (!byProvider.TryGetValue(host, out var acc))
+            if (!byProvider.TryGetValue(m.Provider, out var acc))
                 acc = new ProviderAccumulator(sparkBuckets);
-            acc.Articles++;
-            acc.SumDurationMs += f.DurationMs;
-            if (f.Status != SegmentFetch.FetchStatus.Ok) acc.Errors++;
-            acc.Retries += f.Retries;
-            var idx = (int)(((long)f.At - sparkStart) / sparkSize);
-            if (idx >= 0 && idx < sparkBuckets) acc.Spark[idx]++;
-            byProvider[host] = acc;
+            acc.Articles += m.Articles;
+            acc.Errors += m.Errors;
+            acc.Retries += m.Retries;
+            acc.SumDurationMs += m.SumDurationMs;
+            acc.Bytes += m.BytesFetched;
+            var idx = (int)((m.Minute - sparkStart) / sparkSize);
+            if (idx >= 0 && idx < sparkBuckets) acc.Spark[idx] += m.Articles;
+            byProvider[m.Provider] = acc;
         }
 
         return byProvider
@@ -450,7 +641,7 @@ public class GetOverviewStatsController(
                 Provider = kv.Key,
                 Nickname = nicknamesByHost.GetValueOrDefault(kv.Key),
                 Articles = kv.Value.Articles,
-                BytesFetched = bytesByProvider.GetValueOrDefault(kv.Key, 0L),
+                BytesFetched = kv.Value.Bytes,
                 Errors = kv.Value.Errors,
                 Retries = kv.Value.Retries,
                 AvgDurationMs = kv.Value.Articles > 0 ? (double)kv.Value.SumDurationMs / kv.Value.Articles : 0,
@@ -468,7 +659,6 @@ public class GetOverviewStatsController(
         long nowMs,
         IReadOnlyDictionary<string, string?> nicknamesByHost)
     {
-        // Spark for 30d/all-time rolls up to daily.
         var totalSpan = nowMs - windowStart;
         var sparkSize = OneDay;
         var sparkBuckets = Math.Max(1, (int)Math.Min(60, totalSpan / sparkSize + 1));
@@ -619,31 +809,11 @@ public class GetOverviewStatsController(
         };
     }
 
-    private static List<GetOverviewStatsResponse.ErrorSlice> BuildErrors(IEnumerable<SegmentFetch.FetchStatus> statuses)
-    {
-        var counts = new Dictionary<SegmentFetch.FetchStatus, long>();
-        foreach (var s in statuses)
-        {
-            if (s == SegmentFetch.FetchStatus.Ok) continue;
-            counts.TryGetValue(s, out var c);
-            counts[s] = c + 1;
-        }
-
-        return counts
-            .Select(kv => new GetOverviewStatsResponse.ErrorSlice
-            {
-                Status = kv.Key.ToString(),
-                Count = kv.Value,
-            })
-            .OrderByDescending(s => s.Count)
-            .ToList();
-    }
-
-    private async Task<GetOverviewStatsResponse.CatalogueBlock> BuildCatalogueAsync()
+    private static async Task<GetOverviewStatsResponse.CatalogueBlock> BuildCatalogueAsync(DavDatabaseContext ctx)
     {
         var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
 
-        var files = davDb.Ctx.Items.Where(i => i.Type == DavItem.ItemType.UsenetFile);
+        var files = ctx.Items.Where(i => i.Type == DavItem.ItemType.UsenetFile);
         var fileCount = await files.CountAsync().ConfigureAwait(false);
         var totalBytes = await files.SumAsync(i => (long?)i.FileSize).ConfigureAwait(false) ?? 0L;
         var largest = await files.MaxAsync(i => (long?)i.FileSize).ConfigureAwait(false) ?? 0L;
@@ -676,10 +846,10 @@ public class GetOverviewStatsController(
         };
     }
 
-    private async Task<List<GetOverviewStatsResponse.IndexerRow>> BuildIndexersAsync()
+    private static async Task<List<GetOverviewStatsResponse.IndexerRow>> BuildIndexersAsync(DavDatabaseContext ctx)
     {
         var cutoff = DateTime.UtcNow.AddDays(-30);
-        var rows = await davDb.Ctx.HistoryItems
+        var rows = await ctx.HistoryItems
             .Where(h => h.CreatedAt >= cutoff && h.IndexerName != null)
             .GroupBy(h => h.IndexerName!)
             .Select(g => new
@@ -712,8 +882,6 @@ public class GetOverviewStatsController(
 
     private static async Task<GetOverviewStatsResponse.LifetimeBlock> BuildLifetimeAsync(MetricsDbContext metrics)
     {
-        // ProviderHourly is the long-retention truth for fetched bytes & articles (365 d).
-        // ReadSessions retains 90 d, so "read" lifetime is approximate beyond that window.
         var bytesFetched = await metrics.ProviderHourly
             .SumAsync(x => (long?)x.BytesFetched).ConfigureAwait(false) ?? 0L;
         var articles = await metrics.ProviderHourly
@@ -742,8 +910,6 @@ public class GetOverviewStatsController(
 
     private static async Task<GetOverviewStatsResponse.RecordsBlock> BuildRecordsAsync(MetricsDbContext metrics)
     {
-        // Busiest day = sum bytes-fetched per UTC day across the entire hourly history.
-        // SQLite returns Hour as ms; integer-divide by OneDay to bucket by day.
         var dayRow = await metrics.ProviderHourly
             .GroupBy(x => x.Hour / OneDay)
             .Select(g => new { DayBucket = g.Key, Bytes = g.Sum(x => x.BytesFetched) })

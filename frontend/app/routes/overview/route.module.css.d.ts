@@ -10,5 +10,6 @@ declare const styles: {
   readonly windowOption: string;
   readonly windowActive: string;
   readonly twoCol: string;
+  readonly skeleton: string;
 };
 export = styles;
