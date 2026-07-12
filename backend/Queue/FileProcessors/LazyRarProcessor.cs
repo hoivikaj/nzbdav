@@ -134,21 +134,24 @@ public class LazyRarProcessor(
         };
 
         var trailingInfos = sorted.Skip(1).ToList();
-        var partSizes = trailingInfos
-            .Select(pi => pi.FileSize ?? (long)(pi.NzbFile.GetTotalYencodedSize() * YencDecodeRatio))
-            .ToArray();
 
         var pending = new List<DavMultipartFile.PendingPart>(trailingInfos.Count);
         var pendingSum = 0L;
         for (var i = 0; i < trailingInfos.Count; i++)
         {
             var partInfo = trailingInfos[i];
-            var partSize = partSizes[i];
-            var estimate = Math.Max(0, partSize - ContinuationHeaderGuess);
+            // Stream length must be an upper bound: SharpCompress seekable
+            // header parsing seeks to dataStart+packedSize before yielding
+            // the file header. Encoded size is always >= decoded size, so
+            // use it (not *0.95) when PAR2 FileSize is unavailable.
+            var streamLength = partInfo.FileSize ?? partInfo.NzbFile.GetTotalYencodedSize();
+            var estimateSource = partInfo.FileSize
+                ?? (long)(partInfo.NzbFile.GetTotalYencodedSize() * YencDecodeRatio);
+            var estimate = Math.Max(0, estimateSource - ContinuationHeaderGuess);
             pending.Add(new DavMultipartFile.PendingPart
             {
                 SegmentIds = partInfo.NzbFile.GetSegmentIds(),
-                SegmentIdByteRange = LongRange.FromStartAndSize(0, partSize),
+                SegmentIdByteRange = LongRange.FromStartAndSize(0, streamLength),
                 EstimatedDataSize = estimate,
             });
             pendingSum += estimate;

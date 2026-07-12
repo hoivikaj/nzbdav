@@ -176,7 +176,7 @@ public static class RarUtil
         {
             var offset = FormatActualValue(seekPastEnd!.ActualValue);
             var length = TryGetStreamLength(stream);
-            mapped = new CorruptRarException(
+            mapped = new RarSeekPastEndException(
                 $"Failed to parse RAR volume headers (seek past stream end at offset {offset}; stream length {length})");
             return true;
         }

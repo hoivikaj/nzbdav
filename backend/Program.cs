@@ -139,7 +139,12 @@ class Program
                     new ProviderUsageTracker(sp.GetRequiredService<ActiveReadRegistry>()))
                 .AddSingleton<QueueItemSourceTracker>()
                 .AddSingleton<UsenetStreamingClient>()
-                .AddSingleton<LazyRarResolver>()
+                // LazyRarResolver takes INntpClient (for testability) but must
+                // use the shared streaming client; wire it explicitly instead
+                // of registering a container-wide INntpClient binding.
+                .AddSingleton<LazyRarResolver>(sp => new LazyRarResolver(
+                    sp.GetRequiredService<UsenetStreamingClient>(),
+                    sp.GetRequiredService<ConfigManager>()))
                 .AddSingleton<QueueManager>()
                 .AddSingleton<NzbResolutionCache>()
                 .AddSingleton<PreferredOrderStore>()

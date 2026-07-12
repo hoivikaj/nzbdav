@@ -16,7 +16,8 @@ public class RarUtilTests
             "Seek position is outside stream bounds.");
 
         Assert.True(RarUtil.TryMapHeaderParseFailure(seekPastEnd, stream, out var mapped));
-        var ex = Assert.IsType<CorruptRarException>(mapped);
+        var ex = Assert.IsType<RarSeekPastEndException>(mapped);
+        Assert.IsAssignableFrom<CorruptRarException>(mapped);
         Assert.Contains("seek past stream end", ex.Message);
         Assert.Contains("52223980", ex.Message);
         Assert.Contains("stream length 100", ex.Message);

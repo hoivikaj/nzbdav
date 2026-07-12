@@ -16,7 +16,7 @@ namespace NzbWebDAV.Services;
 // First reader to need part N pays the cost (~1 segment fetch + parse);
 // subsequent readers reuse the resolved FilePart. The whole resolved
 // archive is written back to the blob-store so restarts also reuse it.
-public class LazyRarResolver(UsenetStreamingClient usenetClient, ConfigManager configManager)
+public class LazyRarResolver(INntpClient usenetClient, ConfigManager configManager)
 {
     // Coalesces concurrent resolution requests for the same volume.
     // Keyed by the volume's first segment ID so two readers asking for the
@@ -25,6 +25,10 @@ public class LazyRarResolver(UsenetStreamingClient usenetClient, ConfigManager c
     private readonly ConcurrentDictionary<(Guid, string), Task<DavMultipartFile.FilePart>> _inFlight = new();
 
     private readonly ConcurrentDictionary<Guid, Persistor> _persistors = new();
+
+    // Test seam: when set, volume opens skip NzbFileStream/yEnc so unit tests
+    // can feed a crafted RAR with an understated Length without rapidyenc.
+    internal Func<string[], long, Stream>? VolumeStreamFactory { get; set; }
 
     private sealed class Persistor
     {
@@ -143,16 +147,52 @@ public class LazyRarResolver(UsenetStreamingClient usenetClient, ConfigManager c
         var pathInArchive = meta.PathInArchive
             ?? throw new InvalidOperationException("Lazy RAR meta missing PathInArchive.");
 
-        await using var stream = usenetClient.GetFileStream(
-            pending.SegmentIds, pending.SegmentIdByteRange.Count, articleBufferSize: 0);
+        var estimatedSize = pending.SegmentIdByteRange.Count;
+        try
+        {
+            return await ParseVolumeHeaderAsync(
+                    pending, pathInArchive, meta.ArchivePassword, estimatedSize, ct)
+                .ConfigureAwait(false);
+        }
+        catch (RarSeekPastEndException)
+        {
+            // Pending SegmentIdByteRange was estimated (e.g. yEnc*0.95) and
+            // understated the real volume length. Measure from the last
+            // segment's yEnc header and retry once with the exact size.
+            var measuredSize = await MeasureVolumeSizeAsync(pending.SegmentIds, ct)
+                .ConfigureAwait(false);
+            if (measuredSize <= estimatedSize)
+                throw;
+
+            Log.Debug(
+                "Lazy RAR volume size estimate {Estimated} was too small for multipart {Id}; " +
+                "retrying header parse with measured size {Measured}.",
+                estimatedSize, mpf.Id, measuredSize);
+            return await ParseVolumeHeaderAsync(
+                    pending, pathInArchive, meta.ArchivePassword, measuredSize, ct)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task<DavMultipartFile.FilePart> ParseVolumeHeaderAsync(
+        DavMultipartFile.PendingPart pending,
+        string pathInArchive,
+        string? password,
+        long fileSize,
+        CancellationToken ct)
+    {
+        await using var stream = OpenVolumeStream(pending.SegmentIds, fileSize);
 
         // Find-and-stop so SharpCompress never seeks past the matched header.
         // The seek would force NzbFileStream to fire InterpolationSearch
         // (~7 STAT calls), which is the main reason naïve full-walk
         // resolution stalls playback at every volume boundary.
+        // Note: seekable SharpCompress still seeks past the matched file's
+        // packed data before yielding the header, so fileSize must be at
+        // least dataStart + packedSize.
         var match = await RarUtil.FindFirstFileHeaderAsync(
             stream,
-            meta.ArchivePassword,
+            password,
             h => h.GetFileName() == pathInArchive,
             ct).ConfigureAwait(false)
             ?? throw new CorruptRarException(
@@ -166,6 +206,18 @@ public class LazyRarResolver(UsenetStreamingClient usenetClient, ConfigManager c
             SegmentIdByteRange = LongRange.FromStartAndSize(0, dataStart + dataSize),
             FilePartByteRange = LongRange.FromStartAndSize(dataStart, dataSize),
         };
+    }
+
+    private Stream OpenVolumeStream(string[] segmentIds, long fileSize) =>
+        VolumeStreamFactory?.Invoke(segmentIds, fileSize)
+        ?? usenetClient.GetFileStream(segmentIds, fileSize, articleBufferSize: 0);
+
+    private async Task<long> MeasureVolumeSizeAsync(string[] segmentIds, CancellationToken ct)
+    {
+        if (segmentIds.Length == 0) return 0;
+        var headers = await usenetClient.GetYencHeadersAsync(segmentIds[^1], ct)
+            .ConfigureAwait(false);
+        return headers.PartOffset + headers.PartSize;
     }
 
     // Atomically appends consecutive resolveds that match the head of
