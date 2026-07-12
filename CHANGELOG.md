@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.5](https://github.com/nzbdav/nzbdav/compare/v0.7.4...v0.7.5) (2026-07-12)
+
+
+### Bug Fixes
+
+* harden RemoveOrphanedFilesScheduler against disposal race and DST clock skew ([#175](https://github.com/nzbdav/nzbdav/issues/175)) ([1f87b28](https://github.com/nzbdav/nzbdav/commit/1f87b28827ccbdd9a160f2e5b12cf43efc89368d))
+* **health:** isolate arr failures in repair and skip empty root paths ([#176](https://github.com/nzbdav/nzbdav/issues/176)) ([e52e9cf](https://github.com/nzbdav/nzbdav/commit/e52e9cf6bbc3e6d4c38774fe94c9108d24e18238))
+* **ui:** keep login page outside the app shell ([36efa4a](https://github.com/nzbdav/nzbdav/commit/36efa4abfdec8dab5470ac009c47ac0349e527e3))
+
 ## [0.7.4](https://github.com/nzbdav/nzbdav/compare/v0.7.3...v0.7.4) (2026-07-12)
 
 
