@@ -29,9 +29,17 @@ public class RemoveOrphanedFilesSchedulerService : BackgroundService
 
             var old = Interlocked.Exchange(ref _rescheduleCts, new CancellationTokenSource());
             old.Cancel();
-            old.Dispose();
+            // Not disposed: ExecuteAsync may access .Token on this source after the swap, which
+            // throws ObjectDisposedException once disposed. Cancelling wakes the loop; the old
+            // source is then unreferenced and GC'd.
         };
     }
+
+    // Sleep in <=30m slices and re-check the wall clock, so a DST/NTP shift mid-wait can't fire
+    // the daily run early, twice, or not at all (a single Task.Delay(nextRun-now) would).
+    private static readonly TimeSpan MaxSleepSlice = TimeSpan.FromMinutes(30);
+    private DateTime? _lastLoggedNextRun;
+    private DateTime? _lastRun;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -39,10 +47,17 @@ public class RemoveOrphanedFilesSchedulerService : BackgroundService
         {
             try
             {
+                // Read once: the config handler can swap _rescheduleCts between the field load and
+                // the .Token access, leaving us reading .Token off an instance we never observed.
+                var reschedule = Volatile.Read(ref _rescheduleCts);
+
                 if (!_configManager.IsRemoveOrphanedFilesScheduleEnabled())
                 {
+                    // Forget the logged target so re-enabling re-announces the next run, even when
+                    // the recomputed target is the same instant as before the disable.
+                    _lastLoggedNextRun = null;
                     using var disabledLinked = CancellationTokenSource
-                        .CreateLinkedTokenSource(stoppingToken, _rescheduleCts.Token);
+                        .CreateLinkedTokenSource(stoppingToken, reschedule.Token);
                     await Task.Delay(Timeout.Infinite, disabledLinked.Token).ConfigureAwait(false);
                     continue;
                 }
@@ -50,18 +65,32 @@ public class RemoveOrphanedFilesSchedulerService : BackgroundService
                 var scheduleTime = _configManager.RemoveOrphanedFilesSchedule();
                 var now = DateTime.Now;
                 var todayRun = now.Date + scheduleTime;
-                var nextRun = todayRun > now ? todayRun : todayRun.AddDays(1);
+                // Guard against re-running the same slot after a backward clock shift (DST fall-back
+                // or NTP step) re-exposes a time we already ran: treat todayRun as pending only if it
+                // is both in the future and strictly later than the last run we fired.
+                var lastRun = _lastRun ?? DateTime.MinValue;
+                var nextRun = todayRun > now && todayRun > lastRun ? todayRun : todayRun.AddDays(1);
                 var delay = nextRun - now;
 
-                Log.Information("RemoveOrphanedFilesScheduler: next run scheduled at {NextRun}", nextRun);
+                // Only log when the target actually changes; we now wake every slice.
+                if (_lastLoggedNextRun != nextRun)
+                {
+                    Log.Information("RemoveOrphanedFilesScheduler: next run scheduled at {NextRun}", nextRun);
+                    _lastLoggedNextRun = nextRun;
+                }
 
                 using var delayLinked = CancellationTokenSource
-                    .CreateLinkedTokenSource(stoppingToken, _rescheduleCts.Token);
-                await Task.Delay(delay, delayLinked.Token).ConfigureAwait(false);
+                    .CreateLinkedTokenSource(stoppingToken, reschedule.Token);
+                await Task.Delay(delay < MaxSleepSlice ? delay : MaxSleepSlice, delayLinked.Token)
+                    .ConfigureAwait(false);
+
+                // Re-check against the current wall clock: if a slice woke us early, loop again.
+                if (DateTime.Now < nextRun) continue;
 
                 Log.Information("RemoveOrphanedFilesScheduler: running scheduled Remove Orphaned Files task");
                 var task = new RemoveUnlinkedFilesTask(_configManager, _websocketManager, isDryRun: false);
                 await task.Execute().ConfigureAwait(false);
+                _lastRun = nextRun;
             }
             catch (OperationCanceledException) when (SigtermUtil.IsSigtermTriggered())
             {
