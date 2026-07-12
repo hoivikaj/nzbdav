@@ -223,6 +223,26 @@ export function UsenetSettings({ config, setNewConfig }: UsenetSettingsProps) {
     const providerConfig = useMemo(() => parseProviderConfig(config["usenet.providers"]), [config]);
     const cascadeEnabled = config["usenet.cascade.enabled"] === "true";
 
+    // Display-sort by type then priority when cascade is off. Cascade mode keeps
+    // array/drag order so dnd-kit and #N badges stay coherent. Mutations still
+    // use the original config index — this never rewrites persisted order.
+    const displayedProviders = useMemo(() => {
+        const items = providerConfig.Providers.map((provider, index) => ({ provider, index }));
+        if (cascadeEnabled) return items;
+        return items.sort((a, b) => {
+            const getGroup = (type: ProviderType) => {
+                if (type === ProviderType.Pooled) return 0;
+                if (type === ProviderType.BackupAndStats || type === ProviderType.BackupOnly) return 1;
+                return 2;
+            };
+            const groupDiff = getGroup(a.provider.Type) - getGroup(b.provider.Type);
+            if (groupDiff !== 0) return groupDiff;
+            const prioDiff = (a.provider.Priority ?? 0) - (b.provider.Priority ?? 0);
+            if (prioDiff !== 0) return prioDiff;
+            return a.index - b.index;
+        });
+    }, [providerConfig.Providers, cascadeEnabled]);
+
     // handlers
     const handleAddProvider = useCallback(() => {
         setEditingIndex(null);
@@ -386,7 +406,7 @@ export function UsenetSettings({ config, setNewConfig }: UsenetSettingsProps) {
                     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <SortableContext items={providerConfig.Providers.map(providerKey)} strategy={rectSortingStrategy}>
                     <div className={styles["providers-grid"]}>
-                        {providerConfig.Providers.map((provider, index) => {
+                        {displayedProviders.map(({ provider, index }) => {
                             const isDisabled = provider.Type === ProviderType.Disabled;
                             return (
                             <SortableItem key={providerKey(provider)} id={providerKey(provider)} disabled={!cascadeEnabled}>
