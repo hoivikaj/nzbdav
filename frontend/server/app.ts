@@ -6,8 +6,8 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 import { websocketServer } from "./websocket.server";
 import { shouldProxyToBackend } from "./proxy-path";
 import { logger } from "./logger";
-import { isAuthenticated } from "~/auth/authentication.server";
 import { authMiddleware } from "~/auth/auth-middleware.server";
+import { setApiKeyForAuthenticatedRequests } from "./inject-api-key.server";
 
 export const app = express();
 export const initializeWebsocketServer = websocketServer.initialize;
@@ -36,23 +36,6 @@ const forwardToBackend = createProxyMiddleware({
     },
   },
 });
-
-const setApiKeyForAuthenticatedRequests = async (req: express.Request) => {
-  // if the path is not /api, do nothing
-  if (!req.path.startsWith("/api")) return;
-  var apikey = req.query.apikey || req.query.apiKey || req.headers["x-api-key"];
-  var hasApiKey = apikey && typeof apikey === "string";
-
-  // if the request already has an apikey, do nothing
-  if (hasApiKey) return;
-
-  // if the request is not authenticated, do nothing
-  const authenticated = await isAuthenticated(req);
-  if (!authenticated) return;
-
-  // otherwise, set the api key header
-  req.headers["x-api-key"] = process.env.FRONTEND_BACKEND_API_KEY || "";
-}
 
 const credentialPaths = new Set([
   "/login",
