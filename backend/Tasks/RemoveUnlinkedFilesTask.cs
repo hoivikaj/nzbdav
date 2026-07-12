@@ -50,6 +50,32 @@ public class RemoveUnlinkedFilesTask(
         var unlinkedItems = await CountUnlinkedItems(startTime);
         Report($"Found {unlinkedItems} webdav items to remove.");
 
+        // The `linkedIdCount < 5` check above only catches a COMPLETELY empty scan. A library
+        // dir that is partially mounted, or pointed at the wrong path, can still expose a
+        // handful of symlinks and sail past it -- and then nearly every webdav item looks
+        // unlinked. Refuse to delete an implausible share of the deletable population.
+        // A healthy library here sits around 31% unlinked (samples, nfos, unimported extras),
+        // so 90% leaves wide headroom while still catching a broken scan.
+        var deletableItems = await CountDeletableItems(startTime);
+        var extremeUnlinkedRatio = deletableItems > 0 && unlinkedItems > deletableItems * 0.9;
+        if (extremeUnlinkedRatio)
+        {
+            var percent = 100.0 * unlinkedItems / deletableItems;
+            var detail =
+                $"{unlinkedItems} of {deletableItems} webdav items appear unlinked ({percent:F0}%). " +
+                $"That usually means the library directory is missing, unmounted, or misconfigured " +
+                $"rather than that the items are orphaned.";
+
+            if (!isDryRun)
+            {
+                Report($"Aborted: {detail} Cancelling to prevent accidental bulk deletion. " +
+                       $"Run a dry-run to inspect if this is genuinely expected.");
+                return;
+            }
+
+            Report($"Warning: {detail} A non-dry-run would abort.");
+        }
+
         if (isDryRun)
         {
             await DryRunIdentifyUnlinkedFiles(startTime);
@@ -117,12 +143,37 @@ public class RemoveUnlinkedFilesTask(
         Report($"Scanning all linked files...\nFound {count}...");
     }
 
+    /// <summary>
+    /// The population CountUnlinkedItems draws from: every item this task is allowed to delete,
+    /// linked or not. Must mirror CountUnlinkedItems' predicates exactly (minus the link join),
+    /// otherwise the safety ratio compares two different populations.
+    /// </summary>
+    private async Task<int> CountDeletableItems(DateTime createdBefore)
+    {
+        await using var dbContext = new DavDatabaseContext();
+        var createdBeforeStr = createdBefore.ToString("yyyy-MM-dd HH:mm:ss");
+        var usenetFileType = (int)DavItem.ItemType.UsenetFile;
+
+        return await dbContext.Database
+            .SqlQueryRaw<int>(
+                $"""
+                 SELECT COUNT(i.Id) AS Value FROM DavItems i
+                 WHERE i.Type = {usenetFileType}
+                   AND i.HistoryItemId IS NULL
+                   AND i.CreatedAt < '{createdBeforeStr}'
+                 """)
+            .FirstAsync();
+    }
+
     private async Task<int> CountUnlinkedItems(DateTime createdBefore)
     {
         await using var dbContext = new DavDatabaseContext();
         var createdBeforeStr = createdBefore.ToString("yyyy-MM-dd HH:mm:ss");
         var usenetFileType = (int)DavItem.ItemType.UsenetFile;
 
+        // LEFT JOIN is equivalent to the NOT IN subquery used by RemoveUnlinkedItems /
+        // DryRunIdentifyUnlinkedFiles; CountDeletableItems mirrors these predicates without
+        // the link join so the safety ratio compares the same population.
         var count = await dbContext.Database
             .SqlQueryRaw<int>(
                 $"""
