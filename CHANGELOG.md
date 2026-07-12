@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.6](https://github.com/nzbdav/nzbdav/compare/v0.7.5...v0.7.6) (2026-07-12)
+
+
+### Features
+
+* **ui:** show sidebar notice when a newer release is available ([b9e3702](https://github.com/nzbdav/nzbdav/commit/b9e370251e3a5b9237288685c62c04ea57bda30e))
+
+
+### Bug Fixes
+
+* **db:** parameterize RemoveUnlinkedFilesTask raw SQL ([#198](https://github.com/nzbdav/nzbdav/issues/198)) ([b2871f9](https://github.com/nzbdav/nzbdav/commit/b2871f9d5762e5e394b82209820323ce371c7fcb)), closes [#186](https://github.com/nzbdav/nzbdav/issues/186)
+* **ui:** remove dead /p/ proxy prefix from allowlists ([#201](https://github.com/nzbdav/nzbdav/issues/201)) ([bb7b4f9](https://github.com/nzbdav/nzbdav/commit/bb7b4f95b9274465096813e34d562e9de327a2ff)), closes [#182](https://github.com/nzbdav/nzbdav/issues/182)
+* **webdav:** dedupe mid-read failure logs and include User-Agent ([af25f7c](https://github.com/nzbdav/nzbdav/commit/af25f7c537afe61d53cc7e7db12b0e5882f2c8e2))
+
 ## [0.7.5](https://github.com/nzbdav/nzbdav/compare/v0.7.4...v0.7.5) (2026-07-12)
 
 
