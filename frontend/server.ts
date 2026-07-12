@@ -9,6 +9,19 @@ const BUILD_PATH = "../build/server/index.js";
 const DEVELOPMENT = process.env.NODE_ENV === "development";
 const PORT = Number.parseInt(process.env.PORT || "3000");
 
+// Keep the frontend alive when the backend is slow. SSR loaders fetch the
+// backend; when those fetches reject and a loader doesn't catch them, the
+// rejection can become an unhandledRejection that Node terminates on by
+// default (v15+). Logging without crashing keeps /healthz, /assets, and
+// websockets up while the affected SSR request returns an error page.
+// Adopted from elfhosted/rebased-v3.
+//
+// Deliberately do not hook uncaughtException: that fires for fatal errors
+// where restarting the process is the right answer.
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection:", reason);
+});
+
 // Initialize the express app
 const app = express();
 app.use(
@@ -33,6 +46,14 @@ app.use(
   }),
 );
 app.disable("x-powered-by");
+
+// Frontend-local healthcheck. Registered BEFORE request logging and the React
+// Router catch-all so probes bypass SSR and stay quiet in access logs.
+// Adopted from elfhosted/rebased-v3.
+app.get("/healthz", (_req, res) => {
+  res.status(200).type("text/plain").send("ok");
+});
+
 app.use(requestLogger);
 
 // Initialize the websocket server as soon as both it and the server-module are ready

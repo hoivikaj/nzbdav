@@ -1,4 +1,5 @@
 import {
+  isRouteErrorResponse,
   Links,
   Meta,
   Outlet,
@@ -6,6 +7,7 @@ import {
   ScrollRestoration,
   useLocation,
   useNavigation,
+  useRouteError,
 } from "react-router";
 
 import "./app.css";
@@ -108,4 +110,51 @@ export default function App({ loaderData }: Route.ComponentProps) {
   }
 
   return <Outlet />;
+}
+
+// Root ErrorBoundary catches loader/component throws that aren't handled closer
+// to the route. Without this, an SSR loader that rejects (e.g. backend fetch
+// timeout while the backend is busy) bubbles to React Router's default 500 with
+// no UI. Keep this page free of PageLayout so we don't re-run the root loader
+// and loop back into the same failure. Adopted from elfhosted/rebased-v3.
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const isUndiciTimeout =
+    error instanceof Error &&
+    /fetch failed|ConnectTimeoutError|HeadersTimeoutError|UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT/i.test(
+      `${error.message} ${(error.cause as Error)?.message ?? ""}`,
+    );
+
+  let title = "Something went wrong";
+  let detail: string;
+  if (isUndiciTimeout) {
+    title = "Backend temporarily unavailable";
+    detail =
+      "The nzbdav backend is still starting up or is busy processing a large queue. Wait a moment and refresh the page.";
+  } else if (isRouteErrorResponse(error)) {
+    title = `${error.status} ${error.statusText}`;
+    detail = typeof error.data === "string" ? error.data : "";
+  } else if (error instanceof Error) {
+    detail = error.message;
+  } else {
+    detail = "Unknown error.";
+  }
+
+  return (
+    <main className="flex min-h-dvh w-full items-center justify-center bg-gray-900 px-4 py-8 text-white">
+      <div className="w-full max-w-lg space-y-4 rounded-xl border border-slate-700/70 bg-gray-800 p-6 shadow-xl shadow-black/20 sm:p-8">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+          {detail ? <p className="text-sm leading-relaxed text-slate-300">{detail}</p> : null}
+        </div>
+        <button
+          type="button"
+          className="button-small flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600"
+          onClick={() => window.location.reload()}
+        >
+          Reload
+        </button>
+      </div>
+    </main>
+  );
 }
