@@ -99,6 +99,24 @@
     gap: 16px;
 }
 
+.skeleton {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: linear-gradient(
+        90deg,
+        var(--bg-elevated) 0%,
+        color-mix(in srgb, var(--bg-elevated) 60%, var(--bg-surface)) 50%,
+        var(--bg-elevated) 100%
+    );
+    background-size: 200% 100%;
+    animation: overviewSkeletonPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes overviewSkeletonPulse {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+
 @media (max-width: 800px) {
     .twoCol {
         grid-template-columns: 1fr;

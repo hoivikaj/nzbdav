@@ -3,6 +3,10 @@ namespace NzbWebDAV.Api.Controllers.GetOverviewStats;
 public class GetOverviewStatsResponse
 {
     public string Window { get; init; } = "24h";
+
+    /// <summary>Which section groups were populated in this response (window, detail, static).</summary>
+    public List<string> IncludedSections { get; init; } = new();
+
     public LiveTiles Tiles { get; init; } = new();
     public List<ThroughputPoint> Throughput { get; init; } = new();
     public long TotalArticles { get; init; }

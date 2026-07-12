@@ -148,7 +148,7 @@ describe("BackendClient", () => {
     })).resolves.toEqual(logs);
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "http://backend/api/get-overview-stats?window=7d",
+      "http://backend/api/get-overview-stats?window=7d&sections=all",
       "http://backend/api/get-logs?limit=50&levels=Warning%2CError&source=Queue&search=failed+request&beforeSequence=42",
     ]);
   });
