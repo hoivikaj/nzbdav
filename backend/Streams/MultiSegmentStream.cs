@@ -201,7 +201,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
                         .DecodedBodyAsync(segmentId, cancellationToken)
                         .ConfigureAwait(false);
 
-                return await DrainSegmentAsync(bodyResponse.Stream, cancellationToken).ConfigureAwait(false);
+                return await DrainSegmentAsync(bodyResponse.Stream!, cancellationToken).ConfigureAwait(false);
             }
             catch (UsenetArticleNotFoundException e)
             {
@@ -250,7 +250,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         try
         {
             var response = await responseTask.ConfigureAwait(false);
-            return await DrainSegmentAsync(response.Stream, cancellationToken).ConfigureAwait(false);
+            return await DrainSegmentAsync(response.Stream!, cancellationToken).ConfigureAwait(false);
         }
         catch (UsenetArticleNotFoundException e)
         {

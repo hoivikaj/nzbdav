@@ -8,17 +8,17 @@ public class ArrCommand
     public int Id { get; set; }
 
     [JsonPropertyName("name")]
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
 
     [JsonPropertyName("commandName")]
-    public string CommandName { get; set; }
+    public string CommandName { get; set; } = null!;
 
     [JsonPropertyName("result")]
-    public string Result { get; set; }
+    public string Result { get; set; } = null!;
 
     [JsonPropertyName("status")]
-    public string Status { get; set; }
+    public string Status { get; set; } = null!;
 
     [JsonPropertyName("priority")]
-    public string Priority { get; set; }
+    public string Priority { get; set; } = null!;
 }

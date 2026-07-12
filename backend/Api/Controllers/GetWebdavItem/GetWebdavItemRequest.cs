@@ -20,7 +20,7 @@ public class GetWebdavItemRequest
     public GetWebdavItemRequest(HttpContext context)
     {
         // normalize path
-        var path = context.Request.Path.Value;
+        var path = context.Request.Path.Value ?? "";
         if (path.StartsWith("/")) path = path[1..];
         if (path.StartsWith("view")) path = path[4..];
         if (path.StartsWith("/")) path = path[1..];

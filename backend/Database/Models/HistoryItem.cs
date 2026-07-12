@@ -6,7 +6,7 @@ public class HistoryItem
     public DateTime CreatedAt { get; set; }
     public string FileName { get; set; } = null!;
     public string JobName { get; set; } = null!;
-    public string Category { get; set; }
+    public string Category { get; set; } = null!;
     public DownloadStatusOption DownloadStatus { get; set; }
     public long TotalSegmentBytes { get; set; }
     public int DownloadTimeSeconds { get; set; }

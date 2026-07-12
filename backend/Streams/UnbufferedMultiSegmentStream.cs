@@ -38,7 +38,7 @@ public class UnbufferedMultiSegmentStream : FastReadOnlyNonSeekableStream
                 try
                 {
                     var body = await _usenetClient.DecodedBodyAsync(segmentId, cancellationToken);
-                    _stream = body.Stream;
+                    _stream = body.Stream!;
                 }
                 catch (UsenetArticleNotFoundException e)
                 {

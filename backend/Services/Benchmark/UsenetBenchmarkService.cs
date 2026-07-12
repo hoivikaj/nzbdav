@@ -301,7 +301,7 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
                     try
                     {
                         var response = await conn.DecodedBodyAsync(id, ct).ConfigureAwait(false);
-                        await DrainAsync(response.Stream, buffer, counter, ct).ConfigureAwait(false);
+                        await DrainAsync(response.Stream!, buffer, counter, ct).ConfigureAwait(false);
                     }
                     catch (UsenetArticleNotFoundException)
                     {

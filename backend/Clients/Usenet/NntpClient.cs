@@ -110,7 +110,7 @@ public abstract class NntpClient : INntpClient
     public virtual async Task<UsenetYencHeader> GetYencHeadersAsync(string segmentId, CancellationToken ct)
     {
         var decodedBodyResponse = await DecodedBodyAsync(segmentId, ct).ConfigureAwait(false);
-        await using var stream = decodedBodyResponse.Stream;
+        await using var stream = decodedBodyResponse.Stream!;
         var headers = await stream.GetYencHeadersAsync(ct).ConfigureAwait(false);
         return headers!;
     }

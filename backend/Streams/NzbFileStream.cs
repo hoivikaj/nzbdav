@@ -216,7 +216,7 @@ public class NzbFileStream(
                 return null;
             }
 
-            var body = response.Stream;
+            var body = response.Stream!;
             UsenetYencHeader? header;
             try
             {

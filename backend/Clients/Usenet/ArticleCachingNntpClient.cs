@@ -94,11 +94,8 @@ public class ArticleCachingNntpClient(
             await using var stream = response.Stream;
 
             // Get yenc headers before caching the decoded stream
-            var yencHeaders = await stream.GetYencHeadersAsync(cancellationToken).ConfigureAwait(false);
-            if (yencHeaders == null)
-            {
+            var yencHeaders = await stream!.GetYencHeadersAsync(cancellationToken).ConfigureAwait(false) ??
                 throw new InvalidOperationException($"Failed to read yenc headers for segment {segmentId}");
-            }
 
             await CacheDecodedStreamAsync(segmentId, stream, cancellationToken).ConfigureAwait(false);
 

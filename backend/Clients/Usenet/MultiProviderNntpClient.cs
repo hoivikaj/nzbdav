@@ -613,9 +613,9 @@ public class MultiProviderNntpClient(
         return result switch
         {
             UsenetDecodedBodyResponse b
-                => (T)(object)(b with { Stream = new CountingYencStream(b.Stream, bytesTracker, host) }),
+                => (T)(object)(b with { Stream = new CountingYencStream(b.Stream!, bytesTracker, host) }),
             UsenetDecodedArticleResponse a
-                => (T)(object)(a with { Stream = new CountingYencStream(a.Stream, bytesTracker, host) }),
+                => (T)(object)(a with { Stream = new CountingYencStream(a.Stream!, bytesTracker, host) }),
             _ => result,
         };
     }

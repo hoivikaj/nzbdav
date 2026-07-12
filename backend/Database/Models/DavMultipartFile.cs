@@ -10,7 +10,7 @@ public partial class DavMultipartFile
     public Guid Id { get; set; } // foreign key to DavItem.Id
 
     [MemoryPackOrder(1)]
-    public Meta Metadata { get; set; }
+    public Meta Metadata { get; set; } = null!;
 
     // navigation helpers
     [MemoryPackIgnore]
@@ -51,12 +51,12 @@ public partial class DavMultipartFile
 
         // what byte range is contained within the segmentIds? (relative to the full NzbFile)
         [MemoryPackOrder(1)]
-        public LongRange SegmentIdByteRange { get; set; }
+        public LongRange SegmentIdByteRange { get; set; } = default!;
 
         // what byte range contains the file part contents? (relative to the full NzbFile)
         // note: this range should always be fully contained within the SegmentIdByteRange above.
         [MemoryPackOrder(2)]
-        public LongRange FilePartByteRange { get; set; }
+        public LongRange FilePartByteRange { get; set; } = default!;
 
         [MemoryPackOrder(3)]
         public LongRange[]? SegmentByteRanges { get; set; }
@@ -75,7 +75,7 @@ public partial class DavMultipartFile
         public string[] SegmentIds { get; set; } = [];
 
         [MemoryPackOrder(1)]
-        public LongRange SegmentIdByteRange { get; set; }
+        public LongRange SegmentIdByteRange { get; set; } = default!;
 
         [MemoryPackOrder(2)]
         public long EstimatedDataSize { get; set; }

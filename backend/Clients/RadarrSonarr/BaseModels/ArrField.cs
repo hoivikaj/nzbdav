@@ -6,10 +6,10 @@ namespace NzbWebDAV.Clients.RadarrSonarr.BaseModels;
 public class ArrField
 {
     [JsonPropertyName("name")]
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
 
     [JsonPropertyName("label")]
-    public string Label { get; set; }
+    public string Label { get; set; } = null!;
 
     [JsonPropertyName("value")]
     public JsonElement? ValueJson { get; set; }

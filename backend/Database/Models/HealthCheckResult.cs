@@ -5,7 +5,7 @@ public class HealthCheckResult
     public Guid Id { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public Guid DavItemId { get; init; }
-    public string Path { get; init; }
+    public string Path { get; init; } = null!;
     public HealthResult Result { get; init; }
     public RepairAction RepairStatus { get; set; }
     public string? Message { get; set; }

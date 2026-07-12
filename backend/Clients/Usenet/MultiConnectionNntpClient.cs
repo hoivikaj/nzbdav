@@ -330,14 +330,14 @@ public class MultiConnectionNntpClient(
                 LogException(() => onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved));
                 throw;
             }
-            catch (Exception e) when (e.TryGetCausingException(out UsenetArticleNotFoundException _))
+            catch (Exception e) when (e.TryGetCausingException(out UsenetArticleNotFoundException? _))
             {
                 deferredCallback.Discard();
                 LogException(() => connectionLock?.Dispose());
                 LogException(() => onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved));
                 throw;
             }
-            catch (Exception e) when (name is "BODY" or "ARTICLE" && e.TryGetCausingException(out TimeoutException _))
+            catch (Exception e) when (name is "BODY" or "ARTICLE" && e.TryGetCausingException(out TimeoutException? _))
             {
                 // Read-timeout on BODY/ARTICLE means the provider stopped responding
                 // mid-command. A fresh socket to the same provider is unlikely to fare

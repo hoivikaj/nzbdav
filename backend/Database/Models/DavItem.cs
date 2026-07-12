@@ -8,7 +8,7 @@ public class DavItem
     public const int IdPrefixLength = 5;
 
     public Guid Id { get; init; }
-    public string IdPrefix { get; init; }
+    public string IdPrefix { get; init; } = null!;
     public DateTime CreatedAt { get; init; }
     public Guid? ParentId { get; init; }
     public string Name { get; set; } = null!;

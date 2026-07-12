@@ -51,7 +51,7 @@ public class AddFileController(
             }
 
             // compute the total segment bytes
-            await using var nzbFileStream = BlobStore.ReadBlob(id);
+            await using var nzbFileStream = BlobStore.ReadBlob(id)!;
             var totalSegmentBytes = ComputeTotalSegmentBytes(nzbFileStream);
 
             // create the queue item record
@@ -155,7 +155,7 @@ public class AddFileController(
 
             await using var src = BlobStore.ReadBlob(id);
             await using var dst = System.IO.File.Create(destPath);
-            await src.CopyToAsync(dst);
+            await src!.CopyToAsync(dst);
         }
         catch (Exception e)
         {

@@ -286,9 +286,9 @@ public class QueueManager : IDisposable
 
     private class InProgressQueueItem
     {
-        public QueueItem QueueItem { get; init; }
+        public QueueItem QueueItem { get; init; } = null!;
         public int ProgressPercentage { get; set; }
-        public Task ProcessingTask { get; init; }
-        public CancellationTokenSource CancellationTokenSource { get; init; }
+        public Task ProcessingTask { get; init; } = null!;
+        public CancellationTokenSource CancellationTokenSource { get; init; } = null!;
     }
 }

@@ -6,11 +6,11 @@ namespace NzbWebDAV.Par2Recovery.Packets
     {
         public const string PacketType = "PAR 2.0\0FileDesc";
 
-        public byte[] FileID { get; protected set; }
-        public byte[] FileHash { get; protected set; }
-        public byte[] File16kHash { get; protected set; }
+        public byte[] FileID { get; protected set; } = null!;
+        public byte[] FileHash { get; protected set; } = null!;
+        public byte[] File16kHash { get; protected set; } = null!;
         public ulong FileLength { get; protected set; }
-        public string FileName { get; protected set; }
+        public string FileName { get; protected set; } = null!;
 
         public FileDesc(Par2PacketHeader header) : base(header)
         {

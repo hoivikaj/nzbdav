@@ -27,35 +27,35 @@ public class GetQueueResponse : SabBaseResponse
         public int Index { get; init; }
 
         [JsonPropertyName("nzo_id")]
-        public string NzoId { get; init; }
+        public string NzoId { get; init; } = null!;
 
         [JsonPropertyName("priority")]
-        public string Priority { get; init; }
+        public string Priority { get; init; } = null!;
 
         [JsonPropertyName("filename")]
-        public string Filename { get; init; }
+        public string Filename { get; init; } = null!;
 
         [JsonPropertyName("cat")]
-        public string Category { get; init; }
+        public string Category { get; init; } = null!;
 
         [JsonPropertyName("percentage")]
-        public string Percentage { get; init; }
+        public string Percentage { get; init; } = null!;
 
         [JsonPropertyName("true_percentage")]
-        public string TruePercentage { get; init; }
+        public string TruePercentage { get; init; } = null!;
 
         [JsonPropertyName("status")]
-        public string Status { get; init; }
+        public string Status { get; init; } = null!;
 
         [JsonPropertyName("timeleft")]
         [JsonConverter(typeof(SabnzbdQueueTimeConverter))]
         public TimeSpan TimeLeft { get; init; }
 
         [JsonPropertyName("mb")]
-        public string SizeInMB { get; init; }
+        public string SizeInMB { get; init; } = null!;
 
         [JsonPropertyName("mbleft")]
-        public string SizeLeftInMB { get; init; }
+        public string SizeLeftInMB { get; init; } = null!;
 
         [JsonPropertyName("indexer")]
         public string? Indexer { get; init; }
