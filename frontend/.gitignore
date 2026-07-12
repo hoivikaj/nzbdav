@@ -8,6 +8,7 @@
 /.react-router/
 /build/
 /dist-node/
+/coverage/
 /server.js
 /server.d.ts
 /vite.config.js

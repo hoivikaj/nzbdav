@@ -34,9 +34,16 @@ jobs:
         working-directory: frontend
         run: npm run typecheck
 
-      - name: Test frontend
+      - name: Test frontend with coverage
         working-directory: frontend
-        run: npm test
+        run: npm run test:coverage
+
+      - name: Upload frontend coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+          if-no-files-found: ignore
 
   backend:
     runs-on: ubuntu-latest
@@ -67,4 +74,11 @@ jobs:
         run: dotnet publish -c Release -o ./publish --no-restore
 
       - name: Test backend
-        run: dotnet test tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release --no-restore
+        run: dotnet test tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj -c Release --no-restore --collect:"XPlat Code Coverage" --results-directory ./TestResults
+
+      - name: Upload backend coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: TestResults/**/coverage.cobertura.xml
+          if-no-files-found: ignore
