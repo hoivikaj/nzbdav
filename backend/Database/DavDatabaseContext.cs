@@ -63,10 +63,43 @@ public sealed class DavDatabaseContext : DbContext
     public DbSet<ListSource> ListSources => Set<ListSource>();
     public DbSet<WantedItem> WantedItems => Set<WantedItem>();
 
-    // blob items
-    public List<DavNzbFile> BlobNzbFiles = [];
-    public List<DavRarFile> BlobRarFiles = [];
-    public List<DavMultipartFile> BlobMultipartFiles = [];
+    // Pending blob writes for the current unit of work (flushed in SaveChangesAsync).
+    private readonly List<DavNzbFile> _blobNzbFiles = [];
+    private readonly List<DavRarFile> _blobRarFiles = [];
+    private readonly List<DavMultipartFile> _blobMultipartFiles = [];
+
+    public IReadOnlyList<DavNzbFile> BlobNzbFiles => _blobNzbFiles;
+    public IReadOnlyList<DavRarFile> BlobRarFiles => _blobRarFiles;
+    public IReadOnlyList<DavMultipartFile> BlobMultipartFiles => _blobMultipartFiles;
+
+    public void AddBlob(DavNzbFile file) => _blobNzbFiles.Add(file);
+    public void AddBlob(DavRarFile file) => _blobRarFiles.Add(file);
+    public void AddBlob(DavMultipartFile file) => _blobMultipartFiles.Add(file);
+
+    public void RemoveNzbBlob(Guid? id)
+    {
+        if (id is null) return;
+        _blobNzbFiles.RemoveAll(x => x.Id == id);
+    }
+
+    public void RemoveRarBlob(Guid? id)
+    {
+        if (id is null) return;
+        _blobRarFiles.RemoveAll(x => x.Id == id);
+    }
+
+    public void RemoveMultipartBlob(Guid? id)
+    {
+        if (id is null) return;
+        _blobMultipartFiles.RemoveAll(x => x.Id == id);
+    }
+
+    public void ClearBlobs()
+    {
+        _blobNzbFiles.Clear();
+        _blobRarFiles.Clear();
+        _blobMultipartFiles.Clear();
+    }
 
     // tables
     protected override void OnModelCreating(ModelBuilder b)
@@ -680,9 +713,7 @@ public sealed class DavDatabaseContext : DbContext
             _ = RcloneVfsForget(addedOrRemovedDavItems);
 
             // clear pending blob writes
-            BlobNzbFiles.Clear();
-            BlobRarFiles.Clear();
-            BlobMultipartFiles.Clear();
+            ClearBlobs();
 
             // return
             return result;
@@ -756,9 +787,7 @@ public sealed class DavDatabaseContext : DbContext
     public void ClearChangeTracker()
     {
         ChangeTracker.Clear();
-        BlobNzbFiles.Clear();
-        BlobRarFiles.Clear();
-        BlobMultipartFiles.Clear();
+        ClearBlobs();
     }
 
     /// <summary>

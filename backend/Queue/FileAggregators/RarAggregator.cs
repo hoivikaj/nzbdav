@@ -68,7 +68,7 @@ public class RarAggregator(DavDatabaseClient dbClient, DavItem mountDirectory, b
         );
 
         dbClient.Ctx.Items.Add(davItem);
-        dbClient.Ctx.BlobMultipartFiles.Add(davMultipartFile);
+        dbClient.Ctx.AddBlob(davMultipartFile);
     }
 
     private void ProcessArchive(List<RarProcessor.StoredFileSegment> fileSegments)
@@ -131,7 +131,7 @@ public class RarAggregator(DavDatabaseClient dbClient, DavItem mountDirectory, b
             );
 
             dbClient.Ctx.Items.Add(davItem);
-            dbClient.Ctx.BlobMultipartFiles.Add(davMultipartFile);
+            dbClient.Ctx.AddBlob(davMultipartFile);
         }
     }
 

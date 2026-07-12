@@ -41,7 +41,7 @@ public class BlocklistedFilePostProcessor(ConfigManager configManager, DavDataba
     {
         if (davItem.SubType == DavItem.ItemSubType.NzbFile)
         {
-            dbClient.Ctx.BlobNzbFiles.RemoveAll(x => x.Id == davItem.FileBlobId);
+            dbClient.Ctx.RemoveNzbBlob(davItem.FileBlobId);
             var file = dbClient.Ctx.ChangeTracker.Entries<DavNzbFile>()
                 .Where(x => x.State == EntityState.Added)
                 .Select(x => x.Entity)
@@ -52,7 +52,7 @@ public class BlocklistedFilePostProcessor(ConfigManager configManager, DavDataba
 
         else if (davItem.SubType == DavItem.ItemSubType.RarFile)
         {
-            dbClient.Ctx.BlobRarFiles.RemoveAll(x => x.Id == davItem.FileBlobId);
+            dbClient.Ctx.RemoveRarBlob(davItem.FileBlobId);
             var file = dbClient.Ctx.ChangeTracker.Entries<DavRarFile>()
                 .Where(x => x.State == EntityState.Added)
                 .Select(x => x.Entity)
@@ -63,7 +63,7 @@ public class BlocklistedFilePostProcessor(ConfigManager configManager, DavDataba
 
         else if (davItem.SubType == DavItem.ItemSubType.MultipartFile)
         {
-            dbClient.Ctx.BlobMultipartFiles.RemoveAll(x => x.Id == davItem.FileBlobId);
+            dbClient.Ctx.RemoveMultipartBlob(davItem.FileBlobId);
             var file = dbClient.Ctx.ChangeTracker.Entries<DavMultipartFile>()
                 .Where(x => x.State == EntityState.Added)
                 .Select(x => x.Entity)
