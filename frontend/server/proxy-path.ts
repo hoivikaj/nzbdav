@@ -5,7 +5,6 @@ const BACKEND_PATH_PREFIXES = [
   "/nzbs",
   "/content",
   "/completed-symlinks",
-  "/p/",
   "/adapters/",
 ];
 
