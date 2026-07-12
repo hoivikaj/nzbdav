@@ -1,11 +1,13 @@
 ﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace NzbWebDAV.Utils;
 
 public static class SymlinkAndStrmUtil
 {
     private static readonly bool IsLinux = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
+    private const int MaxStderrChars = 4096;
 
     public static IEnumerable<ISymlinkOrStrmInfo> GetAllSymlinksAndStrms(string directoryPath)
     {
@@ -16,9 +18,10 @@ public static class SymlinkAndStrmUtil
 
     private static IEnumerable<ISymlinkOrStrmInfo> GetAllSymlinksAndStrmsLinux(string directoryPath)
     {
+        // pipefail so find traversal errors (permission denied, etc.) are not masked by xargs.
         const string command =
             """
-            find . \( -type l -o -name '*.strm' \) -print0 | xargs -0 sh -c '
+            set -o pipefail; find . \( -type l -o -name '*.strm' \) -print0 | xargs -0 sh -c '
               for path in \"$@\"; do
                 echo \"$path\"
                 if [ \"${path##*.}\" = \"strm\" ]; then
@@ -42,6 +45,25 @@ public static class SymlinkAndStrmUtil
         };
 
         using var process = Process.Start(startInfo)!;
+
+        // Drain stderr asynchronously. Leaving it unread can fill the OS pipe buffer and
+        // deadlock find when a library tree produces many permission errors.
+        var stderrBuilder = new StringBuilder();
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data == null) return;
+            lock (stderrBuilder)
+            {
+                if (stderrBuilder.Length >= MaxStderrChars) return;
+                if (stderrBuilder.Length > 0)
+                    stderrBuilder.Append('\n');
+
+                var remaining = MaxStderrChars - stderrBuilder.Length;
+                stderrBuilder.Append(e.Data.Length <= remaining ? e.Data : e.Data[..remaining]);
+            }
+        };
+        process.BeginErrorReadLine();
+
         while (process.StandardOutput.EndOfStream == false)
         {
             var filePath = process.StandardOutput.ReadLine();
@@ -65,6 +87,18 @@ public static class SymlinkAndStrmUtil
                     TargetPath = target
                 };
             }
+        }
+
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            string stderr;
+            lock (stderrBuilder)
+                stderr = stderrBuilder.ToString();
+
+            throw new InvalidOperationException(
+                $"Library symlink scan failed with exit code {process.ExitCode}" +
+                (string.IsNullOrWhiteSpace(stderr) ? "." : $": {stderr}"));
         }
     }
 
