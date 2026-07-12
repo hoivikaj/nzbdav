@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using NzbWebDAV.Config;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Queue;
 using NzbWebDAV.Services;
@@ -12,7 +13,8 @@ public class BenchmarkUsenetConnectionController(
     UsenetBenchmarkService benchmarkService,
     BenchmarkGate benchmarkGate,
     ActiveReadRegistry activeReads,
-    QueueManager queueManager
+    QueueManager queueManager,
+    ConfigManager configManager
 ) : BaseApiController
 {
     private async Task<BenchmarkUsenetConnectionResponse> BenchmarkAsync(BenchmarkUsenetConnectionRequest request)
@@ -69,7 +71,7 @@ public class BenchmarkUsenetConnectionController(
 
     protected override async Task<IActionResult> HandleRequest()
     {
-        var request = new BenchmarkUsenetConnectionRequest(HttpContext);
+        var request = new BenchmarkUsenetConnectionRequest(HttpContext, configManager);
         var response = await BenchmarkAsync(request).ConfigureAwait(false);
         return Ok(response);
     }

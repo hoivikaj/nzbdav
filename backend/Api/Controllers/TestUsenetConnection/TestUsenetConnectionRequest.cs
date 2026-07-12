@@ -12,7 +12,7 @@ public class TestUsenetConnectionRequest
     public int Port { get; init; }
     public bool UseSsl { get; init; }
 
-    public TestUsenetConnectionRequest(HttpContext context)
+    public TestUsenetConnectionRequest(HttpContext context, ConfigManager configManager)
     {
         Host = context.Request.Form["host"].FirstOrDefault()
                ?? throw new BadHttpRequestException("Usenet host is required");
@@ -20,8 +20,9 @@ public class TestUsenetConnectionRequest
         User = context.Request.Form["user"].FirstOrDefault()
                ?? throw new BadHttpRequestException("Usenet user is required");
 
-        Pass = context.Request.Form["pass"].FirstOrDefault()
+        var submittedPass = context.Request.Form["pass"].FirstOrDefault()
                ?? throw new BadHttpRequestException("Usenet pass is required");
+        Pass = UsenetPassResolver.Resolve(submittedPass, configManager);
 
         var port = context.Request.Form["port"].FirstOrDefault()
                    ?? throw new BadHttpRequestException("Usenet port is required");

@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Config;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
 using Serilog;
@@ -8,7 +9,7 @@ namespace NzbWebDAV.Api.Controllers.TestUsenetConnection;
 
 [ApiController]
 [Route("api/test-usenet-connection")]
-public class TestUsenetConnectionController() : BaseApiController
+public class TestUsenetConnectionController(ConfigManager configManager) : BaseApiController
 {
     private async Task<TestUsenetConnectionResponse> TestUsenetConnection(TestUsenetConnectionRequest request)
     {
@@ -44,7 +45,7 @@ public class TestUsenetConnectionController() : BaseApiController
 
     protected override async Task<IActionResult> HandleRequest()
     {
-        var request = new TestUsenetConnectionRequest(HttpContext);
+        var request = new TestUsenetConnectionRequest(HttpContext, configManager);
         var response = await TestUsenetConnection(request).ConfigureAwait(false);
         return Ok(response);
     }

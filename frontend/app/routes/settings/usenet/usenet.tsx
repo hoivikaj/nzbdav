@@ -778,8 +778,6 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
     }, [show, onClose]);
 
     const handleTestConnection = useCallback(async () => {
-        if (passIsMasked) return;
-
         setIsTestingConnection(true);
         setTestError(null);
 
@@ -805,14 +803,15 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
                     setTestError("Connection test failed");
                 }
             } else {
-                setTestError("Failed to test connection");
+                const data = await response.json().catch(() => null);
+                setTestError(data?.error || "Failed to test connection");
             }
         } catch (error) {
             setTestError("Network error: " + (error instanceof Error ? error.message : "Unknown error"));
         } finally {
             setIsTestingConnection(false);
         }
-    }, [host, port, useSsl, user, pass, passIsMasked]);
+    }, [host, port, useSsl, user, pass]);
 
     const handleAutoTune = useCallback(async () => {
         // Abort any previous run still in flight before starting a new one.
@@ -857,13 +856,13 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
             const response = await fetch('/api/benchmark-usenet-connection', {
                 method: 'POST', body: formData, signal: controller.signal,
             });
+            const data = await response.json().catch(() => null);
             if (!response.ok) {
-                setBenchmarkError("The speed test couldn't run. Please try again.");
+                setBenchmarkError(data?.error || "The speed test couldn't run. Please try again.");
                 return;
             }
-            const data = await response.json();
-            if (!data.status || !data.result) {
-                setBenchmarkError(data.error || "The speed test couldn't run.");
+            if (!data?.status || !data.result) {
+                setBenchmarkError(data?.error || "The speed test couldn't run.");
                 return;
             }
             setBenchmarkResult(data.result as BenchmarkResult);

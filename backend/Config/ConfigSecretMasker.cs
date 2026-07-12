@@ -105,6 +105,27 @@ public sealed class ConfigSecretMasker(string signingKey)
         return value.StartsWith(MaskPrefix, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Resolves a single masked JSON secret (e.g. a usenet provider <c>Pass</c>) against
+    /// the stored config blob. Plaintext values are returned unchanged.
+    /// </summary>
+    public string ResolveMaskedJsonSecret(string configName, string submittedValue, string? existingValue)
+    {
+        if (!IsMaskToken(submittedValue))
+            return submittedValue;
+
+        if (!JsonSecretProperties.TryGetValue(configName, out var propertyName))
+            throw InvalidMaskToken(configName);
+
+        var existingSecrets = GetExistingJsonSecrets(existingValue, propertyName);
+        var existingSecret = existingSecrets.FirstOrDefault(secret =>
+            TokenMatches(submittedValue, configName, propertyName, secret));
+        if (existingSecret == null)
+            throw InvalidMaskToken(configName);
+
+        return existingSecret;
+    }
+
     private void WriteMaskedJson(
         Utf8JsonWriter writer,
         JsonElement element,

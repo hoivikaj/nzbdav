@@ -21,7 +21,7 @@ public class BenchmarkUsenetConnectionRequest
     /// <summary>When true, skip the connection sweep and only tune pipelining depth.</summary>
     public bool PipeliningOnly { get; init; }
 
-    public BenchmarkUsenetConnectionRequest(HttpContext context)
+    public BenchmarkUsenetConnectionRequest(HttpContext context, ConfigManager configManager)
     {
         Host = context.Request.Form["host"].FirstOrDefault()
                ?? throw new BadHttpRequestException("Usenet host is required");
@@ -29,8 +29,9 @@ public class BenchmarkUsenetConnectionRequest
         User = context.Request.Form["user"].FirstOrDefault()
                ?? throw new BadHttpRequestException("Usenet user is required");
 
-        Pass = context.Request.Form["pass"].FirstOrDefault()
+        var submittedPass = context.Request.Form["pass"].FirstOrDefault()
                ?? throw new BadHttpRequestException("Usenet pass is required");
+        Pass = UsenetPassResolver.Resolve(submittedPass, configManager);
 
         var port = context.Request.Form["port"].FirstOrDefault()
                    ?? throw new BadHttpRequestException("Usenet port is required");
