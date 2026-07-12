@@ -160,7 +160,7 @@ public class DatabaseStoreCollection(
             DavItem.ItemSubType.NzbsRoot =>
                 new DatabaseStoreWatchFolder(
                     davItem, httpContext, dbClient, configManager, usenetClient, queueManager, websocketManager),
-            DavItem.ItemSubType.Directory or DavItem.ItemSubType.ContentRoot  =>
+            DavItem.ItemSubType.Directory or DavItem.ItemSubType.ContentRoot =>
                 new DatabaseStoreCollection(
                     davItem, httpContext, dbClient, configManager, usenetClient, queueManager, websocketManager,
                     lazyRarResolver),
