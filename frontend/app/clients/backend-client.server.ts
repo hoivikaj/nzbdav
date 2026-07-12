@@ -282,6 +282,20 @@ class BackendClient {
         return data.deleted ?? 0;
     }
 
+    public async clearHealthCheckHistory(): Promise<{ deletedResults: number; deletedStats: number }> {
+        const url = process.env.BACKEND_URL + `/api/clear-health-check-history`;
+        const apiKey = process.env.FRONTEND_BACKEND_API_KEY || "";
+        const response = await fetch(url, { method: "POST", headers: { "x-api-key": apiKey } });
+        if (!response.ok) {
+            throw new Error(`Failed to clear health-check history: ${(await response.json()).error}`);
+        }
+        const data = await response.json();
+        return {
+            deletedResults: data.deletedResults ?? 0,
+            deletedStats: data.deletedStats ?? 0,
+        };
+    }
+
     public async getHealthCheckHistory(pageSize?: number): Promise<HealthCheckHistoryResponse> {
         let url = process.env.BACKEND_URL + "/api/get-health-check-history";
 

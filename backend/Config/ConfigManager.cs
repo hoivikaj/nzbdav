@@ -834,6 +834,18 @@ public class ConfigManager
             defaultValue: 90);
     }
 
+    /// <summary>
+    /// Days to keep health-check result rows. 0 disables age-based pruning.
+    /// Config key wins over DATABASE_HEALTHCHECK_RETENTION_DAYS; default is 30.
+    /// </summary>
+    public int GetHealthResultRetentionDays()
+    {
+        return GetRetentionDaysSetting(
+            "database.healthcheck-retention-days",
+            "DATABASE_HEALTHCHECK_RETENTION_DAYS",
+            defaultValue: 30);
+    }
+
     private int GetRetentionDaysSetting(string configKey, string environmentVariable, int defaultValue)
     {
         var rawValue = StringUtil.EmptyToNull(GetConfigValue(configKey))

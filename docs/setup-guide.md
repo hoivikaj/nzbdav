@@ -486,14 +486,15 @@ For series, pass `type=series&id=tt0944947&season=1&episode=1`. Hitting the `pla
 
 ### Database retention
 
-NzbDav can prune aged SAB history rows so the history table does not grow without bound:
+NzbDav can prune aged SAB history and health-check rows so `db.sqlite` does not grow without bound:
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `DATABASE_HISTORY_RETENTION_DAYS` | `90` | Keep SAB history entries for this many days. Set to `0` to retain everything. Mounted WebDAV content is **not** deleted. |
-| `DATABASE_MAINTENANCE_INTERVAL_HOURS` | `6` | How often the background retention sweep runs. |
+| `DATABASE_HEALTHCHECK_RETENTION_DAYS` | `30` | Keep health-check result rows for this many days. Set to `0` to retain everything. |
+| `DATABASE_MAINTENANCE_INTERVAL_HOURS` | `6` | How often the background retention sweeps run. |
 
-These can also be set under **Settings → Maintenance** (`database.history-retention-days`).
+These can also be set under **Settings → Maintenance** (`database.history-retention-days`, `database.healthcheck-retention-days`). Use **Reset Health-Check Statistics** on that page to clear all health-check counters immediately.
 
 ### Back up NzbDav
 
