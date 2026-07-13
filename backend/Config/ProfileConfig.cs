@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using NzbWebDAV.Extensions;
 
 namespace NzbWebDAV.Config;
 
@@ -10,6 +11,22 @@ public class ProfileConfig
     {
         foreach (var p in Profiles) p.MigrateLegacy();
         return this;
+    }
+
+    /// <summary>
+    /// Find a profile by token using constant-time comparisons over the full list
+    /// (no early exit) so timing does not leak token prefix/position.
+    /// </summary>
+    public Profile? FindByToken(string token)
+    {
+        Profile? match = null;
+        foreach (var profile in Profiles)
+        {
+            // Always compare; keep the first match without short-circuiting the loop.
+            if (token.FixedTimeEquals(profile.Token) && match is null)
+                match = profile;
+        }
+        return match;
     }
 
     public class Profile

@@ -70,7 +70,7 @@ public class ProfilePlayController(
 
     private async Task<IActionResult> HandleAsync(string token, string nzbToken)
     {
-        var profile = configManager.GetProfileConfig().Profiles.FirstOrDefault(x => x.Token == token);
+        var profile = configManager.GetProfileConfig().FindByToken(token);
         if (profile is null) return NotFound();
 
         var entry = cache.Get(nzbToken);

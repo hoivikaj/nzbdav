@@ -29,7 +29,7 @@ public class SearchProfileService(
     private const int MaxSearchPages = 50;
 
     public ProfileConfig.Profile? GetProfile(string token)
-        => configManager.GetProfileConfig().Profiles.FirstOrDefault(x => x.Token == token);
+        => configManager.GetProfileConfig().FindByToken(token);
 
     public bool IsAdapterEnabled(string profileToken, string adapter)
     {

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using NzbWebDAV.Extensions;
 using NzbWebDAV.Services;
 using NzbWebDAV.Utils;
 using Serilog;
@@ -47,7 +48,7 @@ public class FailoverOrderController(
         foreach (var id in ids)
         {
             var entry = cache.Get(id);
-            if (entry is null || !string.Equals(entry.ProfileToken, token, StringComparison.Ordinal))
+            if (entry is null || !entry.ProfileToken.FixedTimeEquals(token))
                 continue;
 
             var c = entry.Primary;

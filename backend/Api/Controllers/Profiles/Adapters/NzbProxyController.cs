@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using NzbWebDAV.Extensions;
 using NzbWebDAV.Services;
 using NzbWebDAV.Utils;
 using Serilog;
@@ -28,7 +29,7 @@ public class NzbProxyController(
 
         var entry = cache.Get(playToken);
         if (entry is null) return NotFound("Link expired. Re-search to refresh.");
-        if (entry.ProfileToken != token) return NotFound();
+        if (!entry.ProfileToken.FixedTimeEquals(token)) return NotFound();
 
         var candidate = entry.Primary;
         if (string.IsNullOrWhiteSpace(candidate.NzbUrl)) return NotFound();
