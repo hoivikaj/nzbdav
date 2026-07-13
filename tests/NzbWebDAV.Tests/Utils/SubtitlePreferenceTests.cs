@@ -56,7 +56,7 @@ public class SubtitlePreferenceTests
     {
         var primary = SubtitlePreference.ParseLanguages("English");
         Assert.Equal(1, SubtitlePreference.Rank("Spanish", primary, primaryHasSubs: true));
-        Assert.Equal(1, SubtitlePreference.Rank("English", [], primaryHasSubs: false));
+        Assert.Equal(1, SubtitlePreference.Rank("English", new HashSet<string>(StringComparer.Ordinal), primaryHasSubs: false));
     }
 
     [Fact]
