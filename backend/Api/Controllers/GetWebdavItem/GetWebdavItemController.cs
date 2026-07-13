@@ -79,8 +79,17 @@ public class GetWebdavItemController(
 
         if (rangeStart is not null)
         {
-            // compute
             var end = rangeEnd ?? (fileSize - 1);
+
+            // Syntactically valid but unsatisfiable → 416 (mirror WebDAV handler).
+            if (rangeStart.Value < 0 || rangeStart.Value >= fileSize || rangeStart.Value > end)
+            {
+                Response.Headers["Content-Range"] = $"bytes */{fileSize}";
+                Response.StatusCode = StatusCodes.Status416RangeNotSatisfiable;
+                await stream.DisposeAsync().ConfigureAwait(false);
+                return Stream.Null;
+            }
+
             var chunkSize = 1 + end - rangeStart.Value;
 
             // seek

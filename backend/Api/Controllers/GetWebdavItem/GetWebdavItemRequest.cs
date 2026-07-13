@@ -35,28 +35,66 @@ public class GetWebdavItemRequest
         if (!VerifyDownloadKey(downloadKey, Item, configManager))
             throw new UnauthorizedAccessException("Invalid download key");
 
-        // parse range header — three RFC 7233 forms:
-        //   bytes=N-     → from byte N to EOF
-        //   bytes=N-M    → bytes N..M inclusive
-        //   bytes=-N     → last N bytes (a "suffix" range; resolved against fileSize)
-        // The old `Split("-", RemoveEmptyEntries)` silently dropped the leading
-        // empty token of the suffix form, mis-parsing "bytes=-65536" as
-        // RangeStart=65536, which served mid-file data to players asking for the
-        // MP4 MOOV / MKV SeekHead at the end of the file.
+        // Parse Range; on malformed/unparseable input leave ranges null so the
+        // controller serves full content (RFC 7233: ignore unsatisfiable Range syntax).
         var rangeHeader = context.Request.Headers["Range"].FirstOrDefault() ?? "";
-        if (!rangeHeader.StartsWith("bytes=")) return;
-        var spec = rangeHeader[6..];
-        if (spec.StartsWith("-"))
+        if (TryParseRangeHeader(rangeHeader, out var start, out var end, out var suffix))
         {
-            SuffixLength = long.Parse(spec[1..]);
+            RangeStart = start;
+            RangeEnd = end;
+            SuffixLength = suffix;
         }
-        else
+    }
+
+    /// <summary>
+    /// Parse a single RFC 7233 bytes range. Returns false for missing, non-bytes,
+    /// multi-range, or otherwise unparseable headers (caller should ignore Range).
+    /// </summary>
+    public static bool TryParseRangeHeader(
+        string rangeHeader,
+        out long? rangeStart,
+        out long? rangeEnd,
+        out long? suffixLength)
+    {
+        rangeStart = null;
+        rangeEnd = null;
+        suffixLength = null;
+
+        if (string.IsNullOrEmpty(rangeHeader) || !rangeHeader.StartsWith("bytes=", StringComparison.Ordinal))
+            return false;
+
+        var spec = rangeHeader["bytes=".Length..];
+        // Multi-range or garbage with commas is unparseable for our single-range path.
+        if (spec.Contains(','))
+            return false;
+
+        if (spec.StartsWith('-'))
         {
-            var parts = spec.Split("-");
-            RangeStart = long.Parse(parts[0]);
-            if (parts.Length > 1 && parts[1].Length > 0)
-                RangeEnd = long.Parse(parts[1]);
+            if (!long.TryParse(spec[1..], out var suffix) || suffix < 0)
+                return false;
+            suffixLength = suffix;
+            return true;
         }
+
+        var dash = spec.IndexOf('-');
+        if (dash < 0)
+            return false;
+
+        var startPart = spec[..dash];
+        var endPart = spec[(dash + 1)..];
+
+        if (!long.TryParse(startPart, out var start) || start < 0)
+            return false;
+
+        rangeStart = start;
+        if (endPart.Length > 0)
+        {
+            if (!long.TryParse(endPart, out var end) || end < 0)
+                return false;
+            rangeEnd = end;
+        }
+
+        return true;
     }
 
     private static bool VerifyDownloadKey(string? downloadKey, string path, ConfigManager configManager)
