@@ -425,8 +425,12 @@ public class ProfilePlayController(
                         break;
                     case PlaybackFastVerifier.Verdict.Timeout:
                         // Don't poison on timeout — provider was just slow.
-                        // Try it anyway as a last resort if we run out of candidates.
-                        ready[rankIndex[r.Candidate.NzbUrl] + 10000] = r;
+                        // Try it anyway as a last resort if we run out of candidates, but only
+                        // when we actually fetched the NZB; a timeout from cancellation has no
+                        // bytes to commit and must not be enqueued (CommitAsync dereferences
+                        // NzbBytes! and the candidate would be wrongly poisoned).
+                        if (r.NzbBytes is not null)
+                            ready[rankIndex[r.Candidate.NzbUrl] + 10000] = r;
                         break;
                 }
             }
