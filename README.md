@@ -1,3 +1,8 @@
+> [!IMPORTANT]
+> This fork includes database schema upgrades that can take quite a while to complete. The app will be down during that time.
+>
+> Early adopters are reporting **2x network throughput** capability and a **400% reduction in seek time**.
+
 <p align="center">
   <img width="1101" height="238" alt="NzbDav" src="https://github.com/user-attachments/assets/b14165f4-24ff-4abe-8af6-3ca852e781d4" />
 </p>
@@ -27,8 +32,6 @@ This project is a maintained fork of [nzbdav-dev/nzbdav](https://github.com/nzbd
 
 Read the full story in the [release announcement](docs/release-announcement.md).
 
-Early adopters are reporting **2x network throughput** capability and a **400% reduction in seek time**.
-
 ## Special thanks
 
 Special thanks to the forks and contributors whose ideas we absorbed:
@@ -42,24 +45,65 @@ Special thanks to the forks and contributors whose ideas we absorbed:
 
 ## Features
 
-* 📁 **WebDAV server** — host your virtual filesystem over HTTP(S)
-* ☁️ **Mount NZB documents** — browse NZB contents instantly, no download needed
-* 📽️ **Full streaming & seeking** — jump to any point in your video streams
-* 🗃️ **Archive streaming** — view, stream, and seek inside RAR and 7z archives
-* 🔓 **Password-protected archives** — stream encrypted content transparently
-* 🔀 **Multiple Usenet providers** — automatic failover with per-provider circuit breakers
-* 📊 **Live operations dashboard** — throughput, latency, errors, active reads, provider usage, failover saves, and indexer activity
-* 🧭 **Provider routing and limits** — cascade priorities, per-provider data caps, usage resets, and connection benchmarking
-* 🔎 **Built-in indexer search** — configure Newznab indexers, track API usage, search them manually, and mount results
-* 🎛️ **Search profiles and adapters** — expose selected indexers through token-scoped Addon, Newznab, and JSON APIs
-* 🐕 **Watchdog playback failover** — verify candidates, retry failed releases, and inspect each playback attempt
-* 🛡️ **Warden dead-release ledger** — remember unavailable releases, combine trusted remote ledgers, and import, export, or back up the data
-* 📡 **Watchtower proactive resolution** — keep wanted movies and episodes mapped to verified releases before playback
-* 📜 **Live log viewer** — filter, follow, and download backend logs from the admin UI
-* 🗂️ **WebDAV management** — browse, download, and delete eligible virtual filesystem items from the UI
-* 💙 **Health checks & optional repairs** — monitor content health and trigger replacements through Radarr/Sonarr when configured
-* 🧩 **SABnzbd-compatible API** — drop-in replacement for SABnzbd
-* 🙌 **Sonarr/Radarr integration** — import through Rclone symlinks or lightweight STRM files
+* 📁 **WebDAV server**
+  Host your virtual filesystem over HTTP(S)
+
+* ☁️ **Mount NZB documents**
+  Browse NZB contents instantly, no download needed
+
+* 📽️ **Full streaming & seeking**
+  Jump to any point in your video streams
+
+* 🚀 **NNTP article pipelining**
+  Optional pipelined article fetches for higher throughput and faster seeks
+
+* 🗃️ **Archive streaming**
+  View, stream, and seek inside RAR and 7z archives
+
+* 🔓 **Password-protected archives**
+  Stream encrypted content transparently
+
+* 🔀 **Multiple Usenet providers**
+  Automatic failover with per-provider circuit breakers
+
+* 📊 **Live operations dashboard**
+  Throughput, latency, errors, active reads, provider usage, failover saves, and indexer activity
+
+* 🧭 **Provider routing and limits**
+  Cascade priorities, per-provider data caps, usage resets, and connection benchmarking
+
+* 🔎 **Built-in indexer search**
+  Configure Newznab indexers, track API usage, search them manually, and mount results
+
+* 🚫 **Search exclude filters**
+  Manual regex excludes plus auto-synced remote lists (e.g. TRaSH) with refresh status
+
+* 🎛️ **Search profiles and adapters**
+  Expose selected indexers through token-scoped Addon, Newznab, and JSON APIs
+
+* 🐕 **Watchdog playback failover**
+  Verify candidates, retry failed releases, and inspect each playback attempt
+
+* 🛡️ **Warden dead-release ledger**
+  Remember unavailable releases, combine trusted remote ledgers, and import, export, or back up the data
+
+* 📡 **Watchtower proactive resolution**
+  Keep wanted movies and episodes mapped to verified releases before playback
+
+* 📜 **Live log viewer**
+  Filter, follow, and download backend logs from the admin UI
+
+* 🗂️ **WebDAV management**
+  Browse, download, and delete eligible virtual filesystem items from the UI
+
+* 💙 **Health checks & optional repairs**
+  Monitor content health and trigger replacements through Radarr/Sonarr when configured
+
+* 🧩 **SABnzbd-compatible API**
+  Drop-in replacement for SABnzbd
+
+* 🙌 **Sonarr/Radarr integration**
+  Import through Rclone symlinks or lightweight STRM files
 
 ## Quick start
 
