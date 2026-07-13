@@ -20,6 +20,7 @@ import { Loading } from "./routes/_index/components/loading/loading";
 import { getAppVersion } from "./utils/version.server";
 import { checkForUpdate } from "./utils/update-check.server";
 import { backendClient } from "./clients/backend-client.server";
+import { MigrationBoundary } from "./components/migration-progress";
 
 export async function loader({ request }: Route.LoaderArgs) {
   // Single-fetch navigation/revalidation uses internal `.data` URLs
@@ -151,21 +152,8 @@ export function ErrorBoundary() {
     detail = "Unknown error.";
   }
 
-  return (
-    <main className="flex min-h-dvh w-full items-center justify-center bg-gray-900 px-4 py-8 text-white">
-      <div className="w-full max-w-lg space-y-4 rounded-xl border border-slate-700/70 bg-gray-800 p-6 shadow-xl shadow-black/20 sm:p-8">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-          {detail ? <p className="text-sm leading-relaxed text-slate-300">{detail}</p> : null}
-        </div>
-        <button
-          type="button"
-          className="button-small flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600"
-          onClick={() => window.location.reload()}
-        >
-          Reload
-        </button>
-      </div>
-    </main>
-  );
+  // A loader throw is also how the app surfaces the blocking database-migration
+  // phase (the backend only serves /api/migration-status then). MigrationBoundary
+  // polls that endpoint and shows live progress, falling back to this error card.
+  return <MigrationBoundary fallback={{ title, detail, showReload: true }} />;
 }
