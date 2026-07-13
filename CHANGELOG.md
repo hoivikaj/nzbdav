@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.13](https://github.com/nzbdav/nzbdav/compare/v0.7.12...v0.7.13) (2026-07-13)
+
+
+### Bug Fixes
+
+* **nntp:** latch circuit breaker trips and log once per trip ([4d42193](https://github.com/nzbdav/nzbdav/commit/4d421936edffb385c1d083fdf016a65d61e18b13))
+* **nntp:** pace concurrent connection establishment per provider ([7d130e1](https://github.com/nzbdav/nzbdav/commit/7d130e18c283908d8bf32c26bc67767301d07b00))
+* **ui:** drop hardcoded v prefix from displayed app version ([ab9f00d](https://github.com/nzbdav/nzbdav/commit/ab9f00d1e04b28c527a1ae4bdbfea803582efac1))
+* **ui:** quiet expected startup noise on no-migration restarts ([748abcd](https://github.com/nzbdav/nzbdav/commit/748abcd41ecd5686666a7c8ad3ec4b4042779be7))
+* **ui:** quiet expected startup noise on no-migration restarts ([ae7a43b](https://github.com/nzbdav/nzbdav/commit/ae7a43bdcb7bd423d42d3364cfd7e5a8b84495bb))
+* **ui:** restore shell scrolling and polish header/settings ([2ff591e](https://github.com/nzbdav/nzbdav/commit/2ff591e30270047e0e8b35a6f6e61c8501a242a3))
+* **ui:** restore top-nav logout menu item styling ([037de3e](https://github.com/nzbdav/nzbdav/commit/037de3efb2c178f4aa32f28b933b377f124d0448))
+
 ## [0.7.12](https://github.com/nzbdav/nzbdav/compare/v0.7.11...v0.7.12) (2026-07-13)
 
 
