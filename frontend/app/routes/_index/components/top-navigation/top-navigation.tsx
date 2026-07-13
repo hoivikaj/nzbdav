@@ -71,7 +71,7 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
                   </span>
                   <span className="h-3 w-px bg-base-content/15" aria-hidden="true" />
                   <span className="font-mono text-sm tracking-tight text-base-content/80">
-                    v{displayVersion}
+                    {displayVersion}
                   </span>
                 </span>
                 <Icon name="expand_more" className="!text-[18px] text-base-content/50" />
@@ -86,7 +86,7 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
               <span className="flex items-center justify-between gap-2">
                 <span>NzbDav Stable</span>
                 <span className="font-mono font-normal normal-case tracking-normal">
-                  v{displayVersion}
+                  {displayVersion}
                 </span>
               </span>
             </li>
