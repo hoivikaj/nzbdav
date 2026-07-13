@@ -21,13 +21,13 @@ NzbDav is a **WebDAV server** that mounts NZB documents as a browsable virtual f
 
 It also exposes a **SABnzbd-compatible API**, so Sonarr, Radarr, and similar tools can use it as a drop-in download client. Combined with Plex, Emby, or Jellyfin, this lets you build an effectively infinite media library without storing the full media library on your server.
 
-Early adopters are reporting **2x network throughput** capability and a **400% reduction in seek time**.
-
 ## Why another fork?
 
 This project is a maintained fork of [nzbdav-dev/nzbdav](https://github.com/nzbdav-dev/nzbdav). We took ownership of the full Usenet streaming stack — nzbdav, UsenetSharp, RapidYencSharp, rapidyenc, and SharpCompress — so playback, connection, and decoding fixes could land in the right layer instead of waiting on a single upstream dependency chain.
 
 Read the full story in the [release announcement](docs/release-announcement.md).
+
+Early adopters are reporting **2x network throughput** capability and a **400% reduction in seek time**.
 
 ## Special thanks
 
