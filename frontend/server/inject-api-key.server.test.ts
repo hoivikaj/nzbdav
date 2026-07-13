@@ -35,6 +35,19 @@ describe("setApiKeyForAuthenticatedRequests", () => {
     expect(req.headers["x-api-key"]).toBeUndefined();
   });
 
+  it("ignores /apifoo bare-prefix false positives", async () => {
+    const req = mockReq({ path: "/apifoo" });
+    await setApiKeyForAuthenticatedRequests(req);
+    expect(isAuthenticatedMock).not.toHaveBeenCalled();
+  });
+
+  it("injects for decoded /api paths", async () => {
+    isAuthenticatedMock.mockResolvedValueOnce(true);
+    const req = mockReq({ path: "/%61pi/get-config" });
+    await setApiKeyForAuthenticatedRequests(req);
+    expect(req.headers["x-api-key"]).toBe("injected-key");
+  });
+
   it("leaves an existing API key alone", async () => {
     const req = mockReq({
       path: "/api/get-config",
