@@ -22,8 +22,22 @@ internal sealed class FakeNntpClient(
         throw new NotSupportedException();
 
     public override Task<UsenetStatResponse> StatAsync(
-        SegmentId segmentId, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+        SegmentId segmentId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var key = segmentId.ToString();
+        var exists = segments.ContainsKey(key);
+        return Task.FromResult(new UsenetStatResponse
+        {
+            ResponseCode = exists
+                ? (int)UsenetResponseType.ArticleExists
+                : (int)UsenetResponseType.NoArticleWithThatMessageId,
+            ResponseMessage = exists
+                ? $"223 0 0 <{key}>"
+                : $"430 No such article <{key}>",
+            ArticleExists = exists,
+        });
+    }
 
     public override Task<UsenetHeadResponse> HeadAsync(
         SegmentId segmentId, CancellationToken cancellationToken) =>

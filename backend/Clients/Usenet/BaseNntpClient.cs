@@ -155,13 +155,13 @@ public class BaseNntpClient : NntpClient
     }
 
     /// <summary>
-    /// Only a clean 430 means the article is missing. Anything else (e.g. a
-    /// buffered "400 idle timeout" from a connection the server already closed)
-    /// is a connection-level problem and must be retryable.
+    /// Definitive missing (430 / provider 451) means the article is gone.
+    /// Anything else (e.g. a buffered "400 idle timeout" from a connection the
+    /// server already closed) is a connection-level problem and must be retryable.
     /// </summary>
     private static Exception CreateArticleFetchException(SegmentId segmentId, UsenetResponse response)
     {
-        return response.ResponseType == UsenetResponseType.NoArticleWithThatMessageId
+        return UsenetArticleAvailability.IsDefinitiveMissing(response)
             ? new UsenetArticleNotFoundException(segmentId, response.ResponseMessage)
             : new UsenetUnexpectedResponseException(segmentId, response.ResponseMessage);
     }

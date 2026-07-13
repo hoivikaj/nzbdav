@@ -200,6 +200,21 @@ public class HealthCheckService : BackgroundService
             // when usenet article is missing, perform repairs
             await Repair(davItem, dbClient, ct).ConfigureAwait(false);
         }
+        catch (UsenetUnexpectedResponseException e)
+        {
+            // Connection-level STAT failures (e.g. buffered 400 goodbye) must not trigger
+            // repair or leave NextHealthCheck unset — defer and surface ActionNeeded.
+            _ = _websocketManager.SendMessage(WebsocketTopic.HealthItemProgress, $"{davItem.Id}|100");
+            _ = _websocketManager.SendMessage(WebsocketTopic.HealthItemProgress, $"{davItem.Id}|done");
+            var utcNow = DateTimeOffset.UtcNow;
+            davItem.LastHealthCheck = utcNow;
+            davItem.NextHealthCheck = utcNow + TimeSpan.FromDays(1);
+            await RecordHealthResult(
+                dbClient, davItem,
+                HealthCheckResult.HealthResult.Unhealthy,
+                HealthCheckResult.RepairAction.ActionNeeded,
+                $"Unexpected NNTP response during health check: {e.Message}", ct).ConfigureAwait(false);
+        }
     }
 
     /// <summary>

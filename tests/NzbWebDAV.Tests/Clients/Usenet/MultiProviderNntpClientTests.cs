@@ -300,6 +300,116 @@ public class MultiProviderNntpClientTests
         Assert.Equal(ArticleBodyResult.NotRetrieved, callbacks[0]);
     }
 
+    [Fact]
+    public async Task StorageGroup_SameGroupMiss451_SkipsSiblingProvider()
+    {
+        var first = new ScriptedNntpClient
+        {
+            BatchResponseCode = 451,
+            SingularResponseCode = 451,
+        };
+        var sibling = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(first, host: "a.example", storageGroup: "omicron"),
+            CreateProvider(sibling, host: "b.example", storageGroup: "omicron"),
+        ]);
+
+        var response = await client.DecodedBodyAsync("segment", CancellationToken.None);
+
+        Assert.Equal(451, response.ResponseCode);
+        Assert.Equal(1, first.SingularRequests);
+        Assert.Equal(0, sibling.SingularRequests);
+    }
+
+    [Fact]
+    public async Task StorageGroup_DifferentGroups_FailsOverOn451()
+    {
+        var first = new ScriptedNntpClient
+        {
+            BatchResponseCode = 451,
+            SingularResponseCode = 451,
+        };
+        var other = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(first, host: "a.example", storageGroup: "omicron"),
+            CreateProvider(other, host: "b.example", storageGroup: "eweka"),
+        ]);
+
+        var response = await client.DecodedBodyAsync("segment", CancellationToken.None);
+
+        Assert.Equal(UsenetResponseType.ArticleRetrievedBodyFollows, response.ResponseType);
+        Assert.Equal(1, first.SingularRequests);
+        Assert.Equal(1, other.SingularRequests);
+    }
+
+    [Fact]
+    public async Task CheckAllSegmentsAsync_With451AcrossProviders_ThrowsArticleNotFound()
+    {
+        var first = new ScriptedNntpClient
+        {
+            BatchResponseCode = 451,
+            SingularResponseCode = 451,
+        };
+        var second = new ScriptedNntpClient
+        {
+            BatchResponseCode = 451,
+            SingularResponseCode = 451,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(first, host: "a.example"),
+            CreateProvider(second, host: "b.example"),
+        ]);
+
+        await Assert.ThrowsAsync<UsenetArticleNotFoundException>(() =>
+            client.CheckAllSegmentsAsync(["segment"], 1, null, CancellationToken.None));
+
+        Assert.Equal(1, first.SingularRequests);
+        Assert.Equal(1, second.SingularRequests);
+    }
+
+    [Fact]
+    public async Task CheckAllSegmentsAsync_With400_ThrowsUnexpectedResponse()
+    {
+        var connection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 400,
+            SingularResponseCode = 400,
+        };
+        using var client = new MultiProviderNntpClient([CreateProvider(connection)]);
+
+        var exception = await Assert.ThrowsAsync<UsenetUnexpectedResponseException>(() =>
+            client.CheckAllSegmentsAsync(["segment"], 1, null, CancellationToken.None));
+
+        Assert.IsAssignableFrom<RetryableDownloadException>(exception);
+    }
+
+    [Fact]
+    public async Task BatchResponse_With451Exhausted_ThrowsArticleNotFound()
+    {
+        var connection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 451,
+            SingularResponseCode = 451,
+        };
+        using var client = new MultiProviderNntpClient([CreateProvider(connection)]);
+
+        var batch = await client.DecodedBodiesAsync(
+            ["segment"], onConnectionReadyAgain: null, CancellationToken.None);
+
+        await Assert.ThrowsAsync<UsenetArticleNotFoundException>(() => batch.Responses[0]);
+    }
+
     private static MultiConnectionNntpClient CreateProvider(
         INntpClient connection,
         string host = "test",
@@ -359,6 +469,7 @@ public class MultiProviderNntpClientTests
         {
             (int)UsenetResponseType.ArticleRetrievedBodyFollows => ArticleBodyResult.Retrieved,
             (int)UsenetResponseType.NoArticleWithThatMessageId => ArticleBodyResult.NotFound,
+            UsenetArticleAvailability.ArticleUnavailable => ArticleBodyResult.NotFound,
             _ => ArticleBodyResult.NotRetrieved,
         };
 
@@ -383,8 +494,19 @@ public class MultiProviderNntpClientTests
             throw new NotSupportedException();
 
         public override Task<UsenetStatResponse> StatAsync(
-            SegmentId segmentId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            SegmentId segmentId, CancellationToken cancellationToken)
+        {
+            SingularRequests++;
+            if (SingularException != null)
+                throw SingularException(segmentId.ToString());
+
+            return Task.FromResult(new UsenetStatResponse
+            {
+                ResponseCode = SingularResponseCode,
+                ResponseMessage = $"{SingularResponseCode} scripted stat <{segmentId}>",
+                ArticleExists = SingularResponseCode == (int)UsenetResponseType.ArticleExists,
+            });
+        }
 
         public override Task<UsenetHeadResponse> HeadAsync(
             SegmentId segmentId, CancellationToken cancellationToken) =>

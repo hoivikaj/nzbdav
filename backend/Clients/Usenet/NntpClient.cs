@@ -210,9 +210,9 @@ public abstract class NntpClient : INntpClient
             if (task.Result.ResponseType == UsenetResponseType.ArticleExists) continue;
             await childCt.CancelAsync().ConfigureAwait(false);
 
-            // Only a clean 430 proves the article is missing; any other response
-            // (e.g. a stale connection's goodbye line) must not fail the health check.
-            if (task.Result.ResponseType == UsenetResponseType.NoArticleWithThatMessageId)
+            // Definitive missing (430 / provider 451) fails the health check; any other
+            // response (e.g. a stale connection's goodbye line) must stay retryable.
+            if (UsenetArticleAvailability.IsDefinitiveMissing(task.Result))
                 throw new UsenetArticleNotFoundException(task.SegmentId, task.Result.ResponseMessage);
             throw new UsenetUnexpectedResponseException(task.SegmentId, task.Result.ResponseMessage);
         }
@@ -294,7 +294,7 @@ public abstract class NntpClient : INntpClient
         try
         {
             var response = await responseTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (response.ResponseType == UsenetResponseType.NoArticleWithThatMessageId)
+            if (UsenetArticleAvailability.IsDefinitiveMissing(response))
             {
                 return new PipelinedBodyResult
                 {

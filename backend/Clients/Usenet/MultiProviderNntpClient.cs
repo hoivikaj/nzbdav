@@ -217,7 +217,7 @@ public class MultiProviderNntpClient(
                 return WrapStreamForByteCounting(response, primaryProvider.Host);
             }
 
-            if (response?.ResponseType == UsenetResponseType.NoArticleWithThatMessageId)
+            if (response != null && UsenetArticleAvailability.IsDefinitiveMissing(response))
             {
                 primaryStopwatch.Stop();
                 RecordFetch(primaryProvider.Host, SegmentFetch.FetchStatus.Missing,
@@ -225,13 +225,13 @@ public class MultiProviderNntpClient(
                 (priorMisses ??= []).Add((primaryProvider.Host, SegmentFetch.FetchStatus.Missing));
             }
 
-            // Retry the primary provider once before falling back. Even a clean 430 can
-            // be transient when a provider routes requests across different spool nodes.
+            // Retry the primary provider once before falling back. Even a definitive miss
+            // (430 / provider 451) can be transient when a provider routes across spool nodes.
             // Anything else (a faulted response task, or a stale connection's buffered
             // goodbye line such as "400 idle timeout") remains a connection-level failure.
             IReadOnlyList<MultiConnectionNntpClient> retryProviders =
                 [primaryProvider, .. fallbackProviders];
-            if (response?.ResponseType != UsenetResponseType.NoArticleWithThatMessageId)
+            if (response == null || !UsenetArticleAvailability.IsDefinitiveMissing(response))
             {
                 if (response != null)
                 {
@@ -293,7 +293,7 @@ public class MultiProviderNntpClient(
                         RecordFetch(provider.Host, SegmentFetch.FetchStatus.Missing,
                             stopwatch.ElapsedMilliseconds, priorMisses?.Count ?? 0);
                         (priorMisses ??= []).Add((provider.Host, SegmentFetch.FetchStatus.Missing));
-                        if (responseType == UsenetResponseType.NoArticleWithThatMessageId &&
+                        if (UsenetArticleAvailability.IsDefinitiveMissing(response) &&
                             group.Length > 0)
                         {
                             missingGroups.Add(group);
@@ -477,7 +477,7 @@ public class MultiProviderNntpClient(
                 }
 
                 deferredCallback.Discard();
-                if (result.ResponseType == UsenetResponseType.NoArticleWithThatMessageId)
+                if (UsenetArticleAvailability.IsDefinitiveMissing(result))
                 {
                     RecordFetch(provider.Host, SegmentFetch.FetchStatus.Missing,
                         stopwatch.ElapsedMilliseconds, attemptIndex);
@@ -570,8 +570,9 @@ public class MultiProviderNntpClient(
                 stopwatch.Stop();
 
                 // if no article with that message-id is found, try again with the next provider.
-                // Only a definitive 430 marks the storage group missing — never a connection error.
-                if (result.ResponseType == UsenetResponseType.NoArticleWithThatMessageId)
+                // Only a definitive miss (430 / provider 451) marks the storage group missing —
+                // never a connection error.
+                if (UsenetArticleAvailability.IsDefinitiveMissing(result))
                 {
                     RecordFetch(provider.Host, SegmentFetch.FetchStatus.Missing, stopwatch.ElapsedMilliseconds, attemptIndex);
                     (priorMisses ??= new()).Add((provider.Host, SegmentFetch.FetchStatus.Missing));
