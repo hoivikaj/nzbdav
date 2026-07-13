@@ -156,6 +156,8 @@ class Program
                 .AddHostedService(sp => sp.GetRequiredService<WardenRemoteSourceService>())
                 .AddSingleton<WardenBackupService>()
                 .AddHostedService(sp => sp.GetRequiredService<WardenBackupService>())
+                .AddSingleton<SearchExcludeSyncService>()
+                .AddHostedService(sp => sp.GetRequiredService<SearchExcludeSyncService>())
                 .AddSingleton<PlaybackFastVerifier>()
                 .AddSingleton<WatchdogLog>()
                 .AddSingleton<PreflightCache>()
