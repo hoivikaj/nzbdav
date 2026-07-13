@@ -5,33 +5,30 @@ description: NzbDav frontend design language and styling guidelines, derived fro
 
 # NzbDav Design Language
 
-Visual and styling guidelines for the NzbDav frontend, modeled on the design language of [dmbdb](https://github.com/nicocapalbo/dmbdb). Apply these when refactoring or building UI in `frontend/app`.
+Visual and styling guidelines for the NzbDav frontend. Apply these when refactoring or building UI in `frontend/app`.
 
 ## Core principles
 
-1. **Dark-first.** Base canvas is `bg-gray-900` with `text-white`. Light and alternate themes are layered on top via CSS variables, never by rewriting components.
-2. **Utility-first Tailwind.** Style with Tailwind utilities directly in markup. Extract shared component classes (buttons, dropdowns) into a global stylesheet with `@apply` only when reused in 3+ places.
-3. **Semantic theme tokens.** All themeable colors flow through `--app-*` CSS custom properties set on `[data-appearance-theme='<name>']`. Components reference Tailwind utilities; the theme layer remaps them.
-4. **Subtle depth via transparency.** Layering uses alpha-modified utilities (`bg-slate-700/40`, `border-slate-600/60`, `bg-white/10`) rather than new solid colors.
-5. **Density with breathing room.** Compact controls (`text-xs`, `py-1`, `px-2`) inside generously spaced pages (`gap-8`, `p-4 md:px-8`).
+1. **Dark-first.** The document uses the custom daisyUI `nzbdav` theme via `data-theme="nzbdav"`.
+2. **daisyUI-native components.** Use daisyUI component classes and supported markup for buttons, forms, toggles, modals, alerts, badges, tabs, tooltips, and loading indicators. Prefer the wrappers in `app/components/ui`; direct daisyUI classes are also allowed.
+3. **Semantic colors.** New code uses daisyUI semantic utilities such as `bg-base-100`, `text-base-content`, `btn-primary`, and `text-error`, not raw slate/blue palette utilities.
+4. **Tailwind for layout.** Continue using Tailwind utilities for spacing, responsive layout, typography, and one-off composition around daisyUI components.
+5. **Density with breathing room.** Prefer native daisyUI size modifiers (`btn-xs`, `btn-sm`, `input-sm`) for dense controls inside generously spaced pages (`gap-8`, `p-4 md:px-8`).
 
 ## Theme token vocabulary
 
-Every theme defines this exact set of variables (see [themes.css](themes.css) for all ~28 palettes):
+The `nzbdav` theme in `app/app.css` is the source of truth. Its primary daisyUI variables are:
 
 | Token | Role |
 |-------|------|
-| `--app-bg` | Page background |
-| `--app-bg-soft` | Slightly raised background |
-| `--app-surface` | Cards, panels |
-| `--app-surface-muted` | Hover states, secondary surfaces |
-| `--app-panel-deep` | Inputs, insets, recessed panels |
-| `--app-border` / `--app-border-soft` | Strong / subtle borders |
-| `--app-text` / `--app-text-muted` / `--app-text-faint` | Text hierarchy (3 levels) |
-| `--app-accent` / `--app-accent-hover` / `--app-accent-soft` / `--app-accent-contrast` | Primary action color, hover, translucent tint, text-on-accent |
-| `--app-success` / `--app-warning` / `--app-danger` | Status colors |
+| `--color-base-100/200/300` | Surfaces through deepest page background |
+| `--color-base-content` | Default foreground |
+| `--color-primary` / `--color-primary-content` | Primary actions and their foreground |
+| `--color-secondary` / `--color-accent` | Secondary semantic accents |
+| `--color-neutral` / `--color-neutral-content` | Neutral surfaces and muted content |
+| `--color-info/success/warning/error` | Status colors |
 
-Default dark palette: bg `#111827`, surface `#1e293b`, border `#475569`, text `#f8fafc`, muted `#cbd5e1`, faint `#94a3b8`, accent `#2563eb` (blue-600).
+The old `--app-*` variables remain compatibility aliases for existing CSS modules. Do not use them as the source of truth for new components.
 
 ## Color semantics
 
@@ -63,20 +60,10 @@ Default dark palette: bg `#111827`, surface `#1e293b`, border `#475569`, text `#
 
 ## Buttons
 
-Reusable size classes (define once globally):
-
-```css
-.button-xsmall { @apply rounded-md py-1 px-2 text-xs; }
-.button-small  { @apply rounded-md py-2 px-3 text-sm; }
-.button-medium { @apply py-3 px-4 rounded-lg text-sm; }
-.button-large  { @apply p-4 rounded-lg text-sm; }
-.button-rounded{ @apply py-3 px-4 rounded-full text-sm; }
-button:disabled { @apply opacity-60 cursor-not-allowed; }
-```
-
-- All buttons lay out as `flex items-center justify-center gap-2` (icon + label).
-- Secondary/outline button: `button-small border border-slate-50/20` that fills accent-blue on hover.
-- Icons inside buttons at explicit sizes: `!text-[18px]` (or 14–22px depending on density).
+- Use `btn` plus a semantic modifier: `btn-primary`, `btn-success`, `btn-error`, `btn-warning`, `btn-outline`, or `btn-ghost`.
+- Use the native size scale: `btn-xs`, `btn-sm`, default, and `btn-lg`. Use `btn-circle` for icon-only circular buttons.
+- Prefer the shared `Button` wrapper when its variant API fits.
+- Icons inside buttons still use explicit Material Symbol sizes such as `!text-[18px]`.
 
 ## Icons
 
@@ -84,13 +71,14 @@ Use **Material Symbols Rounded** (variable font, weight 300, `FILL 0` default; `
 
 ## Forms
 
-- Input: `text-sm bg-transparent text-slate-200 rounded px-2 py-1 border border-slate-600 focus:border-blue-500 outline-none`.
-- Select: `bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200` (or the `--app-panel-deep` token under themes).
-- Checkbox rows: label left (`text-sm text-gray-400`), control right, `flex items-center justify-between py-1`.
+- Use daisyUI `fieldset`, `fieldset-legend`, and `label` for grouped fields.
+- Controls use `input`, `select`, `textarea`, `checkbox`, `radio`, and `toggle`.
+- Use native semantic states such as `input-error` and native size modifiers instead of recreating borders/focus rings.
+- Do not add global element rules for inputs, selects, or checkboxes; they override daisyUI component styling.
 
 ## Tabs
 
-Underline style: container `border-b border-gray-200/10`; each tab `flex items-center gap-1 md:gap-2 px-2 md:px-4 py-2 border-b-2 border-transparent rounded-t-lg text-slate-300 hover:text-blue-400 hover:border-blue-400 cursor-pointer`; active tab `!text-blue-400 !border-blue-400`; disabled `!text-slate-600 !cursor-not-allowed`. Tabs pair an icon with a label.
+Use `tabs tabs-border` with `tab`, `tab-active`, and `tab-disabled`. Tabs may pair a Material Symbol with a label.
 
 ## Layout
 
@@ -113,10 +101,11 @@ Hide by default in dense panes (`.no-scrollbar`), or show a thin styled one (`.y
 
 ## Applying themes
 
-Set `data-appearance-theme="<name>"` on the document root. The theme layer in [themes.css](themes.css) remaps the standard utility classes (`bg-gray-900`, `bg-gray-800`, `text-slate-400`, `border-slate-700`, etc.) onto the `--app-*` variables with `!important`, so components written for the default dark palette automatically adapt. When adding new components, prefer the utility classes already covered by that mapping.
+Set `data-theme="nzbdav"` on the document root. The legacy `data-appearance-theme="dark"` attribute and utility remaps remain temporarily for existing pages; new code should use daisyUI semantic classes and must not depend on those remaps.
 
 ## NzbDav-specific notes
 
-- The frontend is React Router 7 with Tailwind + CSS modules (not Vue/Nuxt). Express these patterns as Tailwind classes in JSX or as typed CSS modules — do not port Vue code.
-- Prefer replacing Bootstrap-styled elements with these Tailwind patterns as screens are refactored; avoid mixing Bootstrap and this design language within one component.
+- The frontend is React Router 8 with Tailwind 4, daisyUI 5, and CSS modules (not Vue/Nuxt).
+- Existing route CSS modules remain supported through the `--app-*` compatibility aliases and can migrate incrementally.
+- Keep Material Symbols Rounded for icons; daisyUI does not provide an icon set.
 - Run `npm run typecheck` in `frontend/` after styling refactors.

@@ -98,7 +98,7 @@ export function TagInput({
     return (
         <div
             className={classNames([
-                "form-input relative flex min-h-9 w-full cursor-text flex-wrap items-center gap-1.5",
+                "input relative flex h-auto min-h-9 w-full cursor-text flex-wrap items-center gap-1.5",
                 className,
             ])}
             onClick={handleContainerClick}

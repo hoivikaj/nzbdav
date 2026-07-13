@@ -1,5 +1,6 @@
 import { forwardRef } from "react";
 import type {
+  FieldsetHTMLAttributes,
   HTMLAttributes,
   InputHTMLAttributes,
   LabelHTMLAttributes,
@@ -8,12 +9,12 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 
-export function Field({ className = "", ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={`flex flex-col gap-1.5 ${className}`} {...props} />;
+export function Field({ className = "", ...props }: FieldsetHTMLAttributes<HTMLFieldSetElement>) {
+  return <fieldset className={`fieldset ${className}`} {...props} />;
 }
 
 export function Label({ className = "", ...props }: LabelHTMLAttributes<HTMLLabelElement>) {
-  return <label className={`text-sm font-medium text-slate-200 ${className}`} {...props} />;
+  return <label className={`fieldset-legend text-sm font-medium text-base-content ${className}`} {...props} />;
 }
 
 export function HelpText({
@@ -21,24 +22,29 @@ export function HelpText({
   muted: _muted,
   ...props
 }: HTMLAttributes<HTMLElement> & { muted?: boolean }) {
-  return <small className={`text-xs leading-relaxed text-slate-400 ${className}`} {...props} />;
+  return (
+    <small
+      className={`block text-[11px] leading-relaxed text-base-content/45 ${className}`}
+      {...props}
+    />
+  );
 }
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   function Input({ className = "", ...props }, ref) {
-    return <input ref={ref} className={`form-input ${className}`} {...props} />;
+    return <input ref={ref} className={`input ${className}`} {...props} />;
   },
 );
 
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
   function Select({ className = "", ...props }, ref) {
-    return <select ref={ref} className={`form-select ${className}`} {...props} />;
+    return <select ref={ref} className={`select ${className}`} {...props} />;
   },
 );
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
   function Textarea({ className = "", ...props }, ref) {
-    return <textarea ref={ref} className={`form-input ${className}`} {...props} />;
+    return <textarea ref={ref} className={`textarea ${className}`} {...props} />;
   },
 );
 
@@ -48,7 +54,7 @@ export const Checkbox = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInp
       <input
         ref={ref}
         type="checkbox"
-        className={`h-4 w-4 rounded border-slate-600 bg-slate-950 accent-emerald-400 ${className}`}
+        className={`checkbox ${className}`}
         {...props}
       />
     );
@@ -67,15 +73,9 @@ export const Toggle = forwardRef<HTMLInputElement, ToggleProps>(function Toggle(
     <label
       htmlFor={id}
       style={style}
-      className={`inline-flex w-fit items-center gap-2 text-sm font-medium text-slate-200 ${
-        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-      } ${className}`}
+      className={`label ${className}`}
     >
-      <input ref={ref} id={id} type="checkbox" disabled={disabled} className="peer sr-only" {...props} />
-      <span
-        aria-hidden="true"
-        className="relative h-5 w-9 rounded-full border border-slate-600 bg-slate-700 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-3.5 after:w-3.5 after:rounded-full after:bg-slate-200 after:transition-transform peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400 peer-checked:border-blue-500 peer-checked:bg-blue-600 peer-checked:after:translate-x-4"
-      />
+      <input ref={ref} id={id} type="checkbox" disabled={disabled} className="toggle" {...props} />
       <span>{label}</span>
     </label>
   );
@@ -98,14 +98,12 @@ export const Check = forwardRef<HTMLInputElement, CheckProps>(function Check(
     <label
       htmlFor={props.id}
       style={style}
-      className={`inline-flex w-fit items-center gap-2 text-sm text-slate-200 ${
-        props.disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-      } ${className}`}
+      className={`label ${className}`}
     >
       <input
         ref={ref}
         type={type}
-        className="h-4 w-4 border-slate-600 bg-slate-950 accent-blue-500 focus-visible:ring-2 focus-visible:ring-blue-400"
+        className={type === "radio" ? "radio" : "checkbox"}
         {...props}
       />
       <span>{label}</span>

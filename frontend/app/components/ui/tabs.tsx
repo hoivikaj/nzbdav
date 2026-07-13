@@ -18,7 +18,7 @@ export function Tabs<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div role="tablist" className="flex flex-wrap border-b border-gray-200/10">
+    <div role="tablist" className="tabs tabs-border flex-wrap">
       {options.map((option) => {
         const active = option.id === value;
         return (
@@ -28,11 +28,9 @@ export function Tabs<T extends string>({
             aria-selected={active}
             disabled={option.disabled}
             onClick={() => onChange(option.id)}
-            className={`flex shrink-0 cursor-pointer items-center gap-1 rounded-t-lg border-b-2 px-2 py-2 text-sm md:gap-2 md:px-4 ${
-              active
-                ? "border-blue-400 text-blue-400"
-                : "border-transparent text-slate-300 hover:border-blue-400 hover:text-blue-400"
-            } disabled:cursor-not-allowed disabled:text-slate-600`}
+            className={`tab gap-1 md:gap-2 ${active ? "tab-active" : ""} ${
+              option.disabled ? "tab-disabled" : ""
+            }`}
           >
             {option.icon && <Icon name={option.icon} className="!text-[18px]" />}
             {option.label}

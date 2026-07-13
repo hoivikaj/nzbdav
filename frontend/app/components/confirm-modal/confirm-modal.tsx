@@ -36,7 +36,7 @@ export function ConfirmModal(props: ConfirmModalProps) {
             onClose={onCancel}
             title={props.title}
             footer={<>
-                <Button variant="secondary" onClick={onCancel}>
+                <Button variant="outline" onClick={onCancel}>
                     {props.cancelText || "Close"}
                 </Button>
                 <Button variant="danger" onClick={() => onConfirm(isCheckboxChecked)}>
