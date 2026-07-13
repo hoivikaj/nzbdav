@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Clients.Usenet.Concurrency;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Models;
 using NzbWebDAV.Utils;
 using Serilog;
 
@@ -15,6 +16,12 @@ public class ConfigManager
 
     private readonly Dictionary<string, string> _config = new();
     private readonly Dictionary<(string Name, Type Type), object?> _deserializedConfig = new();
+    // Compiled exclude patterns are cached and rebuilt only when an exclude-related
+    // config key changes (see UpdateValues / LoadConfig), rather than recompiled on
+    // every search. Guarded by its own lock so searches and config writes don't
+    // contend on _config.
+    private readonly object _excludeLock = new();
+    private IReadOnlyList<Regex>? _compiledExcludeCache;
     public event EventHandler<ConfigEventArgs>? OnConfigChanged;
 
     public async Task LoadConfig()
@@ -30,6 +37,7 @@ public class ConfigManager
                 _config[configItem.ConfigName] = configItem.ConfigValue;
             }
         }
+        lock (_excludeLock) { _compiledExcludeCache = null; }
     }
 
     private string? GetConfigValue(string configName)
@@ -96,6 +104,12 @@ public class ConfigManager
                     _deserializedConfig.Remove(cacheKey);
                 }
             }
+        }
+
+        if (configItems.Any(x => x.ConfigName.StartsWith("search.exclude", StringComparison.Ordinal)
+                                 || x.ConfigName == "play.exclude-patterns"))
+        {
+            lock (_excludeLock) { _compiledExcludeCache = null; }
         }
 
         var changedConfig = configItems.ToDictionary(x => x.ConfigName, x => x.ConfigValue);
@@ -360,30 +374,78 @@ public class ConfigManager
         return int.TryParse(v, out var n) ? Math.Clamp(n, 5, 120) : 5;
     }
 
+    public const int DefaultExcludeSyncRefreshMinutes = 720;
+
     public IReadOnlyList<Regex> GetSearchExcludePatterns()
     {
+        lock (_excludeLock)
+        {
+            return _compiledExcludeCache ??= BuildExcludePatterns();
+        }
+    }
+
+    // Synced patterns (last-good cache, in configured-URL order) take precedence and are
+    // emitted first; the manual textarea is appended after, with exact duplicates dropped
+    // so a pattern present in both sources is compiled and evaluated only once.
+    private IReadOnlyList<Regex> BuildExcludePatterns()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var compiled = new List<Regex>();
+
+        var cache = GetSearchExcludeSyncCache();
+        foreach (var url in GetSearchExcludeSyncUrls())
+        {
+            if (!cache.Urls.TryGetValue(url, out var entry)) continue;
+            foreach (var item in entry.Items)
+                if (ExcludePatternParser.Parse(item) is { } p && seen.Add(p.Key))
+                    compiled.Add(p.Regex);
+        }
+
         var raw = GetConfigValue("search.exclude-patterns");
         if (string.IsNullOrWhiteSpace(raw)) raw = GetConfigValue("play.exclude-patterns");
-        if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<Regex>();
-
-        var patterns = new List<Regex>();
-        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        if (!string.IsNullOrWhiteSpace(raw))
         {
-            var trimmed = line.Trim();
-            if (trimmed.Length == 0 || trimmed.StartsWith('#')) continue;
-            try
-            {
-                patterns.Add(new Regex(
-                    trimmed,
-                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
-                    TimeSpan.FromMilliseconds(250)));
-            }
-            catch (ArgumentException e)
-            {
-                Log.Warning("Skipping invalid search.exclude-patterns regex {Pattern}: {Message}", trimmed, e.Message);
-            }
+            foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                if (ExcludePatternParser.Parse(line) is { } p && seen.Add(p.Key))
+                    compiled.Add(p.Regex);
         }
-        return patterns;
+
+        return compiled;
+    }
+
+    /// <summary>Configured synced-exclude source URLs (http/https only, de-duplicated, in order).</summary>
+    public IReadOnlyList<string> GetSearchExcludeSyncUrls()
+    {
+        var raw = GetConfigValue("search.exclude-sync-urls");
+        if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<string>();
+
+        var urls = new List<string>();
+        // Exact-match dedup: URL paths are case-sensitive, so two URLs that differ only
+        // by path casing are distinct sources and must both be kept.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (line.StartsWith('#')) continue;
+            if (!Uri.TryCreate(line, UriKind.Absolute, out var uri)) continue;
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) continue;
+            if (seen.Add(line)) urls.Add(line);
+        }
+        return urls;
+    }
+
+    public int GetSearchExcludeSyncRefreshMinutes()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue("search.exclude-sync-refresh-minutes"));
+        if (v == null) return DefaultExcludeSyncRefreshMinutes;
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 15, 10080) : DefaultExcludeSyncRefreshMinutes;
+    }
+
+    public ExcludeSyncCache GetSearchExcludeSyncCache()
+    {
+        var raw = StringUtil.EmptyToNull(GetConfigValue("search.exclude-sync-cache"));
+        if (raw == null) return new ExcludeSyncCache();
+        try { return JsonSerializer.Deserialize<ExcludeSyncCache>(raw) ?? new ExcludeSyncCache(); }
+        catch (JsonException) { return new ExcludeSyncCache(); }
     }
 
     public string GetVariantsMode()
