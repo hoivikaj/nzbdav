@@ -1,141 +1,160 @@
-import { Form, Link, useLocation, useNavigation } from "react-router";
+import { Link, useLocation, useNavigation } from "react-router";
 import type React from "react";
+import { useEffect, useState } from "react";
 import { LiveUsenetConnections } from "../live-usenet-connections/live-usenet-connections";
 import { LiveReads } from "../live-reads/live-reads";
 import { Icon } from "~/components/ui";
+import {
+    SETTINGS_TAB_GROUPS,
+    parseSettingsTab,
+    settingsPath,
+    type SettingsTab,
+} from "~/routes/settings/settings-tabs";
 
 export type LeftNavigationProps = {
-    version?: string,
-    updateAvailable?: { latestVersion: string; releaseUrl: string } | null,
-    isFrontendAuthDisabled?: boolean,
     hasUsenetProviders?: boolean,
     isWatchdogEnabled?: boolean,
 }
 
+type NavItem = {
+    target: string;
+    icon: string;
+    label: string;
+};
+
+const SETTINGS_ITEMS = SETTINGS_TAB_GROUPS.flatMap((group) => group.items);
+
 export function LeftNavigation({
-    version,
-    updateAvailable,
-    isFrontendAuthDisabled,
     hasUsenetProviders,
     isWatchdogEnabled,
 }: LeftNavigationProps) {
-    return (
-        <div className="flex h-full flex-col px-3 py-5 text-slate-400">
-            <nav className="flex flex-col gap-1">
-                <Item target="/overview" icon="dashboard">Overview</Item>
-                <Item target="/queue" icon="list_alt">Queue</Item>
-                {isWatchdogEnabled && <Item target="/watchdog" icon="monitor_heart">Watchdog</Item>}
-                <Item target="/watchtower" icon="cell_tower">Watchtower</Item>
-                <Item target="/explore" icon="folder_open">Files</Item>
-                <Item target="/health" icon="health_and_safety">Health</Item>
-                <Item target="/logs" icon="description">Logs</Item>
-                <Item target="/search" icon="search">Search</Item>
-                <Item target="/settings" icon="settings">Settings</Item>
-            </nav>
-            <LiveUsenetConnections hasUsenetProviders={!!hasUsenetProviders} />
-            <LiveReads />
+    const location = useLocation();
+    const navigation = useNavigation();
+    const pathname = navigation.location?.pathname ?? location.pathname;
+    const search = navigation.location?.search ?? location.search;
+    const isSettingsRoute = pathname.startsWith("/settings");
+    const activeSettingsTab = isSettingsRoute
+        ? parseSettingsTab(new URLSearchParams(search).get("tab"))
+        : null;
 
-            <footer className="mt-auto border-t border-slate-800 pt-4 text-xs text-slate-500">
-                <div className="mb-3 flex items-center gap-3">
-                    <Link
-                        to="https://github.com/nzbdav/nzbdav"
-                        className="flex items-center gap-1 hover:text-blue-400"
-                    >
-                        <Icon name="code" className="!text-[16px]" />
-                        GitHub
-                    </Link>
-                    <Link
-                        to="https://github.com/nzbdav/nzbdav/releases"
-                        className="hover:text-blue-400"
-                    >
-                        Changelog
-                    </Link>
-                </div>
-                <VersionStatusCard version={version} updateAvailable={updateAvailable} />
-                {!isFrontendAuthDisabled && (
-                    <Form method="post" action="/logout">
-                        <input name="confirm" value="true" type="hidden" />
-                        <button
-                            className="mt-3 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-slate-400 hover:bg-white/10 hover:text-white"
-                            type="submit"
+    const [settingsOpen, setSettingsOpen] = useState(isSettingsRoute);
+    useEffect(() => {
+        if (isSettingsRoute) setSettingsOpen(true);
+    }, [isSettingsRoute]);
+
+    const items: NavItem[] = [
+        { target: "/overview", icon: "dashboard", label: "Overview" },
+        { target: "/queue", icon: "list_alt", label: "Queue" },
+        ...(isWatchdogEnabled
+            ? [{ target: "/watchdog", icon: "monitor_heart", label: "Watchdog" }]
+            : []),
+        { target: "/watchtower", icon: "cell_tower", label: "Watchtower" },
+        { target: "/explore", icon: "folder_open", label: "Files" },
+        { target: "/health", icon: "health_and_safety", label: "Health" },
+        { target: "/logs", icon: "description", label: "Logs" },
+        { target: "/search", icon: "search", label: "Search" },
+    ];
+
+    return (
+        <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 text-base-content">
+            <nav aria-label="Main">
+                <ul className="menu menu-md w-full gap-1 p-0 text-[15px]">
+                    {items.map((item) => (
+                        <Item
+                            key={item.target}
+                            target={item.target}
+                            icon={item.icon}
+                            pathname={pathname}
                         >
-                            <Icon name="logout" className="!text-[18px]" />
-                            Logout
+                            {item.label}
+                        </Item>
+                    ))}
+                    <li className="mt-1 mb-2">
+                        <button
+                            type="button"
+                            className={[
+                                "menu-dropdown-toggle",
+                                settingsOpen ? "menu-dropdown-show" : "",
+                            ].filter(Boolean).join(" ")}
+                            aria-expanded={settingsOpen}
+                            onClick={() => setSettingsOpen((open) => !open)}
+                        >
+                            <Icon
+                                name="settings"
+                                filled={isSettingsRoute}
+                                className="!text-[22px]"
+                            />
+                            <span className="flex-1 text-left">Settings</span>
                         </button>
-                    </Form>
-                )}
-            </footer>
+                    </li>
+                    {settingsOpen && SETTINGS_ITEMS.map((item) => (
+                        <SettingsItem
+                            key={item.id}
+                            tab={item.id}
+                            icon={item.icon}
+                            activeTab={activeSettingsTab}
+                        >
+                            {item.label}
+                        </SettingsItem>
+                    ))}
+                </ul>
+            </nav>
+            <div className="mt-auto flex flex-col gap-3">
+                <LiveUsenetConnections hasUsenetProviders={!!hasUsenetProviders} />
+                <LiveReads />
+            </div>
         </div>
     );
 }
 
-function VersionStatusCard({
-    version,
-    updateAvailable,
+function Item({
+    target,
+    icon,
+    children,
+    pathname,
 }: {
-    version?: string,
-    updateAvailable?: { latestVersion: string; releaseUrl: string } | null,
+    target: string;
+    icon: string;
+    children: React.ReactNode;
+    pathname: string;
 }) {
-    const displayVersion = version || "unknown";
-    const hasUpdate = Boolean(updateAvailable);
-
-    const content = (
-        <>
-            <Icon name="hard_drive" className="!text-[22px] shrink-0" />
-            <div className="min-w-0 flex-1 truncate">
-                <div className={`font-bold ${hasUpdate ? "text-amber-100" : "text-white"}`}>NzbDav Stable</div>
-                <div className={`truncate font-mono text-[11px] tracking-wide ${
-                    hasUpdate ? "text-amber-200" : "text-slate-400"
-                }`}>
-                    {updateAvailable
-                        ? `${displayVersion} → v${updateAvailable.latestVersion}`
-                        : displayVersion}
-                </div>
-            </div>
-            {updateAvailable && (
-                <Icon name="arrow_circle_up" className="!text-[22px] shrink-0 text-amber-400" />
-            )}
-        </>
-    );
-
-    const className = `flex w-full items-center gap-2 rounded-lg border p-2 text-xs transition-all duration-200 ${
-        hasUpdate
-            ? "border-amber-600/50 bg-amber-500/15 text-amber-100 hover:border-amber-500/70 hover:bg-amber-500/25"
-            : "border-slate-700/70 bg-slate-900 text-slate-300"
-    }`;
-
-    if (updateAvailable) {
-        return (
-            <Link
-                to={updateAvailable.releaseUrl}
-                className={className}
-                target="_blank"
-                rel="noreferrer"
-            >
-                {content}
-            </Link>
-        );
-    }
-
-    return <div className={className}>{content}</div>;
-}
-
-function Item({ target, icon, children }: { target: string, icon: string, children: React.ReactNode }) {
-    const location = useLocation();
-    const navigation = useNavigation();
-    const pathname = navigation.location?.pathname ?? location.pathname;
     const isSelected = pathname.startsWith(target);
     return (
-        <Link
-            to={target}
-            className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all ${
-                isSelected
-                    ? "bg-blue-500/15 text-blue-400"
-                    : "text-slate-400 hover:bg-white/10 hover:text-white"
-            }`}
-        >
-            <Icon name={icon} filled={isSelected} className="!text-[21px] transition-transform group-hover:scale-105" />
-            {children}
-        </Link>
+        <li>
+            <Link
+                to={target}
+                aria-current={isSelected ? "page" : undefined}
+                className={isSelected ? "menu-active" : undefined}
+            >
+                <Icon name={icon} filled={isSelected} className="!text-[22px]" />
+                <span className="flex-1 text-left">{children}</span>
+            </Link>
+        </li>
+    );
+}
+
+function SettingsItem({
+    tab,
+    icon,
+    activeTab,
+    children,
+}: {
+    tab: SettingsTab;
+    icon: string;
+    activeTab: SettingsTab | null;
+    children: React.ReactNode;
+}) {
+    const isSelected = activeTab === tab;
+    return (
+        <li className="ms-3 border-s border-base-content/10 ps-1">
+            <Link
+                to={settingsPath(tab)}
+                aria-current={isSelected ? "page" : undefined}
+                className={`text-sm ${isSelected ? "menu-active" : ""}`}
+            >
+                <Icon name={icon} filled={isSelected} className="!text-[18px]" />
+                <span className="flex-1 text-left">{children}</span>
+            </Link>
+        </li>
     );
 }

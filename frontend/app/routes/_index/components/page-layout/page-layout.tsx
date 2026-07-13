@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useNavigation } from "react-router";
 
 export type PageLayoutProps = {
@@ -10,55 +10,55 @@ export type PageLayoutProps = {
 export type RequiredTopNavProps = {
     isHamburgerMenuOpen: boolean,
     onHamburgerMenuClick: () => void,
+    drawerToggleId: string,
 }
 
 export function PageLayout(props: PageLayoutProps) {
-    // data
+    const drawerToggleId = useId();
     const [isHamburgerMenuOpen, setIsHamburgerMenuOpen] = useState(false);
     const isNavigating = Boolean(useNavigation().location);
 
-    // close hamburger-menu when done navigating
     useEffect(() => {
-        !isNavigating && setIsHamburgerMenuOpen(false);
-    }, [isNavigating, setIsHamburgerMenuOpen]);
+        if (!isNavigating) setIsHamburgerMenuOpen(false);
+    }, [isNavigating]);
 
-    // events
-    const onHamburgerMenuClick = useCallback(function () {
-        setIsHamburgerMenuOpen(!isHamburgerMenuOpen)
-    }, [setIsHamburgerMenuOpen, isHamburgerMenuOpen]);
-
-    const onBodyClick = useCallback(function () {
-        setIsHamburgerMenuOpen(false);
-    }, [setIsHamburgerMenuOpen]);
+    const onHamburgerMenuClick = useCallback(() => {
+        setIsHamburgerMenuOpen((open) => !open);
+    }, []);
 
     return (
-        <div className="flex h-dvh min-w-0 flex-col overflow-hidden bg-gray-900 text-white">
-            <div className="z-40 h-16 shrink-0 border-b border-slate-800 bg-gray-900">
+        <div className="flex h-dvh flex-col overflow-hidden bg-base-300 text-base-content">
+            <div className="navbar z-40 h-16 min-h-16 shrink-0 border-b border-base-content/10 bg-base-300 px-0">
                 <props.topNavComponent
                     isHamburgerMenuOpen={isHamburgerMenuOpen}
-                    onHamburgerMenuClick={onHamburgerMenuClick} />
+                    onHamburgerMenuClick={onHamburgerMenuClick}
+                    drawerToggleId={drawerToggleId}
+                />
             </div>
-            <div className="relative flex min-h-0 flex-1">
-                <aside
-                    className={`absolute inset-y-0 left-0 z-30 w-[250px] border-r border-slate-800 bg-gray-900 transition-transform duration-200 md:relative md:translate-x-0 ${
-                        isHamburgerMenuOpen ? "translate-x-0" : "-translate-x-full"
-                    }`}
-                >
-                    {props.leftNavChild}
-                </aside>
-                {isHamburgerMenuOpen && (
-                    <button
+
+            <div className="drawer min-h-0 flex-1 lg:drawer-open">
+                <input
+                    id={drawerToggleId}
+                    type="checkbox"
+                    className="drawer-toggle"
+                    checked={isHamburgerMenuOpen}
+                    onChange={(event) => setIsHamburgerMenuOpen(event.target.checked)}
+                />
+                <div className="drawer-content flex min-h-0 min-w-0 flex-col overflow-hidden">
+                    <main className="yes-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto bg-base-300">
+                        {props.bodyChild}
+                    </main>
+                </div>
+                <div className="drawer-side z-50">
+                    <label
+                        htmlFor={drawerToggleId}
                         aria-label="Close navigation"
-                        className="absolute inset-0 z-20 bg-slate-950/60 backdrop-blur-[2px] md:hidden"
-                        onClick={onBodyClick}
+                        className="drawer-overlay"
                     />
-                )}
-                <main
-                    className="yes-scrollbar min-w-0 flex-1 overflow-y-auto bg-[var(--app-bg)]"
-                    onClick={onBodyClick}
-                >
-                    {props.bodyChild}
-                </main>
+                    <aside className="flex h-full min-h-0 w-64 max-w-[85vw] flex-col border-r border-base-content/10 bg-base-300">
+                        {props.leftNavChild}
+                    </aside>
+                </div>
             </div>
         </div>
     );

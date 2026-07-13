@@ -13,8 +13,7 @@ export function LiveUsenetConnections({ hasUsenetProviders }: LiveUsenetConnecti
     const parts = (connections || "0|0|0|0|1|0").split("|");
     const [_0, _1, _2, live, max, idle] = parts.map(x => Number(x));
     const active = live - idle;
-    const activePercent = 100 * (active / max);
-    const livePercent = 100 * (live / max);
+    const activePercent = max > 0 ? 100 * (active / max) : 0;
 
     useEffect(() => {
         if (!hasUsenetProviders) {
@@ -44,36 +43,33 @@ export function LiveUsenetConnections({ hasUsenetProviders }: LiveUsenetConnecti
     }, [hasUsenetProviders]);
 
     return (
-        <section className="mt-6 rounded border border-slate-700/70 bg-slate-800/50 p-3">
-            <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-500">
-                <Icon name="cloud" className="!text-[16px]" />
-                Usenet Connections
-            </div>
-            {hasUsenetProviders && (
-                <div className="relative mb-2 h-1 overflow-hidden rounded-full bg-slate-700">
-                    <div
-                        className="absolute inset-y-0 left-0 bg-emerald-500 transition-all duration-300"
-                        style={{ width: `${livePercent}%` }}
-                    />
-                    <div
-                        className="absolute inset-y-0 left-0 bg-blue-500 transition-all duration-300"
-                        style={{ width: `${activePercent}%` }}
-                    />
+        <section className="rounded-box border border-base-content/10 bg-base-200 p-3">
+            <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
+                    <Icon name="cloud" className="!text-[16px]" />
+                    Usenet Connections
                 </div>
-            )}
-            <div className="text-xs text-slate-400">
-                {!hasUsenetProviders && "No providers configured"}
-                {hasUsenetProviders && connections && `${live} connected / ${max} max`}
-                {hasUsenetProviders && !connections && (
-                    <span className="flex items-center gap-1.5">
-                        <Icon name="progress_activity" className="animate-spin !text-[14px]" />
-                        Connecting
-                    </span>
+                {hasUsenetProviders && (
+                    <progress
+                        className="progress progress-primary h-1.5 w-full"
+                        value={Number.isFinite(activePercent) ? activePercent : 0}
+                        max={100}
+                    />
+                )}
+                <div className="text-xs text-base-content/60">
+                    {!hasUsenetProviders && "No providers configured"}
+                    {hasUsenetProviders && connections && `${live} connected / ${max} max`}
+                    {hasUsenetProviders && !connections && (
+                        <span className="flex items-center gap-1.5">
+                            <span className="loading loading-spinner loading-xs" />
+                            Connecting
+                        </span>
+                    )}
+                </div>
+                {hasUsenetProviders && connections && (
+                    <div className="font-mono text-[11px] text-base-content/50">{active} active</div>
                 )}
             </div>
-            {hasUsenetProviders && connections && (
-                <div className="mt-1 font-mono text-[11px] text-slate-500">{active} active</div>
-            )}
         </section>
     );
 }

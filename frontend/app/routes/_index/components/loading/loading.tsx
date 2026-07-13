@@ -1,4 +1,4 @@
-import { Icon } from "~/components/ui";
+import { Spinner } from "~/components/ui";
 
 export type LoadingProps = {
     className?: string
@@ -6,8 +6,8 @@ export type LoadingProps = {
 
 export function Loading({ className }: LoadingProps) {
     return (
-        <div className={`flex min-h-[50dvh] w-full flex-col items-center justify-center gap-3 text-slate-400 ${className ?? ""}`}>
-            <Icon name="progress_activity" className="animate-spin !text-[36px] text-blue-400" />
+        <div className={`flex min-h-[50dvh] w-full flex-col items-center justify-center gap-3 text-base-content/60 ${className ?? ""}`}>
+            <Spinner className="loading-lg text-primary" />
             <div className="text-sm font-medium">Loading...</div>
         </div>
     );

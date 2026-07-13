@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import styles from "./live-reads.module.css";
 import { receiveMessage } from "~/utils/websocket-util";
+import { Icon } from "~/components/ui";
 
 const activeReadsTopic = { ar: 'state' };
 
@@ -67,31 +67,32 @@ export function LiveReads() {
     if (reads.length === 0) return null;
 
     return (
-        <div className={styles.container}>
-            <div className={styles.title}>
+        <section className="rounded-box border border-base-content/10 bg-base-200 p-3">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
+                <Icon name="play_circle" className="!text-[16px]" />
                 Active Reads
             </div>
-            <div className={styles.list}>
+            <div className="flex flex-col gap-2">
                 {reads.map(r => <ReadRow key={r.id} item={r} />)}
             </div>
-        </div>
+        </section>
     );
 }
 
 function ReadRow({ item }: { item: Read }) {
     const totalSegments = item.providers.reduce((acc, p) => acc + p.segments, 0);
     return (
-        <div className={styles.row} title={item.fileName}>
-            <div className={styles.fileName}>{shortName(item.fileName)}</div>
-            <div className={styles.providers}>
+        <div className="flex flex-col gap-0.5 text-[11px] leading-snug" title={item.fileName}>
+            <div className="truncate text-base-content">{shortName(item.fileName)}</div>
+            <div className="flex flex-wrap items-center gap-x-1 text-base-content/50">
                 {item.providers.length === 0
-                    ? <span className={styles.providersIdle}>buffering…</span>
+                    ? <span className="italic text-base-content/40">buffering…</span>
                     : item.providers.map((p, i) => (
-                        <span key={p.host} className={styles.providersEntry}>
-                            {i > 0 && <span className={styles.providersSep}>·</span>}
-                            <span className={styles.providersHost} title={p.host}>{p.nickname?.trim() || stripHost(p.host)}</span>
+                        <span key={p.host} className="inline-flex items-baseline gap-1">
+                            {i > 0 && <span className="text-base-content/30">·</span>}
+                            <span className="text-base-content/70" title={p.host}>{p.nickname?.trim() || stripHost(p.host)}</span>
                             {totalSegments > 0 && (
-                                <span className={styles.providersPct}>
+                                <span className="font-mono text-base-content/50">
                                     {Math.round((p.segments / totalSegments) * 100)}%
                                 </span>
                             )}

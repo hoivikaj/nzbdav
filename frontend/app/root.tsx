@@ -64,7 +64,7 @@ function hasConfiguredUsenetProviders(configValue?: string): boolean {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" data-appearance-theme="dark">
+    <html lang="en" data-appearance-theme="dark" data-theme="nzbdav">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -108,13 +108,17 @@ export default function App({ loaderData }: Route.ComponentProps) {
   if (useLayout && !hideShell) {
     return (
       <PageLayout
-        topNavComponent={TopNavigation}
-        bodyChild={showLoading ? <Loading /> : <Outlet />}
-        leftNavChild={
-          <LeftNavigation
+        topNavComponent={(navProps) => (
+          <TopNavigation
+            {...navProps}
             version={version}
             updateAvailable={updateAvailable}
             isFrontendAuthDisabled={isFrontendAuthDisabled}
+          />
+        )}
+        bodyChild={showLoading ? <Loading /> : <Outlet />}
+        leftNavChild={
+          <LeftNavigation
             hasUsenetProviders={hasUsenetProviders}
             isWatchdogEnabled={isWatchdogEnabled} />
         } />
