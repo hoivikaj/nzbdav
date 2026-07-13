@@ -176,17 +176,11 @@ public class HealthCheckService : BackgroundService
             var healthyMessage = sampled.Count < totalSegments
                 ? $"File is healthy (sampled {sampled.Count}/{totalSegments} segments)."
                 : "File is healthy.";
-            dbClient.Ctx.HealthCheckResults.Add(SendStatus(new HealthCheckResult()
-            {
-                Id = Guid.NewGuid(),
-                DavItemId = davItem.Id,
-                Path = davItem.Path,
-                CreatedAt = DateTimeOffset.UtcNow,
-                Result = HealthCheckResult.HealthResult.Healthy,
-                RepairStatus = HealthCheckResult.RepairAction.None,
-                Message = healthyMessage
-            }));
-            await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+            await RecordHealthResult(
+                dbClient, davItem,
+                HealthCheckResult.HealthResult.Healthy,
+                HealthCheckResult.RepairAction.None,
+                healthyMessage, ct).ConfigureAwait(false);
         }
         catch (UsenetArticleNotFoundException e)
         {
@@ -279,21 +273,15 @@ public class HealthCheckService : BackgroundService
             if (BlocklistedFilePostProcessor.MatchesAnyPattern(davItem.Name, blocklistedFiles))
             {
                 dbClient.Ctx.Items.Remove(davItem);
-                dbClient.Ctx.HealthCheckResults.Add(SendStatus(new HealthCheckResult()
-                {
-                    Id = Guid.NewGuid(),
-                    DavItemId = davItem.Id,
-                    Path = davItem.Path,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    Result = HealthCheckResult.HealthResult.Unhealthy,
-                    RepairStatus = HealthCheckResult.RepairAction.Deleted,
-                    Message = string.Join(" ", [
+                await RecordHealthResult(
+                    dbClient, davItem,
+                    HealthCheckResult.HealthResult.Unhealthy,
+                    HealthCheckResult.RepairAction.Deleted,
+                    string.Join(" ", [
                         "File had missing articles.",
                         "Filename pattern is marked in settings as an ignored (unwanted) file.",
                         "Deleted file."
-                    ])
-                }));
-                await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+                    ]), ct).ConfigureAwait(false);
                 return;
             }
 
@@ -303,21 +291,15 @@ public class HealthCheckService : BackgroundService
             if (symlinkOrStrmPath == null)
             {
                 dbClient.Ctx.Items.Remove(davItem);
-                dbClient.Ctx.HealthCheckResults.Add(SendStatus(new HealthCheckResult()
-                {
-                    Id = Guid.NewGuid(),
-                    DavItemId = davItem.Id,
-                    Path = davItem.Path,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    Result = HealthCheckResult.HealthResult.Unhealthy,
-                    RepairStatus = HealthCheckResult.RepairAction.Deleted,
-                    Message = string.Join(" ", [
+                await RecordHealthResult(
+                    dbClient, davItem,
+                    HealthCheckResult.HealthResult.Unhealthy,
+                    HealthCheckResult.RepairAction.Deleted,
+                    string.Join(" ", [
                         "File had missing articles.",
                         "Could not find corresponding symlink or strm-file within Library Dir.",
                         "Deleted file."
-                    ])
-                }));
-                await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+                    ]), ct).ConfigureAwait(false);
                 return;
             }
 
@@ -342,8 +324,8 @@ public class HealthCheckService : BackgroundService
                 catch (Exception e)
                 {
                     anInstanceFailed = true;
-                    Log.Warning("Health-check repair: could not query root folders from {Host}: {Message}",
-                                arrClient.Host, e.Message);
+                    Log.Warning(e, "Health-check repair: could not query root folders from {Host}",
+                                arrClient.Host);
                     continue;
                 }
 
@@ -365,29 +347,23 @@ public class HealthCheckService : BackgroundService
                 catch (Exception e)
                 {
                     anInstanceFailed = true;
-                    Log.Warning("Health-check repair: remove-and-search failed on {Host}: {Message}",
-                                arrClient.Host, e.Message);
+                    Log.Warning(e, "Health-check repair: remove-and-search failed on {Host}",
+                                arrClient.Host);
                     continue;
                 }
 
                 if (removedAndSearched)
                 {
                     dbClient.Ctx.Items.Remove(davItem);
-                    dbClient.Ctx.HealthCheckResults.Add(SendStatus(new HealthCheckResult()
-                    {
-                        Id = Guid.NewGuid(),
-                        DavItemId = davItem.Id,
-                        Path = davItem.Path,
-                        CreatedAt = DateTimeOffset.UtcNow,
-                        Result = HealthCheckResult.HealthResult.Unhealthy,
-                        RepairStatus = HealthCheckResult.RepairAction.Repaired,
-                        Message = string.Join(" ", [
+                    await RecordHealthResult(
+                        dbClient, davItem,
+                        HealthCheckResult.HealthResult.Unhealthy,
+                        HealthCheckResult.RepairAction.Repaired,
+                        string.Join(" ", [
                             "File had missing articles.",
                             $"Corresponding {linkType} found within Library Dir.",
                             "Triggered new Arr search."
-                        ])
-                    }));
-                    await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+                        ]), ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -406,22 +382,16 @@ public class HealthCheckService : BackgroundService
                 var utcNow = DateTimeOffset.UtcNow;
                 davItem.LastHealthCheck = utcNow;
                 davItem.NextHealthCheck = utcNow + TimeSpan.FromDays(1);
-                dbClient.Ctx.HealthCheckResults.Add(SendStatus(new HealthCheckResult()
-                {
-                    Id = Guid.NewGuid(),
-                    DavItemId = davItem.Id,
-                    Path = davItem.Path,
-                    CreatedAt = utcNow,
-                    Result = HealthCheckResult.HealthResult.Unhealthy,
-                    RepairStatus = HealthCheckResult.RepairAction.ActionNeeded,
-                    Message = string.Join(" ", [
+                await RecordHealthResult(
+                    dbClient, davItem,
+                    HealthCheckResult.HealthResult.Unhealthy,
+                    HealthCheckResult.RepairAction.ActionNeeded,
+                    string.Join(" ", [
                         "File had missing articles.",
                         $"Corresponding {linkType} found within Library Dir,",
                         "but at least one Arr instance could not be reached or fully queried, so ownership",
                         "of the file could not be determined. Leaving the file in place rather than deleting it."
-                    ])
-                }));
-                await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+                    ]), ct).ConfigureAwait(false);
                 return;
             }
 
@@ -429,22 +399,16 @@ public class HealthCheckService : BackgroundService
             // then we can delete both the item and the link-file.
             await Task.Run(() => File.Delete(symlinkOrStrmPath)).ConfigureAwait(false);
             dbClient.Ctx.Items.Remove(davItem);
-            dbClient.Ctx.HealthCheckResults.Add(SendStatus(new HealthCheckResult()
-            {
-                Id = Guid.NewGuid(),
-                DavItemId = davItem.Id,
-                Path = davItem.Path,
-                CreatedAt = DateTimeOffset.UtcNow,
-                Result = HealthCheckResult.HealthResult.Unhealthy,
-                RepairStatus = HealthCheckResult.RepairAction.Deleted,
-                Message = string.Join(" ", [
+            await RecordHealthResult(
+                dbClient, davItem,
+                HealthCheckResult.HealthResult.Unhealthy,
+                HealthCheckResult.RepairAction.Deleted,
+                string.Join(" ", [
                     "File had missing articles.",
                     $"Corresponding {linkType} found within Library Dir.",
                     "Could not find corresponding Radarr/Sonarr media-item to trigger a new search.",
                     $"Deleted the webdav-file and {linkType}."
-                ])
-            }));
-            await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+                ]), ct).ConfigureAwait(false);
         }
         catch (Exception e)
         {
@@ -453,18 +417,36 @@ public class HealthCheckService : BackgroundService
             var utcNow = DateTimeOffset.UtcNow;
             davItem.LastHealthCheck = utcNow;
             davItem.NextHealthCheck = utcNow + TimeSpan.FromDays(1);
-            dbClient.Ctx.HealthCheckResults.Add(SendStatus(new HealthCheckResult()
-            {
-                Id = Guid.NewGuid(),
-                DavItemId = davItem.Id,
-                Path = davItem.Path,
-                CreatedAt = utcNow,
-                Result = HealthCheckResult.HealthResult.Unhealthy,
-                RepairStatus = HealthCheckResult.RepairAction.ActionNeeded,
-                Message = $"Error performing file repair: {e.Message}"
-            }));
-            await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+            await RecordHealthResult(
+                dbClient, davItem,
+                HealthCheckResult.HealthResult.Unhealthy,
+                HealthCheckResult.RepairAction.ActionNeeded,
+                $"Error performing file repair: {e.Message}", ct).ConfigureAwait(false);
         }
+    }
+
+
+    private async Task RecordHealthResult
+    (
+        DavDatabaseClient dbClient,
+        DavItem davItem,
+        HealthCheckResult.HealthResult result,
+        HealthCheckResult.RepairAction repairStatus,
+        string message,
+        CancellationToken ct
+    )
+    {
+        dbClient.Ctx.HealthCheckResults.Add(SendStatus(new HealthCheckResult()
+        {
+            Id = Guid.NewGuid(),
+            DavItemId = davItem.Id,
+            Path = davItem.Path,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Result = result,
+            RepairStatus = repairStatus,
+            Message = message
+        }));
+        await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
     private HealthCheckResult SendStatus(HealthCheckResult result)
