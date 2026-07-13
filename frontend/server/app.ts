@@ -4,7 +4,7 @@ import express from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { websocketServer } from "./websocket.server";
-import { shouldProxyToBackend } from "./proxy-path";
+import { safeDecodePath, shouldProxyToBackend } from "./proxy-path";
 import { logger } from "./logger";
 import { authMiddleware } from "~/auth/auth-middleware.server";
 import { setApiKeyForAuthenticatedRequests } from "./inject-api-key.server";
@@ -95,8 +95,10 @@ const credentialRateLimiter = rateLimit({
     return remoteAddress ? ipKeyGenerator(remoteAddress) : "unknown";
   },
   skip: (req) => {
-    return req.method.toUpperCase() !== "POST"
-      || !credentialPaths.has(decodeURIComponent(req.path));
+    if (req.method.toUpperCase() !== "POST") return true;
+    // Malformed encoding is not a credential path; must not throw (see #217).
+    const decodedPath = safeDecodePath(req.path);
+    return decodedPath === null || !credentialPaths.has(decodedPath);
   },
   handler: (req, res, _next, options) => {
     logger.warn(

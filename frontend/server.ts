@@ -3,6 +3,7 @@ import express from "express";
 import http from "http";
 import { WebSocketServer } from "ws";
 import { logger, requestLogger } from "./server/logger.js";
+import { shouldSkipCompression } from "./server/proxy-path.js";
 
 // Short-circuit the type-checking of the built output.
 const BUILD_PATH = "../build/server/index.js";
@@ -28,16 +29,7 @@ app.use(
   compression({
     // Don't compress proxied WebDAV/media/API responses; keep Content-Length intact for seek
     filter: (req, res) => {
-      const path = decodeURIComponent(req.path || "");
-      if (
-        path.startsWith("/view") ||
-        path.startsWith("/.ids") ||
-        path.startsWith("/nzbs") ||
-        path.startsWith("/content") ||
-        path.startsWith("/completed-symlinks") ||
-        path.startsWith("/api") ||
-        path.startsWith("/adapters/")
-      ) {
+      if (shouldSkipCompression(req.path || "")) {
         return false;
       }
       return compression.filter(req, res);

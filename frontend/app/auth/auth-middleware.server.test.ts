@@ -75,13 +75,14 @@ describe("authMiddleware", () => {
     expect(isAuthenticatedMock).not.toHaveBeenCalled();
   });
 
-  it("throws on malformed URI paths", async () => {
+  it("redirects malformed URI paths instead of throwing", async () => {
+    isAuthenticatedMock.mockResolvedValueOnce(false);
     const next = vi.fn();
     const res = mockRes();
 
-    await expect(
-      authMiddleware(mockReq("/%E0%A4%A"), res, next),
-    ).rejects.toThrow(URIError);
+    await authMiddleware(mockReq("/%E0%A4%A"), res, next);
+
+    expect(res.redirect).toHaveBeenCalledWith(302, "/login");
     expect(next).not.toHaveBeenCalled();
   });
 });

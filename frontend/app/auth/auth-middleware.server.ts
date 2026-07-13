@@ -1,5 +1,6 @@
 import type express from "express";
 import { isAuthenticated } from "~/auth/authentication.server";
+import { safeDecodePath } from "../../server/proxy-path";
 
 // Paths that do not require authentication. Every other path is protected.
 const PUBLIC_PATHS = [
@@ -15,9 +16,9 @@ export async function authMiddleware(
   res: express.Response,
   next: express.NextFunction,
 ): Promise<void> {
-  // Allow explicitly public paths
-  const pathname = decodeURIComponent(req.path);
-  if (PUBLIC_PATHS.includes(pathname)) return next();
+  // Allow explicitly public paths (malformed encoding is not public)
+  const pathname = safeDecodePath(req.path);
+  if (pathname !== null && PUBLIC_PATHS.includes(pathname)) return next();
 
   // Allow authenticated sessions
   if (await isAuthenticated(req)) return next();
