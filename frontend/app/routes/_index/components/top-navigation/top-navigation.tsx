@@ -60,8 +60,8 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
               tabIndex={0}
               className={
                 hasUpdate
-                  ? "btn btn-primary h-10 min-h-10 gap-2 rounded-box px-3"
-                  : "btn btn-ghost h-10 min-h-10 gap-2 rounded-[calc(var(--radius-box)-1px)] border-0 bg-base-200 px-3 hover:bg-base-200"
+                  ? "btn btn-primary h-10 min-h-10 shrink-0 gap-2 rounded-box px-4 whitespace-nowrap"
+                  : "btn btn-ghost h-10 min-h-10 shrink-0 gap-2 rounded-[calc(var(--radius-box)-1px)] border-0 bg-base-200 px-4 whitespace-nowrap hover:bg-base-200"
               }
               aria-label={hasUpdate ? "Update available" : "App menu"}
             >
@@ -72,7 +72,7 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
                 </>
               ) : (
                 <>
-                  <span className="inline-flex items-center gap-2">
+                  <span className="inline-flex items-center gap-2 whitespace-nowrap">
                     <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-base-content/40">
                       Stable
                     </span>
