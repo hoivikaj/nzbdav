@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.7.11](https://github.com/nzbdav/nzbdav/compare/v0.7.10...v0.7.11) (2026-07-13)
+
+
+### Features
+
+* **db:** periodic PRAGMA optimize and WAL checkpoint maintenance ([792bb38](https://github.com/nzbdav/nzbdav/commit/792bb3868b2cad019502fbd15b0af9205bcf5707))
+* **ui:** adopt daisyUI theme tokens and shared UI primitives ([3b8b03d](https://github.com/nzbdav/nzbdav/commit/3b8b03d467283f05947d9856099a355dea83a5a2))
+* **ui:** daisyUI 5 frontend refresh ([ba040db](https://github.com/nzbdav/nzbdav/commit/ba040db260acb74de66ec36839d812ce2935217f))
+* **ui:** migrate logs, watchdog, and watchtower activity pages to daisyUI ([1d97a2f](https://github.com/nzbdav/nzbdav/commit/1d97a2f1fccdd4e8b8b3b2808312cf5485cf5ce8))
+* **ui:** migrate overview, queue, explore, health, and search to daisyUI ([78e059a](https://github.com/nzbdav/nzbdav/commit/78e059ad6483cf91486a7208f079668810f45b5e))
+* **ui:** rebuild app shell with full-width navbar and settings submenu ([a1e9bc6](https://github.com/nzbdav/nzbdav/commit/a1e9bc66b6bcb0e7d54ebcd647c76b0025b1b77f))
+* **ui:** redesign settings and auth flows with shared daisyUI layout ([77e3ff5](https://github.com/nzbdav/nzbdav/commit/77e3ff523f50ce0b6acff1e0bc67e945b3eceb21))
+
+
+### Bug Fixes
+
+* **auth:** accept configured api key on admin /api endpoints ([b576c91](https://github.com/nzbdav/nzbdav/commit/b576c91ebafc11f198221dfc401bc72f14fee8ea)), closes [#242](https://github.com/nzbdav/nzbdav/issues/242)
+* **config:** validate config updates and drop stale usenet.host cache-clear key ([f8b6116](https://github.com/nzbdav/nzbdav/commit/f8b61164fc2a668831fcfeed3b71499dad53349a)), closes [#245](https://github.com/nzbdav/nzbdav/issues/245) [#240](https://github.com/nzbdav/nzbdav/issues/240)
+* **db:** bring main database pragmas up to metrics parity ([231c704](https://github.com/nzbdav/nzbdav/commit/231c7049fcb9394e20f745c59b0960463d8cb8b4))
+* **db:** make DavItems path rebuild incremental and index-driven ([53cecab](https://github.com/nzbdav/nzbdav/commit/53cecab87d6d035663746c4bdbacd5176df6ebb1))
+* **db:** set busy_timeout on metrics connections ([cda51c1](https://github.com/nzbdav/nzbdav/commit/cda51c1303fd294ac0c6037da90948d31f9feb64))
+* **db:** silence websocket warnings during database migration ([#270](https://github.com/nzbdav/nzbdav/issues/270)) ([e9e1329](https://github.com/nzbdav/nzbdav/commit/e9e13295f5da8671f6d962703802549c699e51da))
+* **db:** SQLite performance and slow migration path rebuild ([d66b0f5](https://github.com/nzbdav/nzbdav/commit/d66b0f52bfc20cd59117ddec752f862056dca0bc))
+* **health:** treat NNTP 451 as missing during health checks ([dc407bc](https://github.com/nzbdav/nzbdav/commit/dc407bc59f48687792d78059439427d68eb13329))
+* **health:** treat NNTP 451 as missing during health checks ([1decfa9](https://github.com/nzbdav/nzbdav/commit/1decfa94a1073d7697da5e4ad4118f324772796f))
+* **ui:** encode category with URLSearchParams in backend client ([546dacd](https://github.com/nzbdav/nzbdav/commit/546dacda3e020100dc7f86f75377deb52d6b0028)), closes [#223](https://github.com/nzbdav/nzbdav/issues/223)
+* **ui:** move connection stats to header ([b9f8ff0](https://github.com/nzbdav/nzbdav/commit/b9f8ff0718fdd91b86bf226456dbfd173388e8fe))
+* **ui:** restore button pointer cursor and unify provider actions ([34504f3](https://github.com/nzbdav/nzbdav/commit/34504f3317e5b1d4c7385e0fe6a1a31203c12c53))
+
+
+### Performance Improvements
+
+* **usenet:** cache yEnc headers on the streaming path ([7da84de](https://github.com/nzbdav/nzbdav/commit/7da84de81052a904a70103e03f20b8d3b8ec798d)), closes [#243](https://github.com/nzbdav/nzbdav/issues/243)
+* **webdav:** resolve persisted paths with one indexed query ([5fc77c0](https://github.com/nzbdav/nzbdav/commit/5fc77c033b35b70014672ca64d697c7bc299cc8f)), closes [#237](https://github.com/nzbdav/nzbdav/issues/237)
+
 ## [0.7.10](https://github.com/nzbdav/nzbdav/compare/v0.7.9...v0.7.10) (2026-07-13)
 
 
