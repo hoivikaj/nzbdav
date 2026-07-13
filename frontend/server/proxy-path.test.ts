@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { safeDecodePath, shouldProxyToBackend, shouldSkipCompression } from "./proxy-path";
+import {
+  isBackendApiPath,
+  matchesBackendPathPrefix,
+  safeDecodePath,
+  shouldProxyToBackend,
+  shouldSkipCompression,
+} from "./proxy-path";
 
 describe("safeDecodePath", () => {
   it("decodes valid percent-encoding", () => {
@@ -14,11 +20,45 @@ describe("safeDecodePath", () => {
   );
 });
 
+describe("matchesBackendPathPrefix", () => {
+  it.each([
+    "/api",
+    "/api/get-config",
+    "/view",
+    "/view/movies",
+    "/adapters",
+    "/adapters/addon/token/manifest.json",
+  ])("matches %s", (path) => {
+    expect(matchesBackendPathPrefix(path)).toBe(true);
+  });
+
+  it.each(["/apifoo", "/viewport.css", "/contents-page", "/adaptersfoo"])(
+    "rejects bare-prefix false positive %s",
+    (path) => {
+      expect(matchesBackendPathPrefix(path)).toBe(false);
+    },
+  );
+});
+
+describe("isBackendApiPath", () => {
+  it("matches /api and children", () => {
+    expect(isBackendApiPath("/api")).toBe(true);
+    expect(isBackendApiPath("/api/get-config")).toBe(true);
+    expect(isBackendApiPath("/%61pi/get-config")).toBe(true);
+  });
+
+  it("rejects /apifoo and non-api paths", () => {
+    expect(isBackendApiPath("/apifoo")).toBe(false);
+    expect(isBackendApiPath("/view")).toBe(false);
+  });
+});
+
 describe("shouldProxyToBackend", () => {
   it.each(["PROPFIND", "propfind", "OPTIONS", "options"])(
     "proxies %s requests regardless of path",
     (method) => {
       expect(shouldProxyToBackend(method, "/unrelated")).toBe(true);
+      expect(shouldProxyToBackend(method, "/apifoo")).toBe(true);
     },
   );
 
@@ -48,6 +88,13 @@ describe("shouldProxyToBackend", () => {
     },
   );
 
+  it.each(["/apifoo", "/viewport.css", "/contents-page"])(
+    "does not proxy bare-prefix false positive %s",
+    (path) => {
+      expect(shouldProxyToBackend("GET", path)).toBe(false);
+    },
+  );
+
   it.each(["/", "/login", "/settings", "/assets/app.js"])(
     "leaves frontend path %s to React Router",
     (path) => {
@@ -62,8 +109,9 @@ describe("shouldSkipCompression", () => {
     expect(shouldSkipCompression("/api/get-config")).toBe(true);
   });
 
-  it("does not skip for frontend paths or malformed encoding", () => {
+  it("does not skip for frontend paths, false positives, or malformed encoding", () => {
     expect(shouldSkipCompression("/login")).toBe(false);
+    expect(shouldSkipCompression("/viewport.css")).toBe(false);
     expect(shouldSkipCompression("/%zz")).toBe(false);
   });
 });

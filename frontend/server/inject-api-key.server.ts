@@ -1,5 +1,6 @@
 import type express from "express";
 import { isAuthenticated } from "~/auth/authentication.server";
+import { isBackendApiPath } from "./proxy-path";
 
 /**
  * Inject the frontend→backend API key for authenticated UI sessions that proxy
@@ -8,8 +9,8 @@ import { isAuthenticated } from "~/auth/authentication.server";
 export async function setApiKeyForAuthenticatedRequests(
   req: express.Request,
 ): Promise<void> {
-  // if the path is not /api, do nothing
-  if (!req.path.startsWith("/api")) return;
+  // if the path is not /api (decoded, segment-bounded), do nothing
+  if (!isBackendApiPath(req.path)) return;
 
   const apikey = req.query.apikey || req.query.apiKey || req.headers["x-api-key"];
   const hasApiKey = apikey && typeof apikey === "string";
