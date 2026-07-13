@@ -127,7 +127,8 @@ public abstract class NntpClient : INntpClient
         NzbFile nzbFile,
         int articleBufferSize,
         CancellationToken ct,
-        bool usePipelinedBodyRequests = true)
+        bool usePipelinedBodyRequests = true,
+        string? fileName = null)
     {
         var segmentIds = nzbFile.GetSegmentIds();
         var fileSize = await GetFileSizeAsync(nzbFile, ct).ConfigureAwait(false);
@@ -137,14 +138,16 @@ public abstract class NntpClient : INntpClient
             this,
             articleBufferSize,
             nzbFile.GetSegmentByteRanges(),
-            usePipelinedBodyRequests);
+            usePipelinedBodyRequests,
+            ResolveFileName(fileName, nzbFile));
     }
 
     public virtual NzbFileStream GetFileStream(
         NzbFile nzbFile,
         long fileSize,
         int articleBufferSize,
-        bool usePipelinedBodyRequests = true)
+        bool usePipelinedBodyRequests = true,
+        string? fileName = null)
     {
         return new NzbFileStream(
             nzbFile.GetSegmentIds(),
@@ -152,7 +155,8 @@ public abstract class NntpClient : INntpClient
             this,
             articleBufferSize,
             nzbFile.GetSegmentByteRanges(),
-            usePipelinedBodyRequests
+            usePipelinedBodyRequests,
+            ResolveFileName(fileName, nzbFile)
         );
     }
 
@@ -161,7 +165,8 @@ public abstract class NntpClient : INntpClient
         long fileSize,
         int articleBufferSize,
         LongRange[]? segmentByteRanges = null,
-        bool usePipelinedBodyRequests = true)
+        bool usePipelinedBodyRequests = true,
+        string? fileName = null)
     {
         return new NzbFileStream(
             segmentIds,
@@ -169,7 +174,15 @@ public abstract class NntpClient : INntpClient
             this,
             articleBufferSize,
             segmentByteRanges,
-            usePipelinedBodyRequests);
+            usePipelinedBodyRequests,
+            fileName);
+    }
+
+    private static string? ResolveFileName(string? fileName, NzbFile nzbFile)
+    {
+        if (!string.IsNullOrEmpty(fileName)) return fileName;
+        var subjectName = nzbFile.GetSubjectFileName();
+        return string.IsNullOrEmpty(subjectName) ? null : subjectName;
     }
 
     public virtual async Task CheckAllSegmentsAsync

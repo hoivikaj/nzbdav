@@ -1,6 +1,7 @@
 using System.Text;
 using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Clients.Usenet.Models;
+using NzbWebDAV.Exceptions;
 using UsenetSharp.Models;
 using UsenetSharp.Streams;
 
@@ -39,9 +40,18 @@ internal sealed class FakeNntpClient(
     {
         cancellationToken.ThrowIfCancellationRequested();
         BodyRequestCount++;
-        var response = CreateBodyResponse(segmentId);
-        onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
-        return Task.FromResult(response);
+        try
+        {
+            var response = CreateBodyResponse(segmentId);
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return Task.FromResult(response);
+        }
+        catch (Exception e)
+        {
+            // Return a faulted task so pipelined batch consumers can await
+            // per-segment failures without aborting DecodedBodiesAsync itself.
+            return Task.FromException<UsenetDecodedBodyResponse>(e);
+        }
     }
 
     public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
@@ -105,7 +115,7 @@ internal sealed class FakeNntpClient(
     {
         var key = segmentId.ToString();
         if (!segments.TryGetValue(key, out var bytes))
-            throw new KeyNotFoundException($"No fake segment named {key}.");
+            throw new UsenetArticleNotFoundException(key, "430 No such article");
 
         return new UsenetDecodedBodyResponse
         {

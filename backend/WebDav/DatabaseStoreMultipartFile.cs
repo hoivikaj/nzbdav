@@ -52,7 +52,8 @@ public class DatabaseStoreMultipartFile(
             usenetClient,
             configManager.GetArticleBufferSize(),
             lazyRarResolver,
-            configManager.IsPipelinedBodyRequestsEnabled()
+            configManager.IsPipelinedBodyRequestsEnabled(),
+            davMultipartFile.Path
         );
 
         return multipartFile.Metadata.AesParams != null

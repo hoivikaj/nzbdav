@@ -18,6 +18,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
     private readonly INntpClient _usenetClient;
     private readonly long _expectedSegmentSize;
     private readonly bool _failFastOnFirstSegment;
+    private readonly string _fileName;
     private readonly Channel<Task<Stream>> _streamTasks;
     private readonly int _bodyPipelineBatchSize;
     private readonly ContextualCancellationTokenSource _cts;
@@ -29,7 +30,8 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         INntpClient usenetClient,
         int articleBufferSize,
         bool usePipelinedBodyRequests,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? fileName = null)
     {
         return Create(
             segmentIds,
@@ -38,7 +40,8 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
             expectedSegmentSize: 0,
             failFastOnFirstSegment: false,
             usePipelinedBodyRequests,
-            cancellationToken);
+            cancellationToken,
+            fileName);
     }
 
     public static Stream Create
@@ -49,11 +52,12 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         long expectedSegmentSize,
         bool failFastOnFirstSegment,
         bool usePipelinedBodyRequests,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        string? fileName = null
     )
     {
         return articleBufferSize == 0
-            ? new UnbufferedMultiSegmentStream(segmentIds, usenetClient, expectedSegmentSize)
+            ? new UnbufferedMultiSegmentStream(segmentIds, usenetClient, expectedSegmentSize, fileName)
             : new MultiSegmentStream(
                 segmentIds,
                 usenetClient,
@@ -61,7 +65,8 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
                 expectedSegmentSize,
                 failFastOnFirstSegment,
                 usePipelinedBodyRequests,
-                cancellationToken);
+                cancellationToken,
+                fileName);
     }
 
     private MultiSegmentStream
@@ -72,13 +77,15 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         long expectedSegmentSize,
         bool failFastOnFirstSegment,
         bool usePipelinedBodyRequests,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken,
+        string? fileName
     )
     {
         _segmentIds = segmentIds;
         _usenetClient = usenetClient;
         _expectedSegmentSize = expectedSegmentSize;
         _failFastOnFirstSegment = failFastOnFirstSegment;
+        _fileName = string.IsNullOrEmpty(fileName) ? "unknown" : fileName;
         _bodyPipelineBatchSize = Math.Min(BodyPipelineBatchSize, articleBufferSize);
         _streamTasks = Channel.CreateBounded<Task<Stream>>(articleBufferSize);
         _cts = ContextualCancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -207,13 +214,15 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
             {
                 if (_failFastOnFirstSegment && isFirstSegment)
                 {
-                    Log.Warning(e, "First article {SegmentId} missing on all providers at playback start. " +
-                                   "Failing the stream so the player surfaces an error.", segmentId);
+                    Log.Warning(e,
+                        "First article {SegmentId} missing on all providers at playback start while reading {FileName}. " +
+                        "Failing the stream so the player surfaces an error.",
+                        segmentId, _fileName);
                     throw;
                 }
 
                 return ZeroFillSegment(
-                    "Article {SegmentId} missing on all providers. Zero-filling {Bytes} bytes to keep playback alive.",
+                    "Article {SegmentId} missing on all providers while reading {FileName}. Zero-filling {Bytes} bytes to keep playback alive.",
                     e.SegmentId);
             }
             catch (Exception e) when (!cancellationToken.IsCancellationRequested)
@@ -229,13 +238,15 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
 
                 if (_failFastOnFirstSegment && isFirstSegment)
                 {
-                    Log.Warning(e, "Segment {SegmentId} unavailable at playback start after {Attempts} attempts. " +
-                                   "Failing the stream so the player surfaces an error.", segmentId, attempt + 1);
+                    Log.Warning(e,
+                        "Segment {SegmentId} unavailable at playback start after {Attempts} attempts while reading {FileName}. " +
+                        "Failing the stream so the player surfaces an error.",
+                        segmentId, attempt + 1, _fileName);
                     throw;
                 }
 
                 return ZeroFillSegment(
-                    "Segment {SegmentId} unavailable after retries. Zero-filling {Bytes} bytes to keep playback alive.",
+                    "Segment {SegmentId} unavailable after retries while reading {FileName}. Zero-filling {Bytes} bytes to keep playback alive.",
                     segmentId, e);
             }
         }
@@ -256,14 +267,14 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         {
             if (_failFastOnFirstSegment && isFirstSegment) throw;
             return ZeroFillSegment(
-                "Article {SegmentId} missing on all providers. Zero-filling {Bytes} bytes to keep playback alive.",
+                "Article {SegmentId} missing on all providers while reading {FileName}. Zero-filling {Bytes} bytes to keep playback alive.",
                 e.SegmentId);
         }
         catch (Exception e) when (!cancellationToken.IsCancellationRequested)
         {
             if (_failFastOnFirstSegment && isFirstSegment) throw;
             return ZeroFillSegment(
-                "Segment {SegmentId} unavailable. Zero-filling {Bytes} bytes to keep playback alive.",
+                "Segment {SegmentId} unavailable while reading {FileName}. Zero-filling {Bytes} bytes to keep playback alive.",
                 segmentId, e);
         }
     }
@@ -283,8 +294,8 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
     private Stream ZeroFillSegment(string messageTemplate, string segmentId, Exception? exception = null)
     {
         var fill = _expectedSegmentSize > 0 ? _expectedSegmentSize : 1;
-        if (exception == null) Log.Warning(messageTemplate, segmentId, fill);
-        else Log.Warning(exception, messageTemplate, segmentId, fill);
+        if (exception == null) Log.Warning(messageTemplate, segmentId, _fileName, fill);
+        else Log.Warning(exception, messageTemplate, segmentId, _fileName, fill);
         return new MemoryStream(new byte[fill], writable: false);
     }
 

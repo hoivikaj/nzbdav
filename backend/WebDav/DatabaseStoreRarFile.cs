@@ -51,7 +51,8 @@ public class DatabaseStoreRarFile(
             usenetClient,
             configManager.GetArticleBufferSize(),
             resolver: null,
-            usePipelinedBodyRequests: configManager.IsPipelinedBodyRequestsEnabled()
+            usePipelinedBodyRequests: configManager.IsPipelinedBodyRequestsEnabled(),
+            fileName: davRarFile.Path
         );
     }
 }

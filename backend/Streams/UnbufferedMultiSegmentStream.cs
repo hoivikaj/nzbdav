@@ -10,16 +10,22 @@ public class UnbufferedMultiSegmentStream : FastReadOnlyNonSeekableStream
     private readonly Memory<string> _segmentIds;
     private readonly INntpClient _usenetClient;
     private readonly long _expectedSegmentSize;
+    private readonly string _fileName;
     private Stream? _stream;
     private int _currentIndex;
     private bool _disposed;
 
 
-    public UnbufferedMultiSegmentStream(Memory<string> segmentIds, INntpClient usenetClient, long expectedSegmentSize)
+    public UnbufferedMultiSegmentStream(
+        Memory<string> segmentIds,
+        INntpClient usenetClient,
+        long expectedSegmentSize,
+        string? fileName = null)
     {
         _segmentIds = segmentIds;
         _usenetClient = usenetClient;
         _expectedSegmentSize = expectedSegmentSize;
+        _fileName = string.IsNullOrEmpty(fileName) ? "unknown" : fileName;
     }
 
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
@@ -44,8 +50,8 @@ public class UnbufferedMultiSegmentStream : FastReadOnlyNonSeekableStream
                 {
                     var fill = _expectedSegmentSize > 0 ? _expectedSegmentSize : 1;
                     Log.Warning(
-                        "Article {SegmentId} missing on all providers. Zero-filling {Bytes} bytes to keep playback alive.",
-                        e.SegmentId, fill);
+                        "Article {SegmentId} missing on all providers while reading {FileName}. Zero-filling {Bytes} bytes to keep playback alive.",
+                        e.SegmentId, _fileName, fill);
                     _stream = new MemoryStream(new byte[fill], writable: false);
                 }
             }

@@ -16,7 +16,8 @@ public class NzbFileStream(
     INntpClient usenetClient,
     int articleBufferSize,
     LongRange[]? segmentByteRanges = null,
-    bool usePipelinedBodyRequests = true
+    bool usePipelinedBodyRequests = true,
+    string? fileName = null
 ) : FastReadOnlyStream
 {
     private const long MaximumForwardDrainBytes = 1024 * 1024;
@@ -149,8 +150,8 @@ public class NzbFileStream(
                     // turns out to be the seek target) gets zero-filled by
                     // MultiSegmentStream.
                     Log.Warning(
-                        "Seek probe hit missing article {SegmentId} (segment index {Index}). Using estimated range.",
-                        e.SegmentId, guess);
+                        "Seek probe hit missing article {SegmentId} (segment index {Index}) while reading {FileName}. Using estimated range.",
+                        e.SegmentId, guess, string.IsNullOrEmpty(fileName) ? "unknown" : fileName);
                     var start = guess * avg;
                     var end = Math.Min(fileSize, start + avg);
                     return new LongRange(start, end);
@@ -284,7 +285,8 @@ public class NzbFileStream(
             ExpectedSegmentSize,
             failFastOnFirstSegment,
             usePipelinedBodyRequests,
-            cancellationToken);
+            cancellationToken,
+            fileName);
     }
 
     protected override void Dispose(bool disposing)

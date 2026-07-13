@@ -2,6 +2,9 @@ using System.Text;
 using NzbWebDAV.Models;
 using NzbWebDAV.Streams;
 using NzbWebDAV.Tests.Fakes;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 
 namespace NzbWebDAV.Tests.Streams;
 
@@ -116,9 +119,61 @@ public class NzbFileStreamTests
         Assert.Equal("hij", Encoding.ASCII.GetString(buffer, 0, read));
     }
 
+    [Fact]
+    public async Task MissingArticle_ZeroFillsAndLogsFileName()
+    {
+        const string fileName = "/content/show/episode.mkv";
+        const string segmentId = "missing-article";
+        var sink = new CollectingSink();
+        var previous = Log.Logger;
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Warning()
+            .WriteTo.Sink(sink)
+            .CreateLogger();
+
+        try
+        {
+            // Empty segment map → UsenetArticleNotFound before any yEnc decode.
+            // Use unbuffered mode so the assertion does not depend on pipelined batch timing.
+            var client = new FakeNntpClient(new Dictionary<string, byte[]>());
+            await using var stream = MultiSegmentStream.Create(
+                new[] { segmentId }.AsMemory(),
+                client,
+                articleBufferSize: 0,
+                expectedSegmentSize: 5,
+                failFastOnFirstSegment: false,
+                usePipelinedBodyRequests: false,
+                cancellationToken: CancellationToken.None,
+                fileName: fileName);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var buffer = new byte[5];
+            var read = await stream.ReadAsync(buffer, cts.Token);
+
+            Assert.Equal(5, read);
+            Assert.Equal(new byte[5], buffer);
+            Assert.Contains(sink.Events, e =>
+                e.Level == LogEventLevel.Warning &&
+                e.RenderMessage().Contains(fileName, StringComparison.Ordinal) &&
+                e.RenderMessage().Contains(segmentId, StringComparison.Ordinal) &&
+                e.RenderMessage().Contains("Zero-filling", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Log.Logger = previous;
+        }
+    }
+
     private static FakeNntpClient CreateClient()
     {
         return new FakeNntpClient(
             SegmentIds.Zip(SegmentBytes).ToDictionary(pair => pair.First, pair => pair.Second));
+    }
+
+    private sealed class CollectingSink : ILogEventSink
+    {
+        public List<LogEvent> Events { get; } = [];
+
+        public void Emit(LogEvent logEvent) => Events.Add(logEvent);
     }
 }

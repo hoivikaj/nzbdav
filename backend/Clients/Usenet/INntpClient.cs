@@ -78,20 +78,23 @@ public interface INntpClient : IDisposable
         NzbFile nzbFile,
         int articleBufferSize,
         CancellationToken ct,
-        bool usePipelinedBodyRequests = true);
+        bool usePipelinedBodyRequests = true,
+        string? fileName = null);
 
     NzbFileStream GetFileStream(
         NzbFile nzbFile,
         long fileSize,
         int articleBufferSize,
-        bool usePipelinedBodyRequests = true);
+        bool usePipelinedBodyRequests = true,
+        string? fileName = null);
 
     NzbFileStream GetFileStream(
         string[] segmentIds,
         long fileSize,
         int articleBufferSize,
         LongRange[]? segmentByteRanges = null,
-        bool usePipelinedBodyRequests = true);
+        bool usePipelinedBodyRequests = true,
+        string? fileName = null);
 
     Task CheckAllSegmentsAsync(
         IEnumerable<string> segmentIds, int concurrency, IProgress<int>? progress, CancellationToken cancellationToken);
