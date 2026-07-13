@@ -40,23 +40,29 @@ public class UsenetStreamingClient : WrappingNntpClient
     {
         var multiProviderClient = CreateMultiProviderClient(configManager, websocketManager, usageTracker, metricsWriter, bytesTracker);
         var downloadingClient = new DownloadingNntpClient(multiProviderClient, configManager);
-        if (!configManager.IsSegmentCacheEnabled()) return downloadingClient;
-        try
+        INntpClient inner = downloadingClient;
+        if (configManager.IsSegmentCacheEnabled())
         {
-            return new SegmentCacheNntpClient(
-                downloadingClient,
-                configManager.GetSegmentCachePath(),
-                configManager.GetSegmentCacheMaxBytes(),
-                usageTracker,
-                metricsWriter
-            );
+            try
+            {
+                inner = new SegmentCacheNntpClient(
+                    downloadingClient,
+                    configManager.GetSegmentCachePath(),
+                    configManager.GetSegmentCacheMaxBytes(),
+                    usageTracker,
+                    metricsWriter
+                );
+            }
+            catch (Exception e)
+            {
+                Log.Warning(e, "Segment cache disabled: failed to initialise at {Path}.",
+                    configManager.GetSegmentCachePath());
+            }
         }
-        catch (Exception e)
-        {
-            Log.Warning(e, "Segment cache disabled: failed to initialise at {Path}.",
-                configManager.GetSegmentCachePath());
-            return downloadingClient;
-        }
+
+        // Always wrap with header caching so seek probes reuse immutable yEnc headers
+        // even when the optional on-disk segment body cache is disabled.
+        return new HeaderCachingNntpClient(inner);
     }
 
     private static MultiProviderNntpClient CreateMultiProviderClient
