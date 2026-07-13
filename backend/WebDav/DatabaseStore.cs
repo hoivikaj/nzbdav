@@ -34,7 +34,21 @@ public class DatabaseStore(
     public async Task<IStoreItem?> GetItemAsync(string path, CancellationToken cancellationToken)
     {
         path = path.Trim('/');
-        return path == "" ? _root : await _root.ResolvePath(path, cancellationToken).ConfigureAwait(false);
+        if (path == "") return _root;
+
+        // Fast path: a single indexed lookup by absolute path. This handles the overwhelmingly
+        // common case (streaming/serving a real, persisted file or directory) in one query
+        // instead of one per path segment.
+        var byPath = await dbClient.GetItemByPathAsync("/" + path, cancellationToken).ConfigureAwait(false);
+        if (byPath is not null)
+            return DatabaseStoreItemFactory.Create(
+                byPath, httpContextAccessor.HttpContext!, dbClient, configManager,
+                usenetClient, queueManager, websocketManager, lazyRarResolver);
+
+        // Fallback: walk the collection hierarchy segment-by-segment. This covers synthetic
+        // items that have no persisted row (empty category folders, .ids children, the
+        // readme, empty placeholder files created by WebDAV clients).
+        return await _root.ResolvePath(path, cancellationToken).ConfigureAwait(false);
     }
 
     public Task<IStoreItem?> GetItemAsync(Uri uri, CancellationToken cancellationToken)

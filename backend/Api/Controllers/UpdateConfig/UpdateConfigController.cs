@@ -13,6 +13,11 @@ public class UpdateConfigController(DavDatabaseClient dbClient, ConfigManager co
 {
     private async Task<UpdateConfigResponse> UpdateConfig(UpdateConfigRequest request)
     {
+        // Validate incoming values up-front so a malformed value is rejected here with a
+        // clear message instead of throwing later deep inside a request or background task.
+        // Run before webdav.pass hashing so validation sees the raw submitted value.
+        ConfigManager.ValidateConfigItems(request.ConfigItems);
+
         var configNames = request.ConfigItems.Select(x => x.ConfigName).ToHashSet();
         var existingItems = await dbClient.Ctx.ConfigItems
             .Where(c => configNames.Contains(c.ConfigName))
@@ -29,7 +34,7 @@ public class UpdateConfigController(DavDatabaseClient dbClient, ConfigManager co
                 item.ConfigValue,
                 existingValue);
 
-            if (item.ConfigName == "webdav.pass" &&
+            if (item.ConfigName == ConfigKeys.WebdavPass &&
                 !ConfigSecretMasker.IsMaskToken(item.ConfigValue))
                 resolvedValue = PasswordUtil.Hash(resolvedValue);
 

@@ -39,6 +39,13 @@ public class DeleteWebdavItemController(DavDatabaseClient dbClient, ConfigManage
     {
         var parts = path.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) return null;
+
+        // Preserve per-segment unescape semantics: a name containing an encoded %2F
+        // must stay inside one segment rather than becoming an extra path separator.
+        var absolutePath = "/" + string.Join('/', parts.Select(Uri.UnescapeDataString));
+        var byPath = await dbClient.GetItemByPathAsync(absolutePath, ct).ConfigureAwait(false);
+        if (byPath is not null) return byPath;
+
         var current = DavItem.Root;
         foreach (var raw in parts)
         {

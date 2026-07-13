@@ -50,43 +50,59 @@ public class ConfigManager
 
     private T? GetConfigValue<T>(string configName)
     {
+        string? rawValue;
+        var cacheKey = (configName, typeof(T));
+
         lock (_config)
         {
             if (!_config.TryGetValue(configName, out var storedValue)) return default;
-            var rawValue = StringUtil.EmptyToNull(storedValue);
+            rawValue = StringUtil.EmptyToNull(storedValue);
             if (rawValue == null) return default;
 
-            var cacheKey = (configName, typeof(T));
+            if (_deserializedConfig.TryGetValue(cacheKey, out var cachedValue))
+                return cachedValue is null ? default : (T)cachedValue;
+        }
+
+        // Deserialize outside the lock so large JSON payloads (providers, indexers)
+        // do not block other config readers on the hot path.
+        var value = JsonSerializer.Deserialize<T>(rawValue);
+
+        lock (_config)
+        {
             if (_deserializedConfig.TryGetValue(cacheKey, out var cachedValue))
                 return cachedValue is null ? default : (T)cachedValue;
 
-            var value = JsonSerializer.Deserialize<T>(rawValue);
-            _deserializedConfig[cacheKey] = value;
+            if (_config.TryGetValue(configName, out var storedValue) &&
+                StringUtil.EmptyToNull(storedValue) == rawValue)
+            {
+                _deserializedConfig[cacheKey] = value;
+            }
+
             return value;
         }
     }
 
     public bool IsWardenHideDeadEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("warden.hide-dead"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WardenHideDead));
         return v is null || v == "true";
     }
 
     public int GetWardenQuorum()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("warden.quorum"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WardenQuorum));
         return v is not null && int.TryParse(v, out var n) && n >= 1 ? n : 2;
     }
 
     public int GetWardenMaxSourceEntries()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("warden.max-source-entries"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WardenMaxSourceEntries));
         return v is not null && int.TryParse(v, out var n) && n > 0 ? n : 2_000_000;
     }
 
     public bool IsWardenBackboneScopeEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("warden.backbone-scope"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WardenBackboneScope));
         return v is null || v == "true";
     }
 
@@ -106,8 +122,8 @@ public class ConfigManager
             }
         }
 
-        if (configItems.Any(x => x.ConfigName.StartsWith("search.exclude", StringComparison.Ordinal)
-                                 || x.ConfigName == "play.exclude-patterns"))
+        if (configItems.Any(x => x.ConfigName.StartsWith(ConfigKeys.SearchExcludePrefix, StringComparison.Ordinal)
+                                 || x.ConfigName == ConfigKeys.PlayExcludePatterns))
         {
             lock (_excludeLock) { _compiledExcludeCache = null; }
         }
@@ -116,9 +132,147 @@ public class ConfigManager
         OnConfigChanged?.Invoke(this, new ConfigEventArgs { ChangedConfig = changedConfig });
     }
 
+    /// <summary>
+    /// Validates incoming config values, failing fast for anything that would otherwise throw
+    /// deep inside a request/background task at read time (non-numeric ints, non-boolean flags,
+    /// malformed JSON). Empty values are treated as "unset" and always allowed, matching the
+    /// getters' fallback-to-default behavior.
+    /// </summary>
+    public static void ValidateConfigItems(IEnumerable<ConfigItem> configItems)
+    {
+        foreach (var item in configItems)
+        {
+            var value = StringUtil.EmptyToNull(item.ConfigValue);
+            if (value == null) continue;
+
+            switch (item.ConfigName)
+            {
+                case ConfigKeys.UsenetMaxDownloadConnections:
+                case ConfigKeys.UsenetMaxQueueConnections:
+                case ConfigKeys.UsenetPipeliningDepth:
+                case ConfigKeys.UsenetArticleBufferSize:
+                case ConfigKeys.UsenetSegmentCacheMaxGb:
+                case ConfigKeys.UsenetStreamingPriority:
+                case ConfigKeys.WardenQuorum:
+                case ConfigKeys.WardenMaxSourceEntries:
+                case ConfigKeys.PlayTotalBudgetSeconds:
+                case ConfigKeys.PlayHedgeDelaySeconds:
+                case ConfigKeys.PlayMaxCandidates:
+                case ConfigKeys.PlayMaxAttempts:
+                case ConfigKeys.PlayVerifySampleCount:
+                case ConfigKeys.PlayCandidateNegativeCacheMinutes:
+                case ConfigKeys.GrabStallFailoverWindowSeconds:
+                case ConfigKeys.GrabStallFailoverCeilingSeconds:
+                case ConfigKeys.SearchExcludeSyncRefreshMinutes:
+                case ConfigKeys.VariantsTolerancePct:
+                case ConfigKeys.VariantsMaxPerGroup:
+                case ConfigKeys.VariantsEvictionActiveGraceSeconds:
+                case ConfigKeys.PreflightMaxAttempts:
+                case ConfigKeys.PreflightTtlSeconds:
+                case ConfigKeys.PreflightIndexerMaxWaitSeconds:
+                case ConfigKeys.WatchtowerSizeFloorBytes:
+                case ConfigKeys.WatchtowerSizeCeilingBytes:
+                case ConfigKeys.WatchtowerMinGrabs:
+                case ConfigKeys.WatchtowerShortlistDepth:
+                case ConfigKeys.WatchtowerGrabCapPerResolve:
+                case ConfigKeys.WatchtowerVerifySampleCount:
+                case ConfigKeys.WatchtowerVerifyTimeoutSeconds:
+                case ConfigKeys.WatchtowerActiveSetCap:
+                case ConfigKeys.WatchtowerResolveConcurrency:
+                case ConfigKeys.WatchtowerDailyResolveBudget:
+                case ConfigKeys.WatchtowerSyncIntervalSeconds:
+                case ConfigKeys.WatchtowerKeepfreshBaseSeconds:
+                case ConfigKeys.WatchtowerKeepfreshMaxSeconds:
+                case ConfigKeys.WatchtowerUnavailableRetrySeconds:
+                case ConfigKeys.WatchtowerSeriesMaxEpisodes:
+                case ConfigKeys.WatchtowerSeriesRecentCount:
+                case ConfigKeys.WatchtowerSeasonBundleFallbackRecentCount:
+                case ConfigKeys.WatchtowerSeasonBundleFallbackMaxEpisodes:
+                case ConfigKeys.RepairHealthcheckConcurrency:
+                case ConfigKeys.DatabaseHistoryRetentionDays:
+                case ConfigKeys.DatabaseHealthcheckRetentionDays:
+                case ConfigKeys.MaintenanceRemoveOrphanedScheduleTime:
+                    RequireLong(item.ConfigName, value);
+                    break;
+
+                case ConfigKeys.ApiEnsureImportableVideo:
+                case ConfigKeys.ApiIgnoreHistoryLimit:
+                case ConfigKeys.ApiLazyRarParsing:
+                case ConfigKeys.ApiNzbBackupEnabled:
+                case ConfigKeys.WebdavShowHiddenFiles:
+                case ConfigKeys.WebdavEnforceReadonly:
+                case ConfigKeys.WebdavPreviewPar2Files:
+                case ConfigKeys.UsenetMaxDownloadConnectionsPerStream:
+                case ConfigKeys.UsenetPipeliningEnabled:
+                case ConfigKeys.UsenetCascadeEnabled:
+                case ConfigKeys.UsenetPipelinedBodyRequests:
+                case ConfigKeys.UsenetSegmentCacheEnabled:
+                case ConfigKeys.PlayWatchdogEnabled:
+                case ConfigKeys.PlayPreferSubtitles:
+                case ConfigKeys.GrabStallFailoverEnabled:
+                case ConfigKeys.VariantsFallbackOnFailure:
+                case ConfigKeys.WatchtowerEnabled:
+                case ConfigKeys.WatchtowerAutoThroughput:
+                case ConfigKeys.WatchtowerVerboseLogging:
+                case ConfigKeys.WatchtowerSeasonBundles:
+                case ConfigKeys.WatchtowerSeasonBundleFallback:
+                case ConfigKeys.WardenHideDead:
+                case ConfigKeys.WardenBackboneScope:
+                case ConfigKeys.RepairEnable:
+                case ConfigKeys.RcloneRcEnabled:
+                case ConfigKeys.DbIsStartupVacuumEnabled:
+                case ConfigKeys.MaintenanceRemoveOrphanedScheduleEnabled:
+                    RequireBool(item.ConfigName, value);
+                    break;
+
+                case ConfigKeys.UsenetProviders:
+                    RequireJson<UsenetProviderConfig>(item.ConfigName, value);
+                    break;
+
+                case ConfigKeys.ArrInstances:
+                    RequireJson<ArrConfig>(item.ConfigName, value);
+                    break;
+
+                case ConfigKeys.IndexersInstances:
+                    RequireJson<IndexerConfig>(item.ConfigName, value);
+                    break;
+
+                case ConfigKeys.ProfilesInstances:
+                    RequireJson<ProfileConfig>(item.ConfigName, value);
+                    break;
+            }
+        }
+
+        return;
+
+        static void RequireLong(string key, string value)
+        {
+            if (!long.TryParse(value, out _))
+                throw new ArgumentException($"Config value for '{key}' must be a whole number, but was '{value}'.");
+        }
+
+        static void RequireBool(string key, string value)
+        {
+            if (!bool.TryParse(value, out _))
+                throw new ArgumentException($"Config value for '{key}' must be 'true' or 'false', but was '{value}'.");
+        }
+
+        static void RequireJson<T>(string key, string value)
+        {
+            try
+            {
+                JsonSerializer.Deserialize<T>(value);
+            }
+            catch (JsonException e)
+            {
+                throw new ArgumentException($"Config value for '{key}' is not valid JSON: {e.Message}");
+            }
+        }
+    }
+
     public string GetRcloneMountDir()
     {
-        var mountDir = StringUtil.EmptyToNull(GetConfigValue("rclone.mount-dir"))
+        var mountDir = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RcloneMountDir))
                        ?? EnvironmentUtil.GetEnvironmentVariable("MOUNT_DIR")
                        ?? "/mnt/nzbdav";
         if (mountDir.EndsWith('/')) mountDir = mountDir.TrimEnd('/');
@@ -127,19 +281,19 @@ public class ConfigManager
 
     public string GetApiKey()
     {
-        return StringUtil.EmptyToNull(GetConfigValue("api.key"))
+        return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiKey))
                ?? EnvironmentUtil.GetRequiredVariable("FRONTEND_BACKEND_API_KEY");
     }
 
     public string GetStrmKey()
     {
-        return GetConfigValue("api.strm-key")
-               ?? throw new InvalidOperationException("The `api.strm-key` config does not exist.");
+        return GetConfigValue(ConfigKeys.ApiStrmKey)
+               ?? throw new InvalidOperationException($"The `{ConfigKeys.ApiStrmKey}` config does not exist.");
     }
 
     public List<string> GetApiCategories()
     {
-        var value = StringUtil.EmptyToNull(GetConfigValue("api.categories"))
+        var value = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiCategories))
                     ?? EnvironmentUtil.GetEnvironmentVariable("CATEGORIES")
                     ?? "audio,software,tv,movies";
 
@@ -152,20 +306,20 @@ public class ConfigManager
 
     public string GetManualUploadCategory()
     {
-        return StringUtil.EmptyToNull(GetConfigValue("api.manual-category"))
+        return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiManualCategory))
                ?? "uncategorized";
     }
 
     public string? GetWebdavUser()
     {
-        return StringUtil.EmptyToNull(GetConfigValue("webdav.user"))
+        return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WebdavUser))
                ?? EnvironmentUtil.GetEnvironmentVariable("WEBDAV_USER")
                ?? "admin";
     }
 
     public string? GetWebdavPasswordHash()
     {
-        var hashedPass = StringUtil.EmptyToNull(GetConfigValue("webdav.pass"));
+        var hashedPass = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WebdavPass));
         if (hashedPass != null) return hashedPass;
         var pass = EnvironmentUtil.GetEnvironmentVariable("WEBDAV_PASSWORD");
         if (pass != null) return PasswordUtil.Hash(pass);
@@ -175,20 +329,20 @@ public class ConfigManager
     public bool IsEnsureImportableVideoEnabled()
     {
         var defaultValue = true;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("api.ensure-importable-video"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiEnsureImportableVideo));
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
     public bool ShowHiddenWebdavFiles()
     {
         var defaultValue = false;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("webdav.show-hidden-files"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WebdavShowHiddenFiles));
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
     public string? GetLibraryDir()
     {
-        return StringUtil.EmptyToNull(GetConfigValue("media.library-dir"));
+        return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.MediaLibraryDir));
     }
 
     // The total connection budget used for webdav streaming. "0" or empty means
@@ -197,7 +351,7 @@ public class ConfigManager
     // a manual override.
     public int GetMaxDownloadConnections()
     {
-        var configured = StringUtil.EmptyToNull(GetConfigValue("usenet.max-download-connections"));
+        var configured = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetMaxDownloadConnections));
         if (configured is null || !int.TryParse(configured, out var value) || value <= 0)
             return GetUsenetProviderConfig().TotalPooledConnections;
         return value;
@@ -209,7 +363,7 @@ public class ConfigManager
     // still caps the actual number of open connections.
     public bool IsMaxDownloadConnectionsPerStream()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("usenet.max-download-connections-per-stream"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetMaxDownloadConnectionsPerStream));
         return v != null && bool.Parse(v);
     }
 
@@ -224,7 +378,7 @@ public class ConfigManager
 
     private double GetMaxDownloadConnectionsPerStreamFraction()
     {
-        var preset = StringUtil.EmptyToNull(GetConfigValue("usenet.max-download-connections-per-stream-preset"));
+        var preset = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetMaxDownloadConnectionsPerStreamPreset));
         return preset?.ToLowerInvariant() switch
         {
             "low" => 0.25,
@@ -238,7 +392,7 @@ public class ConfigManager
     public int GetMaxQueueConnections()
     {
         var pool = Math.Max(1, GetUsenetProviderConfig().TotalPooledConnections);
-        var configured = StringUtil.EmptyToNull(GetConfigValue("usenet.max-queue-connections"));
+        var configured = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetMaxQueueConnections));
         if (configured is null || !int.TryParse(configured, out var value))
             return pool;
         return Math.Clamp(value, 1, pool);
@@ -246,19 +400,19 @@ public class ConfigManager
 
     public bool IsPipeliningEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("usenet.pipelining.enabled"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetPipeliningEnabled));
         return v != null && bool.Parse(v);
     }
 
     public bool IsCascadeEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("usenet.cascade.enabled"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetCascadeEnabled));
         return v != null && bool.Parse(v);
     }
 
     public int GetPipeliningDepth()
     {
-        var configured = StringUtil.EmptyToNull(GetConfigValue("usenet.pipelining.depth"));
+        var configured = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetPipeliningDepth));
         if (configured is null || !int.TryParse(configured, out var value)) return 8;
         return Math.Clamp(value, 1, 64);
     }
@@ -266,7 +420,7 @@ public class ConfigManager
     public int GetArticleBufferSize()
     {
         return int.Parse(
-            StringUtil.EmptyToNull(GetConfigValue("usenet.article-buffer-size"))
+            StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetArticleBufferSize))
             ?? "40"
         );
     }
@@ -274,25 +428,25 @@ public class ConfigManager
     public bool IsPipelinedBodyRequestsEnabled()
     {
         var configValue = StringUtil.EmptyToNull(
-            GetConfigValue("usenet.pipelined-body-requests"));
+            GetConfigValue(ConfigKeys.UsenetPipelinedBodyRequests));
         return configValue == null || bool.Parse(configValue);
     }
 
     public bool IsSegmentCacheEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("usenet.segment-cache.enabled"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetSegmentCacheEnabled));
         return v != null && bool.Parse(v);
     }
 
     public string GetSegmentCachePath()
     {
-        return StringUtil.EmptyToNull(GetConfigValue("usenet.segment-cache.path"))
+        return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetSegmentCachePath))
                ?? "/config/segment-cache";
     }
 
     public long GetSegmentCacheMaxBytes()
     {
-        var gb = long.Parse(StringUtil.EmptyToNull(GetConfigValue("usenet.segment-cache.max-gb")) ?? "10");
+        var gb = long.Parse(StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetSegmentCacheMaxGb)) ?? "10");
         return Math.Max(1, gb) * 1024L * 1024L * 1024L;
     }
 
@@ -302,13 +456,13 @@ public class ConfigManager
     // (multi-file, solid, encrypted, or compressed).
     public bool IsLazyRarParsingEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("api.lazy-rar-parsing"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiLazyRarParsing));
         return v == null || bool.Parse(v);
     }
 
     public SemaphorePriorityOdds GetStreamingPriority()
     {
-        var stringValue = StringUtil.EmptyToNull(GetConfigValue("usenet.streaming-priority"));
+        var stringValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetStreamingPriority));
         var numericalValue = int.Parse(stringValue ?? "80");
         return new SemaphorePriorityOdds() { HighPriorityOdds = numericalValue };
     }
@@ -316,13 +470,13 @@ public class ConfigManager
     public bool IsEnforceReadonlyWebdavEnabled()
     {
         var defaultValue = true;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("webdav.enforce-readonly"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WebdavEnforceReadonly));
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
     public HashSet<string> GetEnsureArticleExistenceCategories()
     {
-        var configValue = GetConfigValue("api.ensure-article-existence-categories");
+        var configValue = GetConfigValue(ConfigKeys.ApiEnsureArticleExistenceCategories);
         return (configValue ?? "").Split(',')
             .Select(x => x.Trim())
             .Select(x => x.ToLower())
@@ -332,41 +486,41 @@ public class ConfigManager
 
     public bool IsPlaybackWatchdogEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("play.watchdog-enabled"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayWatchdogEnabled));
         return v == null || bool.Parse(v);
     }
 
     public int GetPlayTotalBudgetSeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("play.total-budget-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayTotalBudgetSeconds));
         if (v == null) return 30;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 3, 180) : 30;
     }
 
     public int GetPlayHedgeDelaySeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("play.hedge-delay-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayHedgeDelaySeconds));
         if (v == null) return 3;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 30) : 3;
     }
 
     public int GetPlayMaxCandidates()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("play.max-candidates"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayMaxCandidates));
         if (v == null) return 3;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 10) : 3;
     }
 
     public int GetPlayMaxAttempts()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("play.max-attempts"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayMaxAttempts));
         if (v == null) return 10;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 200) : 10;
     }
 
     public string GetPlayVerifyMode()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("play.verify-mode"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayVerifyMode));
         return v switch
         {
             "body" => "body",
@@ -378,40 +532,40 @@ public class ConfigManager
 
     public int GetPlayVerifySampleCount()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("play.verify-sample-count"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayVerifySampleCount));
         if (v == null) return 3;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 10) : 3;
     }
 
     public TimeSpan GetPlayCandidateNegativeCacheTtl()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("play.candidate-negative-cache-minutes"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayCandidateNegativeCacheMinutes));
         if (v == null) return TimeSpan.FromMinutes(5);
         return int.TryParse(v, out var n) ? TimeSpan.FromMinutes(Math.Clamp(n, 1, 60 * 24)) : TimeSpan.FromMinutes(5);
     }
 
     public bool IsPlaySubtitlePreferenceEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("play.prefer-subtitles"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayPreferSubtitles));
         return v == null || !bool.TryParse(v, out var enabled) || enabled;
     }
 
     public bool IsGrabStallFailoverEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("grab.stall-failover-enabled"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.GrabStallFailoverEnabled));
         return v == null || bool.Parse(v);
     }
 
     public int GetGrabStallFailoverWindowSeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("grab.stall-failover-window-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.GrabStallFailoverWindowSeconds));
         if (v == null) return 2;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 2, 60) : 2;
     }
 
     public int GetGrabStallFailoverCeilingSeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("grab.stall-failover-ceiling-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.GrabStallFailoverCeilingSeconds));
         if (v == null) return 5;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 5, 120) : 5;
     }
@@ -443,8 +597,8 @@ public class ConfigManager
                     compiled.Add(p.Regex);
         }
 
-        var raw = GetConfigValue("search.exclude-patterns");
-        if (string.IsNullOrWhiteSpace(raw)) raw = GetConfigValue("play.exclude-patterns");
+        var raw = GetConfigValue(ConfigKeys.SearchExcludePatterns);
+        if (string.IsNullOrWhiteSpace(raw)) raw = GetConfigValue(ConfigKeys.PlayExcludePatterns);
         if (!string.IsNullOrWhiteSpace(raw))
         {
             foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -458,7 +612,7 @@ public class ConfigManager
     /// <summary>Configured synced-exclude source URLs (http/https only, de-duplicated, in order).</summary>
     public IReadOnlyList<string> GetSearchExcludeSyncUrls()
     {
-        var raw = GetConfigValue("search.exclude-sync-urls");
+        var raw = GetConfigValue(ConfigKeys.SearchExcludeSyncUrls);
         if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<string>();
 
         var urls = new List<string>();
@@ -477,14 +631,14 @@ public class ConfigManager
 
     public int GetSearchExcludeSyncRefreshMinutes()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("search.exclude-sync-refresh-minutes"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.SearchExcludeSyncRefreshMinutes));
         if (v == null) return DefaultExcludeSyncRefreshMinutes;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 15, 10080) : DefaultExcludeSyncRefreshMinutes;
     }
 
     public ExcludeSyncCache GetSearchExcludeSyncCache()
     {
-        var raw = StringUtil.EmptyToNull(GetConfigValue("search.exclude-sync-cache"));
+        var raw = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.SearchExcludeSyncCache));
         if (raw == null) return new ExcludeSyncCache();
         try { return JsonSerializer.Deserialize<ExcludeSyncCache>(raw) ?? new ExcludeSyncCache(); }
         catch (JsonException) { return new ExcludeSyncCache(); }
@@ -492,7 +646,7 @@ public class ConfigManager
 
     public string GetVariantsMode()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("variants.mode"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.VariantsMode));
         return v switch
         {
             "smart" => "smart",
@@ -503,21 +657,21 @@ public class ConfigManager
 
     public int GetVariantsTolerancePct()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("variants.tolerance-pct"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.VariantsTolerancePct));
         if (v == null) return 25;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 0, 100) : 25;
     }
 
     public int GetVariantsMaxPerGroup()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("variants.max-per-group"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.VariantsMaxPerGroup));
         if (v == null) return 3;
         return int.TryParse(v, out var n) ? Math.Max(0, n) : 3;
     }
 
     public string GetVariantsReplayStrategy()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("variants.replay-strategy"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.VariantsReplayStrategy));
         return v switch
         {
             "largest" => "largest",
@@ -528,13 +682,13 @@ public class ConfigManager
 
     public bool IsVariantsFallbackOnFailureEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("variants.fallback-on-failure"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.VariantsFallbackOnFailure));
         return v == null || bool.Parse(v);
     }
 
     public string GetVariantsEvictionStrategy()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("variants.eviction-strategy"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.VariantsEvictionStrategy));
         return v switch
         {
             "largest-first" => "largest-first",
@@ -546,14 +700,14 @@ public class ConfigManager
 
     public int GetVariantsEvictionActiveGraceSeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("variants.eviction-active-grace-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.VariantsEvictionActiveGraceSeconds));
         if (v == null) return 60;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 0, 300) : 60;
     }
 
     public string GetPreflightMode()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("preflight.mode"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PreflightMode));
         return v switch
         {
             "light" => "light",
@@ -565,21 +719,21 @@ public class ConfigManager
 
     public int GetPreflightMaxAttempts()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("preflight.max-attempts"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PreflightMaxAttempts));
         if (v == null) return 20;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 50) : 20;
     }
 
     public int GetPreflightTtlSeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("preflight.ttl-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PreflightTtlSeconds));
         if (v == null) return 120;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 10, 1800) : 120;
     }
 
     public int GetPreflightIndexerMaxWaitSeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("preflight.indexer-max-wait-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PreflightIndexerMaxWaitSeconds));
         if (v == null) return 5;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 0, 120) : 5;
     }
@@ -587,134 +741,134 @@ public class ConfigManager
 
     public bool IsWatchtowerEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.enabled"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerEnabled));
         return v != null ? bool.Parse(v) : false;
     }
 
     public bool IsWatchtowerAutoThroughput()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.auto-throughput"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerAutoThroughput));
         return v != null ? bool.Parse(v) : false;
     }
 
     public bool IsWatchtowerVerboseLoggingEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.verbose-logging"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerVerboseLogging));
         return v != null ? bool.Parse(v) : false;
     }
 
     public string GetWatchtowerProfileToken()
     {
-        return StringUtil.EmptyToNull(GetConfigValue("watchtower.profile-token")) ?? "";
+        return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerProfileToken)) ?? "";
     }
 
     public string GetWatchtowerRanking()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.ranking"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerRanking));
         return v == "largest" ? "largest" : "watchdog";
     }
 
     public long GetWatchtowerSizeFloorBytes()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.size-floor-bytes"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSizeFloorBytes));
         if (v == null) return 524288000L;
         return long.TryParse(v, out var n) ? Math.Max(0, n) : 524288000L;
     }
 
     public long GetWatchtowerSizeCeilingBytes()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.size-ceiling-bytes"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSizeCeilingBytes));
         if (v == null) return 0L;
         return long.TryParse(v, out var n) ? Math.Max(0, n) : 0L;
     }
 
     public int GetWatchtowerMinGrabs()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.min-grabs"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerMinGrabs));
         if (v == null) return 0;
         return int.TryParse(v, out var n) ? Math.Max(0, n) : 0;
     }
 
     public int GetWatchtowerShortlistDepth()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.shortlist-depth"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerShortlistDepth));
         if (v == null) return 2;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 5) : 2;
     }
 
     public int GetWatchtowerGrabCapPerResolve()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.grab-cap-per-resolve"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerGrabCapPerResolve));
         if (v == null) return 3;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 10) : 3;
     }
 
     public int GetWatchtowerVerifySampleCount()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.verify-sample-count"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerVerifySampleCount));
         if (v == null) return 3;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 20) : 3;
     }
 
     public int GetWatchtowerVerifyTimeoutSeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.verify-timeout-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerVerifyTimeoutSeconds));
         if (v == null) return 10;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 2, 120) : 10;
     }
 
     public int GetWatchtowerActiveSetCap()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.active-set-cap"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerActiveSetCap));
         if (v == null) return 100;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 100000) : 100;
     }
 
     public int GetWatchtowerResolveConcurrency()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.resolve-concurrency"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerResolveConcurrency));
         if (v == null) return 3;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 16) : 3;
     }
 
     public int GetWatchtowerDailyResolveBudget()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.daily-resolve-budget"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerDailyResolveBudget));
         if (v == null) return 60;
         return int.TryParse(v, out var n) ? Math.Max(0, n) : 60;
     }
 
     public int GetWatchtowerSyncIntervalSeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.sync-interval-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSyncIntervalSeconds));
         if (v == null) return 3600;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 60, 86400) : 3600;
     }
 
     public int GetWatchtowerKeepFreshBaseSeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.keepfresh-base-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerKeepfreshBaseSeconds));
         if (v == null) return 21600;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 300, 604800) : 21600;
     }
 
     public int GetWatchtowerKeepFreshMaxSeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.keepfresh-max-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerKeepfreshMaxSeconds));
         if (v == null) return 604800;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 600, 2592000) : 604800;
     }
 
     public int GetWatchtowerUnavailableRetrySeconds()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.unavailable-retry-seconds"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerUnavailableRetrySeconds));
         if (v == null) return 21600;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 600, 604800) : 21600;
     }
 
     public string GetWatchtowerSeriesScope()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.series-scope"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSeriesScope));
         return NormalizeSeriesScope(v) ?? "latest-season";
     }
 
@@ -733,39 +887,39 @@ public class ConfigManager
 
     public int GetWatchtowerSeriesMaxEpisodes()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.series-max-episodes"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSeriesMaxEpisodes));
         if (v == null) return 50;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 0, 1000) : 50;
     }
 
     public string GetWatchtowerSeriesCapKeep()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.series-cap-keep"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSeriesCapKeep));
         return v == "oldest" ? "oldest" : "newest";
     }
 
     public int GetWatchtowerSeriesRecentCount()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.series-recent-count"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSeriesRecentCount));
         if (v == null) return 3;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 100) : 3;
     }
 
     public bool IsWatchtowerSeasonBundlesEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.season-bundles"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSeasonBundles));
         return v != null ? bool.Parse(v) : true;
     }
 
     public bool IsWatchtowerSeasonBundleFallbackEnabled()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.season-bundle-fallback"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSeasonBundleFallback));
         return v != null ? bool.Parse(v) : false;
     }
 
     public string GetWatchtowerSeasonBundleFallbackScope()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.season-bundle-fallback-scope"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSeasonBundleFallbackScope));
         return v switch
         {
             "all" => "all",
@@ -776,14 +930,14 @@ public class ConfigManager
 
     public int GetWatchtowerSeasonBundleFallbackRecentCount()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.season-bundle-fallback-recent-count"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSeasonBundleFallbackRecentCount));
         if (v == null) return 2;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 100) : 2;
     }
 
     public int GetWatchtowerSeasonBundleFallbackMaxEpisodes()
     {
-        var v = StringUtil.EmptyToNull(GetConfigValue("watchtower.season-bundle-fallback-max-episodes"));
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WatchtowerSeasonBundleFallbackMaxEpisodes));
         if (v == null) return 50;
         return int.TryParse(v, out var n) ? Math.Clamp(n, 1, 1000) : 50;
     }
@@ -791,21 +945,21 @@ public class ConfigManager
     public bool IsPreviewPar2FilesEnabled()
     {
         var defaultValue = false;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("webdav.preview-par2-files"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WebdavPreviewPar2Files));
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
     public bool IsIgnoreSabHistoryLimitEnabled()
     {
         var defaultValue = true;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("api.ignore-history-limit"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiIgnoreHistoryLimit));
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
     public bool IsRepairJobEnabled()
     {
         var defaultValue = false;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("repair.enable"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RepairEnable));
         var isRepairJobEnabled = (configValue != null ? bool.Parse(configValue) : defaultValue);
         return isRepairJobEnabled
                && GetLibraryDir() != null
@@ -820,7 +974,7 @@ public class ConfigManager
     {
         var poolSize = GetUsenetProviderConfig().TotalPooledConnections;
         var configured = int.Parse(
-            StringUtil.EmptyToNull(GetConfigValue("repair.healthcheck-concurrency"))
+            StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RepairHealthcheckConcurrency))
             ?? "50"
         );
         return Math.Clamp(configured, 1, Math.Max(1, poolSize));
@@ -829,35 +983,35 @@ public class ConfigManager
     public ArrConfig GetArrConfig()
     {
         var defaultValue = new ArrConfig();
-        return GetConfigValue<ArrConfig>("arr.instances") ?? defaultValue;
+        return GetConfigValue<ArrConfig>(ConfigKeys.ArrInstances) ?? defaultValue;
     }
 
     public UsenetProviderConfig GetUsenetProviderConfig()
     {
         var defaultValue = new UsenetProviderConfig();
-        return GetConfigValue<UsenetProviderConfig>("usenet.providers") ?? defaultValue;
+        return GetConfigValue<UsenetProviderConfig>(ConfigKeys.UsenetProviders) ?? defaultValue;
     }
 
     public IndexerConfig GetIndexerConfig()
     {
-        return GetConfigValue<IndexerConfig>("indexers.instances") ?? new IndexerConfig();
+        return GetConfigValue<IndexerConfig>(ConfigKeys.IndexersInstances) ?? new IndexerConfig();
     }
 
     public ProfileConfig GetProfileConfig()
     {
-        return (GetConfigValue<ProfileConfig>("profiles.instances") ?? new ProfileConfig()).Normalized();
+        return (GetConfigValue<ProfileConfig>(ConfigKeys.ProfilesInstances) ?? new ProfileConfig()).Normalized();
     }
 
     public string GetDuplicateNzbBehavior()
     {
         var defaultValue = "increment";
-        return GetConfigValue("api.duplicate-nzb-behavior") ?? defaultValue;
+        return GetConfigValue(ConfigKeys.ApiDuplicateNzbBehavior) ?? defaultValue;
     }
 
     public HashSet<string> GetBlocklistedFiles()
     {
         var defaultValue = "*.nfo, *.par2, *.sfv, *sample.mkv";
-        return (GetConfigValue("api.download-file-blocklist") ?? defaultValue)
+        return (GetConfigValue(ConfigKeys.ApiDownloadFileBlocklist) ?? defaultValue)
             .Split(',', StringSplitOptions.RemoveEmptyEntries)
             .Select(x => x.Trim())
             .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -867,45 +1021,45 @@ public class ConfigManager
 
     public string GetImportStrategy()
     {
-        return GetConfigValue("api.import-strategy") ?? "symlinks";
+        return GetConfigValue(ConfigKeys.ApiImportStrategy) ?? "symlinks";
     }
 
     public string GetStrmCompletedDownloadDir()
     {
-        return GetConfigValue("api.completed-downloads-dir") ?? "/data/completed-downloads";
+        return GetConfigValue(ConfigKeys.ApiCompletedDownloadsDir) ?? "/data/completed-downloads";
     }
 
     public string GetBaseUrl()
     {
-        return GetConfigValue("general.base-url") ?? "http://localhost:3000";
+        return GetConfigValue(ConfigKeys.GeneralBaseUrl) ?? "http://localhost:3000";
     }
 
     public bool IsRcloneRemoteControlEnabled()
     {
         var defaultValue = false;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("rclone.rc-enabled"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RcloneRcEnabled));
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
     public string? GetRcloneHost()
     {
-        return GetConfigValue("rclone.host");
+        return GetConfigValue(ConfigKeys.RcloneHost);
     }
 
     public string? GetRcloneUser()
     {
-        return GetConfigValue("rclone.user");
+        return GetConfigValue(ConfigKeys.RcloneUser);
     }
 
     public string? GetRclonePass()
     {
-        return GetConfigValue("rclone.pass");
+        return GetConfigValue(ConfigKeys.RclonePass);
     }
 
     public string GetUserAgent()
     {
         var defaultValue = $"nzbdav/{AppVersion}";
-        return StringUtil.EmptyToNull(GetConfigValue("api.user-agent"))
+        return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiUserAgent))
                ?? EnvironmentUtil.GetEnvironmentVariable("NZB_GRAB_USER_AGENT")
                ?? defaultValue;
     }
@@ -913,7 +1067,7 @@ public class ConfigManager
     public string GetSearchUserAgent()
     {
         var defaultValue = $"nzbdav/{AppVersion}";
-        return StringUtil.EmptyToNull(GetConfigValue("api.search-user-agent"))
+        return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiSearchUserAgent))
                ?? EnvironmentUtil.GetEnvironmentVariable("NZB_SEARCH_USER_AGENT")
                ?? defaultValue;
     }
@@ -921,7 +1075,7 @@ public class ConfigManager
     public bool IsDatabaseStartupVacuumEnabled()
     {
         var defaultValue = false;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("db.is-startup-vacuum-enabled"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.DbIsStartupVacuumEnabled));
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
@@ -933,7 +1087,7 @@ public class ConfigManager
     public int GetHistoryRetentionDays()
     {
         return GetRetentionDaysSetting(
-            "database.history-retention-days",
+            ConfigKeys.DatabaseHistoryRetentionDays,
             "DATABASE_HISTORY_RETENTION_DAYS",
             defaultValue: 90);
     }
@@ -945,7 +1099,7 @@ public class ConfigManager
     public int GetHealthResultRetentionDays()
     {
         return GetRetentionDaysSetting(
-            "database.healthcheck-retention-days",
+            ConfigKeys.DatabaseHealthcheckRetentionDays,
             "DATABASE_HEALTHCHECK_RETENTION_DAYS",
             defaultValue: 30);
     }
@@ -960,26 +1114,26 @@ public class ConfigManager
     public bool IsNzbBackupEnabled()
     {
         var defaultValue = false;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("api.nzb-backup-enabled"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiNzbBackupEnabled));
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
     public string? GetNzbBackupLocation()
     {
-        return StringUtil.EmptyToNull(GetConfigValue("api.nzb-backup-location"));
+        return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiNzbBackupLocation));
     }
 
     public bool IsRemoveOrphanedFilesScheduleEnabled()
     {
         var defaultValue = false;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("maintenance.remove-orphaned-schedule-enabled"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.MaintenanceRemoveOrphanedScheduleEnabled));
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
     public TimeSpan RemoveOrphanedFilesSchedule()
     {
         var defaultValue = TimeSpan.Zero;
-        var configValue = StringUtil.EmptyToNull(GetConfigValue("maintenance.remove-orphaned-schedule-time"));
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.MaintenanceRemoveOrphanedScheduleTime));
         if (configValue == null) return defaultValue;
         if (!int.TryParse(configValue, out var totalMinutes)) return defaultValue;
         if (totalMinutes < 0 || totalMinutes >= 24 * 60) return defaultValue;

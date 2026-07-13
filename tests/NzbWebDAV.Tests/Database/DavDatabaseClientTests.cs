@@ -69,6 +69,34 @@ public sealed class DavDatabaseClientTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetItemByPathAsync_ResolvesNestedPersistedPaths()
+    {
+        var directory = DavItem.New(
+            Guid.NewGuid(), DavItem.Root, "movies", null,
+            DavItem.ItemType.Directory, DavItem.ItemSubType.Directory,
+            null, null, null, null);
+        var nestedDirectory = DavItem.New(
+            Guid.NewGuid(), directory, "science-fiction", null,
+            DavItem.ItemType.Directory, DavItem.ItemSubType.Directory,
+            null, null, null, null);
+        var nestedFile = DavItem.New(
+            Guid.NewGuid(), nestedDirectory, "nested.mkv", 250,
+            DavItem.ItemType.UsenetFile, DavItem.ItemSubType.NzbFile,
+            null, null, null, null);
+
+        _context.Items.AddRange(directory, nestedDirectory, nestedFile);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var hit = await _client.GetItemByPathAsync(nestedFile.Path);
+        Assert.NotNull(hit);
+        Assert.Equal(nestedFile.Id, hit.Id);
+        Assert.Equal("/movies/science-fiction/nested.mkv", hit.Path);
+
+        Assert.Null(await _client.GetItemByPathAsync("/movies/missing.mkv"));
+    }
+
+    [Fact]
     public async Task QueueItemProcessor_MovesMissingNzbToFailedHistory()
     {
         var queueItem = new QueueItem

@@ -39,10 +39,10 @@ public class RcloneClient
         configManager.OnConfigChanged += (_, configEventArgs) =>
         {
             var changedConfig = configEventArgs.ChangedConfig;
-            if (changedConfig.TryGetValue("rclone.host", out var host)) Host = host;
-            if (changedConfig.TryGetValue("rclone.user", out var user)) User = user;
-            if (changedConfig.TryGetValue("rclone.pass", out var pass)) Pass = pass;
-            if (changedConfig.ContainsKey("rclone.rc-enabled"))
+            if (changedConfig.TryGetValue(ConfigKeys.RcloneHost, out var host)) Host = host;
+            if (changedConfig.TryGetValue(ConfigKeys.RcloneUser, out var user)) User = user;
+            if (changedConfig.TryGetValue(ConfigKeys.RclonePass, out var pass)) Pass = pass;
+            if (changedConfig.ContainsKey(ConfigKeys.RcloneRcEnabled))
                 IsRemoteControlEnabled = configManager.IsRcloneRemoteControlEnabled();
         };
     }

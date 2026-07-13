@@ -127,11 +127,11 @@ public class WatchtowerService(
 
     private void OnConfigChanged(object? sender, ConfigManager.ConfigEventArgs e)
     {
-        if (e.ChangedConfig.ContainsKey("watchtower.verbose-logging"))
+        if (e.ChangedConfig.ContainsKey(ConfigKeys.WatchtowerVerboseLogging))
             Log.Information("Watchtower: verbose activity logging {State}",
                 configManager.IsWatchtowerVerboseLoggingEnabled() ? "enabled" : "disabled");
 
-        if (!e.ChangedConfig.ContainsKey("watchtower.enabled")) return;
+        if (!e.ChangedConfig.ContainsKey(ConfigKeys.WatchtowerEnabled)) return;
         if (configManager.IsWatchtowerEnabled()) return;
         lock (_ctsLock) _disabledCts?.Cancel();
     }

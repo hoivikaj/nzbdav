@@ -105,14 +105,16 @@ describe("BackendClient", () => {
   it("adds an NZB using the configured manual category", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({
-        configItems: [{ configName: "api.manual-category", configValue: "movies" }],
+        configItems: [{ configName: "api.manual-category", configValue: "movies & shows" }],
       }))
       .mockResolvedValueOnce(jsonResponse({ nzo_ids: ["nzo-1"] }));
     const file = new File(["nzb"], "movie.nzb");
 
     await expect(backendClient.addNzb(file)).resolves.toBe("nzo-1");
     const [url, init] = fetchMock.mock.calls[1];
-    expect(url).toBe("http://backend/api?mode=addfile&cat=movies&priority=0&pp=0");
+    expect(url).toBe(
+      "http://backend/api?mode=addfile&cat=movies+%26+shows&priority=0&pp=0",
+    );
     expect((init?.body as FormData).get("nzbFile")).toBeInstanceOf(File);
   });
 

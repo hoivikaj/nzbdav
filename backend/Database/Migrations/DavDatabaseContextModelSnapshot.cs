@@ -128,6 +128,9 @@ namespace NzbWebDAV.Database.Migrations
 
                     b.HasIndex("NzbBlobId");
 
+                    b.HasIndex("Path")
+                        .IsUnique();
+
                     b.HasIndex("IdPrefix", "Type");
 
                     b.HasIndex("ParentId", "Name")

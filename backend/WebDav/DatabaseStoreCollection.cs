@@ -41,7 +41,10 @@ public class DatabaseStoreCollection(
         var child = await dbClient
             .GetDirectoryChildAsync(davDirectory.Id, request.Name, request.CancellationToken)
             .ConfigureAwait(false);
-        if (child is not null) return GetItem(child);
+        if (child is not null)
+            return DatabaseStoreItemFactory.Create(
+                child, httpContext, dbClient, configManager, usenetClient, queueManager, websocketManager,
+                lazyRarResolver);
 
         // return empty category folder
         var isContentFolder = davDirectory.Id == DavItem.ContentFolder.Id;
@@ -66,7 +69,9 @@ public class DatabaseStoreCollection(
             .ConfigureAwait(false);
 
         // map DavItems to IStoreItems
-        var result = children.Select(GetItem);
+        var result = children.Select(child => DatabaseStoreItemFactory.Create(
+            child, httpContext, dbClient, configManager, usenetClient, queueManager, websocketManager,
+            lazyRarResolver));
 
         // include the readme file
         if (davDirectory.Id == DavItem.Root.Id)
@@ -148,35 +153,5 @@ public class DatabaseStoreCollection(
         dbClient.Ctx.HistoryItems.Remove(history);
         await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
         _ = websocketManager.SendMessage(WebsocketTopic.HistoryItemRemoved, historyItemId.Value.ToString());
-    }
-
-    private IStoreItem GetItem(DavItem davItem)
-    {
-        return davItem.SubType switch
-        {
-            DavItem.ItemSubType.IdsRoot =>
-                new DatabaseStoreIdsCollection(
-                    davItem.Name, "", httpContext, dbClient, usenetClient, configManager, lazyRarResolver),
-            DavItem.ItemSubType.NzbsRoot =>
-                new DatabaseStoreWatchFolder(
-                    davItem, dbClient, configManager, queueManager, websocketManager),
-            DavItem.ItemSubType.Directory or DavItem.ItemSubType.ContentRoot =>
-                new DatabaseStoreCollection(
-                    davItem, httpContext, dbClient, configManager, usenetClient, queueManager, websocketManager,
-                    lazyRarResolver),
-            DavItem.ItemSubType.SymlinkRoot =>
-                new DatabaseStoreSymlinkCollection(
-                    davItem, dbClient, configManager),
-            DavItem.ItemSubType.NzbFile =>
-                new DatabaseStoreNzbFile(
-                    davItem, httpContext, dbClient, usenetClient, configManager),
-            DavItem.ItemSubType.RarFile =>
-                new DatabaseStoreRarFile(
-                    davItem, httpContext, dbClient, usenetClient, configManager),
-            DavItem.ItemSubType.MultipartFile =>
-                new DatabaseStoreMultipartFile(
-                    davItem, httpContext, dbClient, usenetClient, configManager, lazyRarResolver),
-            _ => throw new ArgumentException("Unrecognized directory child type.")
-        };
     }
 }

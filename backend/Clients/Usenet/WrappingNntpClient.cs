@@ -1,4 +1,5 @@
 ﻿using NzbWebDAV.Clients.Usenet.Models;
+using NzbWebDAV.Models.Nzb;
 using UsenetSharp.Models;
 
 namespace NzbWebDAV.Clients.Usenet;
@@ -71,6 +72,12 @@ public class WrappingNntpClient(INntpClient usenetClient) : NntpClient
         SegmentId segmentId, UsenetExclusiveConnection exclusiveConnection, CancellationToken cancellationToken) =>
         _usenetClient.DecodedArticleAsync(segmentId, exclusiveConnection, cancellationToken);
 
+    public override Task<UsenetYencHeader> GetYencHeadersAsync(
+        string segmentId, CancellationToken cancellationToken) =>
+        _usenetClient.GetYencHeadersAsync(segmentId, cancellationToken);
+
+    public override Task<long> GetFileSizeAsync(NzbFile file, CancellationToken cancellationToken) =>
+        _usenetClient.GetFileSizeAsync(file, cancellationToken);
 
     public override IAsyncEnumerable<PipelinedStatResult> StatsPipelinedAsync(
         IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken) =>

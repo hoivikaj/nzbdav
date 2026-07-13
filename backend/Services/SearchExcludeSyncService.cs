@@ -51,8 +51,8 @@ public sealed class SearchExcludeSyncService : BackgroundService
     private void OnConfigChanged(object? sender, ConfigManager.ConfigEventArgs e)
     {
         // React only to the inputs — NOT to our own cache writes (which would loop).
-        if (!e.ChangedConfig.ContainsKey("search.exclude-sync-urls")
-            && !e.ChangedConfig.ContainsKey("search.exclude-sync-refresh-minutes")) return;
+        if (!e.ChangedConfig.ContainsKey(ConfigKeys.SearchExcludeSyncUrls)
+            && !e.ChangedConfig.ContainsKey(ConfigKeys.SearchExcludeSyncRefreshMinutes)) return;
 
         // A freshly-set URL should apply within seconds, not at the next tick.
         _ = Task.Run(async () =>

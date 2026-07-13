@@ -30,9 +30,9 @@ public abstract class BaseStoreStreamFile(HttpContext context, ConfigManager con
         {
             onConfigChanged = (_, e) =>
             {
-                if (e.ChangedConfig.ContainsKey("usenet.max-download-connections")
-                    || e.ChangedConfig.ContainsKey("usenet.max-download-connections-per-stream-preset")
-                    || e.ChangedConfig.ContainsKey("usenet.providers"))
+                if (e.ChangedConfig.ContainsKey(ConfigKeys.UsenetMaxDownloadConnections)
+                    || e.ChangedConfig.ContainsKey(ConfigKeys.UsenetMaxDownloadConnectionsPerStreamPreset)
+                    || e.ChangedConfig.ContainsKey(ConfigKeys.UsenetProviders))
                 {
                     // The response may complete (and dispose the semaphore) concurrently
                     // with a config save; never let that surface into the save path.

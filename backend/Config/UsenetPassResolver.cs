@@ -10,7 +10,7 @@ namespace NzbWebDAV.Config;
 /// </summary>
 public static class UsenetPassResolver
 {
-    public const string ProvidersConfigName = "usenet.providers";
+    public const string ProvidersConfigName = ConfigKeys.UsenetProviders;
 
     public static string Resolve(string submittedPass, ConfigManager configManager)
     {

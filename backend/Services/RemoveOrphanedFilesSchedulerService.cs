@@ -23,8 +23,8 @@ public class RemoveOrphanedFilesSchedulerService : BackgroundService
 
         _configManager.OnConfigChanged += (_, args) =>
         {
-            if (!args.ChangedConfig.ContainsKey("maintenance.remove-orphaned-schedule-enabled") &&
-                !args.ChangedConfig.ContainsKey("maintenance.remove-orphaned-schedule-time"))
+            if (!args.ChangedConfig.ContainsKey(ConfigKeys.MaintenanceRemoveOrphanedScheduleEnabled) &&
+                !args.ChangedConfig.ContainsKey(ConfigKeys.MaintenanceRemoveOrphanedScheduleTime))
                 return;
 
             var old = Interlocked.Exchange(ref _rescheduleCts, new CancellationTokenSource());
