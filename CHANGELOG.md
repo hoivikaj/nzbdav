@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.10](https://github.com/nzbdav/nzbdav/compare/v0.7.9...v0.7.10) (2026-07-13)
+
+
+### Features
+
+* **api:** prefer subtitle-bearing releases during playback failover ([#263](https://github.com/nzbdav/nzbdav/issues/263)) ([2e57b7e](https://github.com/nzbdav/nzbdav/commit/2e57b7eeaf9bdb92d5f64c5c22adfaa3ced70318))
+* **api:** sync exclude-filter patterns from remote URLs ([#267](https://github.com/nzbdav/nzbdav/issues/267)) ([87c78cd](https://github.com/nzbdav/nzbdav/commit/87c78cdb34ca0e77672e21a05e0a3d2d83230123))
+* **db:** live progress UI for long database migrations ([#269](https://github.com/nzbdav/nzbdav/issues/269)) ([e3bf777](https://github.com/nzbdav/nzbdav/commit/e3bf77725e5a4ebc9b26dac8bbd07236a5eaddcb))
+* **nntp:** auto and per-stream max download connections ([#265](https://github.com/nzbdav/nzbdav/issues/265)) ([80e3f6e](https://github.com/nzbdav/nzbdav/commit/80e3f6ea2911607f63ff2cd79c22b01442fb29e9))
+
+
+### Bug Fixes
+
+* **ui:** use amber warning styles when a new version is available ([75d53cb](https://github.com/nzbdav/nzbdav/commit/75d53cbd6355dc6a9b2621df00c6c90ef24ee017))
+
 ## [0.7.9](https://github.com/nzbdav/nzbdav/compare/v0.7.8...v0.7.9) (2026-07-13)
 
 
