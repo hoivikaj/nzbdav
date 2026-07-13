@@ -106,6 +106,13 @@ if [ -n "$OWNERSHIP_MISMATCH" ]; then
     chown -R "$PUID:$PGID" "$CONFIG_PATH"
 fi
 
+# Start the frontend first so it can serve the database-maintenance progress
+# page (via the backend's migration status server) while migrations run. The
+# migration step below can take a long time on large databases.
+cd /app/frontend
+su-exec "$USER_NAME" npm run start &
+FRONTEND_PID=$!
+
 # Run backend database migration
 cd /app/backend
 echo "Running database maintenance."
@@ -113,6 +120,10 @@ su-exec "$USER_NAME" ./NzbWebDAV --db-migration
 MIGRATION_EXIT_CODE=$?
 if [ "$MIGRATION_EXIT_CODE" -ne 0 ]; then
     echo "Database migration failed. Exiting with error code $MIGRATION_EXIT_CODE."
+    if [ -n "$FRONTEND_PID" ] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
+        kill "$FRONTEND_PID"
+        wait "$FRONTEND_PID" 2>/dev/null
+    fi
     exit "$MIGRATION_EXIT_CODE"
 fi
 echo "Done with database maintenance."
@@ -138,16 +149,15 @@ while true; do
         echo "Backend failed health check after $MAX_BACKEND_HEALTH_RETRIES retries. Exiting."
         kill "$BACKEND_PID"
         wait "$BACKEND_PID"
+        if [ -n "$FRONTEND_PID" ] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
+            kill "$FRONTEND_PID"
+            wait "$FRONTEND_PID" 2>/dev/null
+        fi
         exit 1
     fi
 
     sleep "$MAX_BACKEND_HEALTH_RETRY_DELAY"
 done
-
-# Run frontend as "$USER_NAME" in background
-cd /app/frontend
-su-exec "$USER_NAME" npm run start &
-FRONTEND_PID=$!
 
 # Wait for either to exit
 wait_either "$BACKEND_PID" "$FRONTEND_PID"
