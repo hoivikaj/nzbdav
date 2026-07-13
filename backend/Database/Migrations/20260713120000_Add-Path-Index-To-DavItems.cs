@@ -25,9 +25,12 @@ namespace NzbWebDAV.Database.Migrations
             // 2. Repair any leftover duplicate Paths (should be rare after rebuild given
             //    the unique (ParentId, Name) index). Rename later duplicates so the
             //    unique Path index can be created without failing the migration.
+            //    Suffix Path directly as well: BuildFullPath only updates rows reachable
+            //    from the root, so orphaned duplicates would otherwise still collide.
             migrationBuilder.Sql("""
                 UPDATE DavItems
-                SET Name = Name || ' (' || substr(Id, 1, 5) || ')'
+                SET Name = Name || ' (' || substr(Id, 1, 5) || ')',
+                    Path = Path || ' (' || substr(Id, 1, 5) || ')'
                 WHERE Id IN (
                     SELECT Id FROM (
                         SELECT Id,
@@ -40,6 +43,11 @@ namespace NzbWebDAV.Database.Migrations
 
             // 3. Rebuild again so renamed Names propagate into Path (and descendants).
             AddPathToDavItem.BuildFullPath(migrationBuilder);
+
+            // 4. Drop any pre-existing index of this name (mrghxst fork migration
+            //    20260629203551 or the manual CREATE INDEX workaround for #237) so
+            //    CreateIndex below can install the canonical unique index.
+            migrationBuilder.Sql("""DROP INDEX IF EXISTS "IX_DavItems_Path";""");
 
             migrationBuilder.CreateIndex(
                 name: "IX_DavItems_Path",
