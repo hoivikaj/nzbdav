@@ -83,21 +83,7 @@ class Program
             // run database migration, if necessary.
             if (args.Contains("--db-migration"))
             {
-                var argIndex = args.ToList().IndexOf("--db-migration");
-                var targetMigration = args.Length > argIndex + 1 ? args[argIndex + 1] : null;
-                Log.Information(
-                    "Applying database migrations{Target}",
-                    targetMigration is null ? string.Empty : $" through {targetMigration}");
-                await databaseContext.Database
-                    .MigrateAsync(targetMigration, SigtermUtil.GetCancellationToken())
-                    .ConfigureAwait(false);
-                Log.Information("Database migrations completed");
-
-                await using var metricsContext = new MetricsDbContext();
-                await metricsContext.Database
-                    .MigrateAsync(SigtermUtil.GetCancellationToken())
-                    .ConfigureAwait(false);
-                await PerformDatabaseVacuumIfEnabled();
+                await RunDatabaseMigrationsAsync(databaseContext, args).ConfigureAwait(false);
                 return;
             }
 
@@ -276,11 +262,108 @@ class Program
         Environment.Exit(1);
     }
 
-    private static async Task PerformDatabaseVacuumIfEnabled()
+    private static async Task RunDatabaseMigrationsAsync(DavDatabaseContext databaseContext, string[] args)
+    {
+        var ct = SigtermUtil.GetCancellationToken();
+        var argIndex = args.ToList().IndexOf("--db-migration");
+        var targetMigration = args.Length > argIndex + 1 ? args[argIndex + 1] : null;
+
+        // An explicit target (design-time tooling / tests) uses the simple,
+        // single-call path. Progress tracking only covers the common upgrade
+        // path where all pending migrations are applied.
+        if (targetMigration is not null)
+        {
+            Log.Information("Applying database migrations through {Target}", targetMigration);
+            await databaseContext.Database.MigrateAsync(targetMigration, ct).ConfigureAwait(false);
+            Log.Information("Database migrations completed");
+            await using var metricsContext = new MetricsDbContext();
+            await metricsContext.Database.MigrateAsync(ct).ConfigureAwait(false);
+            await PerformDatabaseVacuumIfEnabled().ConfigureAwait(false);
+            return;
+        }
+
+        var pending = (await databaseContext.Database.GetPendingMigrationsAsync(ct).ConfigureAwait(false)).ToList();
+        var vacuumEnabled = await IsDatabaseStartupVacuumEnabledAsync().ConfigureAwait(false);
+
+        // Build the ordered list of maintenance steps: each pending migration,
+        // then the metrics database, then the optional vacuum.
+        var steps = new List<MigrationProgress.MigrationStep>();
+        foreach (var id in pending)
+            steps.Add(new MigrationProgress.MigrationStep(id, MigrationProgress.FriendlyName(id), MigrationProgress.IsSlow(id)));
+        steps.Add(new MigrationProgress.MigrationStep(MigrationProgress.MetricsStepId, "Metrics database", false));
+        if (vacuumEnabled)
+            steps.Add(new MigrationProgress.MigrationStep(MigrationProgress.VacuumStepId, "Optimizing database (vacuum)", true));
+
+        var progress = new MigrationProgress();
+        progress.Initialize(steps);
+
+        // Serve live progress on the backend port for the duration of the migration.
+        await using var statusServer = await MigrationStatusServer.StartAsync(progress, ct).ConfigureAwait(false);
+
+        try
+        {
+            if (pending.Count == 0)
+                Log.Information("No pending database migrations");
+
+            for (var i = 0; i < steps.Count; i++)
+            {
+                var step = steps[i];
+                Log.Information(
+                    "Database maintenance step {Index}/{Total}: {Name}",
+                    i + 1, steps.Count, step.Name);
+                progress.BeginStep(step.Id);
+
+                if (step.Id == MigrationProgress.MetricsStepId)
+                {
+                    await using var metricsContext = new MetricsDbContext();
+                    await metricsContext.Database.MigrateAsync(ct).ConfigureAwait(false);
+                }
+                else if (step.Id == MigrationProgress.VacuumStepId)
+                {
+                    await databaseContext.Database.ExecuteSqlRawAsync("VACUUM;", ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await databaseContext.Database.MigrateAsync(step.Id, ct).ConfigureAwait(false);
+                }
+
+                progress.CompleteStep(step.Id);
+            }
+
+            progress.Complete();
+            Log.Information("Database migrations completed");
+
+            // Brief grace so the status page can render the final state before
+            // this process exits and the port goes dark.
+            if (statusServer is not null)
+                await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            progress.Fail(ex.Message);
+            Log.Error(ex, "Database migration failed");
+
+            // Keep the failure visible on the status page briefly before exiting.
+            if (statusServer is not null)
+            {
+                try { await Task.Delay(TimeSpan.FromSeconds(3), CancellationToken.None).ConfigureAwait(false); }
+                catch { /* ignore */ }
+            }
+
+            throw;
+        }
+    }
+
+    private static async Task<bool> IsDatabaseStartupVacuumEnabledAsync()
     {
         var configManager = new ConfigManager();
         await configManager.LoadConfig().ConfigureAwait(false);
-        if (configManager.IsDatabaseStartupVacuumEnabled())
+        return configManager.IsDatabaseStartupVacuumEnabled();
+    }
+
+    private static async Task PerformDatabaseVacuumIfEnabled()
+    {
+        if (await IsDatabaseStartupVacuumEnabledAsync().ConfigureAwait(false))
         {
             Log.Information("Performing database vacuum");
             await using var databaseContext = new DavDatabaseContext();
