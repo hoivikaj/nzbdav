@@ -86,6 +86,11 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
               )}
             </button>
           </div>
+          {!isFrontendAuthDisabled && (
+            <Form method="post" action="/logout" id="top-nav-logout" className="hidden">
+              <input name="confirm" value="true" type="hidden" />
+            </Form>
+          )}
           <ul
             tabIndex={0}
             className="dropdown-content menu z-50 mt-2 w-64 rounded-box border border-base-content/10 bg-base-200 p-2 shadow-lg"
@@ -133,15 +138,12 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
             </li>
             {!isFrontendAuthDisabled && (
               <>
-                <div className="divider my-1" />
+                <li />
                 <li>
-                  <Form method="post" action="/logout" className="contents">
-                    <input name="confirm" value="true" type="hidden" />
-                    <button type="submit">
-                      <Icon name="logout" className="!text-[18px]" />
-                      Logout
-                    </button>
-                  </Form>
+                  <button type="submit" form="top-nav-logout">
+                    <Icon name="logout" className="!text-[18px]" />
+                    Logout
+                  </button>
                 </li>
               </>
             )}
