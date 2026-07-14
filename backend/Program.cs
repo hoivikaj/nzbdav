@@ -202,6 +202,7 @@ class Program
                 .AddHostedService<ArrMonitoringService>()
                 .AddHostedService<BlobCleanupService>()
                 .AddHostedService<NzbBlobCleanupService>()
+                .AddHostedService<NzbBackupRetentionService>()
                 .AddHostedService<HistoryCleanupService>()
                 .AddHostedService<HistoryRetentionService>()
                 .AddHostedService<WatchdogPurgeService>()

@@ -538,6 +538,12 @@ NzbDav can prune aged SAB history and health-check rows so `db.sqlite` does not 
 
 These can also be set under **Settings → Maintenance** (`database.history-retention-days`, `database.healthcheck-retention-days`). Use **Reset Health-Check Statistics** on that page to clear all health-check counters immediately.
 
+### NZB blob and backup lifetime
+
+Incoming NZB documents are stored as blobs under `{CONFIG_PATH}/blobs/`. A blob is kept while it is still referenced by a queue item, a history row, or mounted WebDAV content under `/content`. When the last reference is removed, a background cleanup deletes the blob and its `NzbNames` mapping. History retention prunes aged SAB history without deleting mounted content, so blobs for still-mounted releases are retained on purpose.
+
+When **Settings → SABnzbd → Save backup copies of incoming NZBs** is enabled, copies are written under the configured backup directory (by category). Those on-disk `*.nzb` files are pruned by age according to `api.nzb-backup-retention-days` (default 30; `0` keeps them forever).
+
 ### Back up NzbDav
 
 NzbDav includes an in-app **Settings → Backup & Restore** flow that dumps all SQLite databases (`db.sqlite`, `metrics.sqlite`, and `warden.db`) to portable `.sql` files under `{CONFIG_PATH}/backups/`. You can:

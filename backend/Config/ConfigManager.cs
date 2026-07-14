@@ -194,6 +194,7 @@ public class ConfigManager
                 case ConfigKeys.MaintenanceRemoveOrphanedScheduleTime:
                 case ConfigKeys.BackupScheduleTime:
                 case ConfigKeys.BackupRetentionCount:
+                case ConfigKeys.ApiNzbBackupRetentionDays:
                     RequireLong(item.ConfigName, value);
                     break;
 
@@ -1119,10 +1120,10 @@ public class ConfigManager
             defaultValue: 30);
     }
 
-    private int GetRetentionDaysSetting(string configKey, string environmentVariable, int defaultValue)
+    private int GetRetentionDaysSetting(string configKey, string? environmentVariable, int defaultValue)
     {
         var rawValue = StringUtil.EmptyToNull(GetConfigValue(configKey))
-                       ?? EnvironmentUtil.GetEnvironmentVariable(environmentVariable);
+                       ?? (environmentVariable != null ? EnvironmentUtil.GetEnvironmentVariable(environmentVariable) : null);
         return int.TryParse(rawValue, out var parsed) && parsed >= 0 ? parsed : defaultValue;
     }
 
@@ -1136,6 +1137,18 @@ public class ConfigManager
     public string? GetNzbBackupLocation()
     {
         return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiNzbBackupLocation));
+    }
+
+    /// <summary>
+    /// Days to keep on-disk NZB backup files (written by <c>AddFileController</c> when
+    /// <see cref="IsNzbBackupEnabled"/> is on). 0 disables age-based pruning. Default is 30.
+    /// </summary>
+    public int GetNzbBackupRetentionDays()
+    {
+        return GetRetentionDaysSetting(
+            ConfigKeys.ApiNzbBackupRetentionDays,
+            environmentVariable: null,
+            defaultValue: 30);
     }
 
     public bool IsRemoveOrphanedFilesScheduleEnabled()

@@ -103,6 +103,7 @@ const defaultConfig = {
     "backup.retention-count": "5",
     "api.nzb-backup-enabled": "false",
     "api.nzb-backup-location": "",
+    "api.nzb-backup-retention-days": "30",
     "watchtower.enabled": "false",
     "watchtower.profile-token": "",
     "watchtower.ranking": "watchdog",

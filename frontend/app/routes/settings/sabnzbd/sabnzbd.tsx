@@ -252,6 +252,21 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     When enabled, a copy of each incoming NZB will be saved to this directory, organized by category.
                     The directory will be created if it doesn't already exist.
                 </p>
+                <label className="mt-4 flex items-center gap-2 text-sm text-slate-300" htmlFor="nzb-backup-retention-days-input">
+                    <span>Keep NZB backups for (days)</span>
+                </label>
+                <Input
+                    className="mt-2 w-full"
+                    type="number"
+                    min={0}
+                    id="nzb-backup-retention-days-input"
+                    aria-describedby="nzb-backup-retention-days-help"
+                    value={config["api.nzb-backup-retention-days"] ?? "30"}
+                    disabled={config["api.nzb-backup-enabled"] !== "true"}
+                    onChange={e => setNewConfig({ ...config, "api.nzb-backup-retention-days": e.target.value })} />
+                <p className="text-[11px] leading-relaxed text-base-content/45" id="nzb-backup-retention-days-help">
+                    Aged <code>*.nzb</code> files under the backup directory are pruned hourly. Use <code>0</code> to keep backups forever. Default is 30 days.
+                </p>
             </div>
         </SettingsPage>
     );
@@ -329,6 +344,7 @@ export function isSabnzbdSettingsUpdated(config: Record<string, string>, newConf
         || config["api.user-agent"] !== newConfig["api.user-agent"]
         || config["api.nzb-backup-enabled"] !== newConfig["api.nzb-backup-enabled"]
         || config["api.nzb-backup-location"] !== newConfig["api.nzb-backup-location"]
+        || config["api.nzb-backup-retention-days"] !== newConfig["api.nzb-backup-retention-days"]
 }
 
 export function isSabnzbdSettingsValid(newConfig: Record<string, string>) {

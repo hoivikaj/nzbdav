@@ -24,6 +24,7 @@ public static class ConfigKeys
     public const string ApiManualCategory = "api.manual-category";
     public const string ApiNzbBackupEnabled = "api.nzb-backup-enabled";
     public const string ApiNzbBackupLocation = "api.nzb-backup-location";
+    public const string ApiNzbBackupRetentionDays = "api.nzb-backup-retention-days";
     public const string ApiSearchUserAgent = "api.search-user-agent";
     public const string ApiStrmKey = "api.strm-key";
     public const string ApiUserAgent = "api.user-agent";
