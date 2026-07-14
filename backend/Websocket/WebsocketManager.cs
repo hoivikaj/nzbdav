@@ -1,5 +1,6 @@
 ﻿using System.Net.WebSockets;
 using System.Text;
+using System.Threading.Channels;
 using Microsoft.AspNetCore.Http;
 using NzbWebDAV.Extensions;
 using NzbWebDAV.Utils;
@@ -9,9 +10,11 @@ namespace NzbWebDAV.Websocket;
 
 public class WebsocketManager
 {
-    private readonly HashSet<WebSocket> _authenticatedSockets = [];
+    private const int EventQueueCapacity = 64;
+    private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(30);
+
+    private readonly Dictionary<WebSocket, SocketSession> _sessions = new();
     private readonly Dictionary<WebsocketTopic, string> _lastMessage = new();
-    private readonly Dictionary<WebSocket, SemaphoreSlim> _sendLocks = new();
 
     public async Task HandleRoute(HttpContext context)
     {
@@ -27,26 +30,22 @@ public class WebsocketManager
                 return;
             }
 
-            // mark the socket as authenticated
-            lock (_authenticatedSockets)
-                _authenticatedSockets.Add(webSocket);
-            lock (_sendLocks)
-                _sendLocks[webSocket] = new SemaphoreSlim(1, 1);
+            var session = AddSocket(webSocket, replayState: true);
             Log.Debug(
                 "Websocket client connected from {RemoteIpAddress}; {ConnectionCount} authenticated clients connected",
                 context.Connection.RemoteIpAddress,
                 GetAuthenticatedSocketCount());
 
-            // send current state for all topics
-            List<KeyValuePair<WebsocketTopic, string>>? lastMessage;
-            lock (_lastMessage) lastMessage = _lastMessage.ToList();
-            foreach (var message in lastMessage)
-                if (message.Key.Type == WebsocketTopic.TopicType.State)
-                    await SendMessage(webSocket, message.Key, message.Value).ConfigureAwait(false);
+            try
+            {
+                // wait for the socket to disconnect
+                await WaitForDisconnected(webSocket).ConfigureAwait(false);
+            }
+            finally
+            {
+                await RemoveSocket(session).ConfigureAwait(false);
+            }
 
-            // wait for the socket to disconnect
-            await WaitForDisconnected(webSocket).ConfigureAwait(false);
-            RemoveSocket(webSocket);
             Log.Debug(
                 "Websocket client disconnected from {RemoteIpAddress}; {ConnectionCount} authenticated clients connected",
                 context.Connection.RemoteIpAddress,
@@ -66,19 +65,32 @@ public class WebsocketManager
     public Task SendMessage(WebsocketTopic topic, string message)
     {
         lock (_lastMessage) _lastMessage[topic] = message;
-        List<WebSocket>? authenticatedSockets;
-        lock (_authenticatedSockets) authenticatedSockets = _authenticatedSockets.ToList();
-        if (authenticatedSockets.Count == 0) return Task.CompletedTask;
+        List<SocketSession> sessions;
+        lock (_sessions) sessions = _sessions.Values.ToList();
+        if (sessions.Count == 0) return Task.CompletedTask;
 
-        var topicMessage = new TopicMessage(topic, message);
-        var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(topicMessage.ToJson()));
-        return Task.WhenAll(authenticatedSockets.Select(x => SendMessage(x, bytes)));
+        var bytes = SerializeMessage(topic, message);
+        foreach (var session in sessions)
+        {
+            if (session.TryEnqueue(topic, bytes)) continue;
+
+            Log.Debug("Disconnecting websocket client because its outbound event queue is full");
+            AbortSocket(session);
+        }
+
+        return Task.CompletedTask;
     }
 
     internal string? PeekLastMessage(WebsocketTopic topic)
     {
         lock (_lastMessage)
             return _lastMessage.TryGetValue(topic, out var message) ? message : null;
+    }
+
+    internal Func<Task> AttachAuthenticatedSocketForTests(WebSocket socket, bool replayState = false)
+    {
+        var session = AddSocket(socket, replayState);
+        return () => RemoveSocket(session);
     }
 
     /// <summary>
@@ -119,60 +131,96 @@ public class WebsocketManager
         }
     }
 
-    /// <summary>
-    /// Send a message to a connected websocket.
-    /// </summary>
-    /// <param name="socket">The websocket to send the message to.</param>
-    /// <param name="topic">The topic of the message to send</param>
-    /// <param name="message">The message to send</param>
-    private async Task SendMessage(WebSocket socket, WebsocketTopic topic, string message)
+    private SocketSession AddSocket(WebSocket socket, bool replayState = false)
     {
-        var topicMessage = new TopicMessage(topic, message);
-        var bytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(topicMessage.ToJson()));
-        await SendMessage(socket, bytes).ConfigureAwait(false);
+        var session = new SocketSession(socket);
+        session.DrainTask = DrainSocket(session);
+
+        if (!replayState)
+        {
+            lock (_sessions)
+                _sessions.Add(socket, session);
+            return session;
+        }
+
+        lock (_lastMessage)
+        {
+            lock (_sessions)
+                _sessions.Add(socket, session);
+
+            foreach (var message in _lastMessage)
+                if (message.Key.Type == WebsocketTopic.TopicType.State)
+                    session.TryEnqueue(message.Key, SerializeMessage(message.Key, message.Value));
+        }
+
+        return session;
     }
 
-    /// <summary>
-    /// Send a message to a connected websocket.
-    /// </summary>
-    /// <param name="socket">The websocket to send the message to.</param>
-    /// <param name="message">The message to send.</param>
-    private async Task SendMessage(WebSocket socket, ArraySegment<byte> message)
+    private async Task DrainSocket(SocketSession session)
     {
-        SemaphoreSlim? sendLock;
-        lock (_sendLocks)
-            _sendLocks.TryGetValue(socket, out sendLock);
-        if (sendLock == null || socket.State != WebSocketState.Open) return;
-
         try
         {
-            await sendLock.WaitAsync(SigtermUtil.GetCancellationToken()).ConfigureAwait(false);
-            try
+            while (await session.WaitForWork().ConfigureAwait(false))
             {
-                if (socket.State == WebSocketState.Open)
-                    await socket.SendAsync(message, WebSocketMessageType.Text, true,
-                        SigtermUtil.GetCancellationToken()).ConfigureAwait(false);
+                while (true)
+                {
+                    var stateMessages = session.TakePendingState();
+                    var eventMessages = session.TakePendingEvents();
+                    if (stateMessages.Count == 0 && eventMessages.Count == 0) break;
+
+                    foreach (var message in stateMessages)
+                        await SendToSocket(session, message).ConfigureAwait(false);
+                    foreach (var message in eventMessages)
+                        await SendToSocket(session, message).ConfigureAwait(false);
+                }
             }
-            finally
-            {
-                sendLock.Release();
-            }
+        }
+        catch (OperationCanceledException) when (session.CancellationToken.IsCancellationRequested)
+        {
+            // Expected when the socket disconnects or the application shuts down.
         }
         catch (Exception e)
         {
             Log.Debug(e, "Failed to send message to websocket");
-            RemoveSocket(socket);
-            try { socket.Abort(); }
-            catch { /* best-effort cleanup */ }
+            AbortSocket(session);
         }
     }
 
-    private void RemoveSocket(WebSocket socket)
+    private static async Task SendToSocket(SocketSession session, ArraySegment<byte> message)
     {
-        lock (_authenticatedSockets)
-            _authenticatedSockets.Remove(socket);
-        lock (_sendLocks)
-            _sendLocks.Remove(socket);
+        if (session.Socket.State != WebSocketState.Open)
+            throw new WebSocketException("Websocket is no longer open");
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(session.CancellationToken);
+        timeout.CancelAfter(SendTimeout);
+        await session.Socket.SendAsync(message, WebSocketMessageType.Text, true, timeout.Token).ConfigureAwait(false);
+    }
+
+    private async Task RemoveSocket(SocketSession session)
+    {
+        lock (_sessions)
+        {
+            if (_sessions.TryGetValue(session.Socket, out var current) && ReferenceEquals(current, session))
+                _sessions.Remove(session.Socket);
+        }
+
+        session.Stop();
+        await session.DrainTask.ConfigureAwait(false);
+        session.Dispose();
+    }
+
+    private void AbortSocket(SocketSession session)
+    {
+        lock (_sessions)
+        {
+            if (_sessions.TryGetValue(session.Socket, out var current) && ReferenceEquals(current, session))
+                _sessions.Remove(session.Socket);
+        }
+
+        if (!session.Stop()) return;
+
+        try { session.Socket.Abort(); }
+        catch { /* best-effort cleanup */ }
     }
 
     /// <summary>
@@ -209,15 +257,113 @@ public class WebsocketManager
             await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Unauthorized", CancellationToken.None).ConfigureAwait(false);
     }
 
-    private int GetAuthenticatedSocketCount()
+    internal int GetAuthenticatedSocketCount()
     {
-        lock (_authenticatedSockets)
-            return _authenticatedSockets.Count;
+        lock (_sessions)
+            return _sessions.Count;
+    }
+
+    private static ArraySegment<byte> SerializeMessage(WebsocketTopic topic, string message)
+    {
+        var topicMessage = new TopicMessage(topic, message);
+        return new ArraySegment<byte>(Encoding.UTF8.GetBytes(topicMessage.ToJson()));
     }
 
     private sealed class TopicMessage(WebsocketTopic topic, string message)
     {
         public string Topic { get; } = topic.Name;
         public string Message { get; } = message;
+    }
+
+    private sealed class SocketSession : IDisposable
+    {
+        private readonly object _stateLock = new();
+        private readonly Dictionary<WebsocketTopic, ArraySegment<byte>> _pendingState = new();
+        private readonly Channel<ArraySegment<byte>> _eventMessages =
+            Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(EventQueueCapacity)
+            {
+                FullMode = BoundedChannelFullMode.Wait,
+                SingleReader = true,
+                SingleWriter = false
+            });
+        private readonly Channel<bool> _workSignal =
+            Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
+            {
+                FullMode = BoundedChannelFullMode.DropWrite,
+                SingleReader = true,
+                SingleWriter = false
+            });
+        private readonly CancellationTokenSource _cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(SigtermUtil.GetCancellationToken());
+        private int _stopped;
+
+        public SocketSession(WebSocket socket)
+        {
+            Socket = socket;
+        }
+
+        public WebSocket Socket { get; }
+        public CancellationToken CancellationToken => _cancellation.Token;
+        public Task DrainTask { get; set; } = Task.CompletedTask;
+
+        public bool TryEnqueue(WebsocketTopic topic, ArraySegment<byte> message)
+        {
+            if (Volatile.Read(ref _stopped) != 0) return false;
+
+            if (topic.Type == WebsocketTopic.TopicType.State)
+            {
+                lock (_stateLock)
+                {
+                    if (_stopped != 0) return false;
+                    _pendingState[topic] = message;
+                }
+            }
+            else if (!_eventMessages.Writer.TryWrite(message))
+            {
+                return false;
+            }
+
+            _workSignal.Writer.TryWrite(true);
+            return true;
+        }
+
+        public async ValueTask<bool> WaitForWork()
+        {
+            return await _workSignal.Reader.WaitToReadAsync(CancellationToken).ConfigureAwait(false)
+                   && _workSignal.Reader.TryRead(out _);
+        }
+
+        public List<ArraySegment<byte>> TakePendingState()
+        {
+            lock (_stateLock)
+            {
+                var messages = _pendingState.Values.ToList();
+                _pendingState.Clear();
+                return messages;
+            }
+        }
+
+        public List<ArraySegment<byte>> TakePendingEvents()
+        {
+            var messages = new List<ArraySegment<byte>>(EventQueueCapacity);
+            while (messages.Count < EventQueueCapacity && _eventMessages.Reader.TryRead(out var message))
+                messages.Add(message);
+            return messages;
+        }
+
+        public bool Stop()
+        {
+            if (Interlocked.Exchange(ref _stopped, 1) != 0) return false;
+
+            _eventMessages.Writer.TryComplete();
+            _workSignal.Writer.TryComplete();
+            _cancellation.Cancel();
+            return true;
+        }
+
+        public void Dispose()
+        {
+            _cancellation.Dispose();
+        }
     }
 }
