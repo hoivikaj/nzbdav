@@ -269,24 +269,24 @@ class Program
 
     private static void BlockUpgradesToV06X()
     {
-        // If the database file doesn't exist.
-        // Then this is a new installation.
-        // Do nothing.
-        if (!File.Exists(DavDatabaseContext.DatabaseFilePath)) return;
+        var databaseFileExists = File.Exists(DavDatabaseContext.DatabaseFilePath);
+        IEnumerable<string> appliedMigrations = [];
+        IEnumerable<string> pendingMigrations = [];
+        if (databaseFileExists)
+        {
+            using var databaseContext = new DavDatabaseContext();
+            appliedMigrations = databaseContext.Database.GetAppliedMigrations().ToList();
+            pendingMigrations = databaseContext.Database.GetPendingMigrations().ToList();
+        }
 
-        // If there is no pending database migration,
-        // Then the user has already upgraded.
-        // Do nothing.
-        using var databaseContext = new DavDatabaseContext();
-        const string migration = "20260226053712_Add-NzbBlobId-And-NzbNames";
-        var hasPendingMigration = databaseContext.Database.GetPendingMigrations().Contains(migration);
-        if (!hasPendingMigration) return;
-
-        // If the user has set the UPGRADE env variable,
-        // Then they have acknowledged the upgrade message.
-        // Do nothing.
-        var upgradeEnv = EnvironmentUtil.GetEnvironmentVariable("UPGRADE");
-        if (upgradeEnv == "0.6.0") return;
+        if (!DatabaseStartupGuards.ShouldBlockUpgradeToV06X(
+                databaseFileExists,
+                appliedMigrations,
+                pendingMigrations,
+                EnvironmentUtil.GetEnvironmentVariable("UPGRADE")))
+        {
+            return;
+        }
 
         // Otherwise, display the upgrade message, and exit.
         Log.Fatal(
@@ -407,6 +407,16 @@ class Program
 
     private static async Task<bool> IsDatabaseStartupVacuumEnabledAsync()
     {
+        // Fresh / WAL-created empty databases have no ConfigItems table yet. Querying
+        // it before migrations run is what broke brand-new installs after #269.
+        await using var databaseContext = new DavDatabaseContext();
+        if (!await DatabaseStartupGuards
+                .ConfigItemsTableExistsAsync(databaseContext, SigtermUtil.GetCancellationToken())
+                .ConfigureAwait(false))
+        {
+            return false;
+        }
+
         var configManager = new ConfigManager();
         await configManager.LoadConfig().ConfigureAwait(false);
         return configManager.IsDatabaseStartupVacuumEnabled();
