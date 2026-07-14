@@ -57,11 +57,12 @@ public class BaseNntpClient : NntpClient
 
     public override Task<UsenetStatResponse> StatAsync(SegmentId segmentId, CancellationToken cancellationToken)
     {
-        return _client.StatAsync(segmentId, cancellationToken);
+        return _client.StatAsync(PrepareSegmentId(segmentId), cancellationToken);
     }
 
     public override async Task<UsenetHeadResponse> HeadAsync(SegmentId segmentId, CancellationToken cancellationToken)
     {
+        segmentId = PrepareSegmentId(segmentId);
         var headResponse = await _client.HeadAsync(segmentId, cancellationToken);
 
         if (headResponse.ResponseType != UsenetResponseType.ArticleRetrievedHeadFollows)
@@ -92,6 +93,7 @@ public class BaseNntpClient : NntpClient
         CancellationToken cancellationToken
     )
     {
+        segmentId = PrepareSegmentId(segmentId);
         var bodyResponse = await _client.DecodedBodyAsync(
             segmentId, onConnectionReadyAgain, cancellationToken);
 
@@ -115,7 +117,7 @@ public class BaseNntpClient : NntpClient
     )
     {
         return _client.DecodedBodiesAsync(
-            segmentIds, onConnectionReadyAgain, cancellationToken);
+            PrepareSegmentIds(segmentIds), onConnectionReadyAgain, cancellationToken);
     }
 
     public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync
@@ -134,6 +136,7 @@ public class BaseNntpClient : NntpClient
         CancellationToken cancellationToken
     )
     {
+        segmentId = PrepareSegmentId(segmentId);
         var articleResponse = await _client.ArticleAsync(segmentId, onConnectionReadyAgain, cancellationToken);
 
         if (articleResponse.ResponseType != UsenetResponseType.ArticleRetrievedHeadAndBodyFollow)
@@ -147,6 +150,14 @@ public class BaseNntpClient : NntpClient
             ArticleHeaders = articleResponse.ArticleHeaders!,
             Stream = new YencStream(articleResponse.Stream!),
         };
+    }
+
+    private static SegmentId[] PrepareSegmentIds(IReadOnlyList<SegmentId> segmentIds)
+    {
+        var prepared = new SegmentId[segmentIds.Count];
+        for (var index = 0; index < segmentIds.Count; index++)
+            prepared[index] = PrepareSegmentId(segmentIds[index]);
+        return prepared;
     }
 
     public override Task<UsenetDateResponse> DateAsync(CancellationToken cancellationToken)

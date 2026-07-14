@@ -384,10 +384,47 @@ public abstract class NntpClient : INntpClient
     internal static string NormalizeSegmentId(string? id)
     {
         if (string.IsNullOrWhiteSpace(id)) return "";
+        // Strip the angle brackets independently: an upstream SegmentId conversion
+        // may have already removed one bracket while whitespace shielded the other
+        // (e.g. "<id@host>\n" arrives here as "id@host>\n").
         var trimmed = id.Trim();
-        if (trimmed.Length >= 2 && trimmed[0] == '<' && trimmed[^1] == '>')
-            trimmed = trimmed[1..^1];
-        return trimmed;
+        if (trimmed.Length > 0 && trimmed[0] == '<')
+            trimmed = trimmed[1..];
+        if (trimmed.Length > 0 && trimmed[^1] == '>')
+            trimmed = trimmed[..^1];
+        return trimmed.Trim();
+    }
+
+    /// <summary>
+    /// Mirrors UsenetSharp's message-id shape rules so invalid ids fail as
+    /// <see cref="UsenetArticleNotFoundException"/> instead of ArgumentException.
+    /// </summary>
+    internal static bool IsValidSegmentId(string? id)
+    {
+        var value = NormalizeSegmentId(id);
+        if (value.Length is < 3 or > 497) return false;
+        if (value[0] == '@' || value[^1] == '@' || !value.Contains('@')) return false;
+        if (value.Contains('<') || value.Contains('>')) return false;
+        foreach (var character in value)
+        {
+            if (char.IsWhiteSpace(character) || char.IsControl(character))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Normalize and validate a segment id before handing it to UsenetSharp.
+    /// Permanently-invalid ids throw <see cref="UsenetArticleNotFoundException"/>.
+    /// </summary>
+    internal static SegmentId PrepareSegmentId(SegmentId segmentId)
+    {
+        var normalized = NormalizeSegmentId(segmentId);
+        if (!IsValidSegmentId(normalized))
+            throw new UsenetArticleNotFoundException(normalized);
+
+        return normalized;
     }
 
     internal static bool TryExtractMessageIdFromResponseMessage(string? message, out string messageId)

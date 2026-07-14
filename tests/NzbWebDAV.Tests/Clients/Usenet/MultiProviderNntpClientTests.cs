@@ -484,6 +484,32 @@ public class MultiProviderNntpClientTests
         await Assert.ThrowsAsync<UsenetArticleNotFoundException>(() => batch.Responses[0]);
     }
 
+    [Fact]
+    public async Task DecodedBodiesAsync_WithInvalidSegmentId_DoesNotFailoverOrTripBreaker()
+    {
+        var primary = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            BatchException = _ => new UsenetArticleNotFoundException("not-a-message-id"),
+        };
+        var backup = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+        };
+        var primaryProvider = CreateProvider(primary, host: "a.example");
+        var backupProvider = CreateProvider(backup, host: "b.example");
+        using var client = new MultiProviderNntpClient([primaryProvider, backupProvider]);
+
+        await Assert.ThrowsAsync<UsenetArticleNotFoundException>(() =>
+            client.DecodedBodiesAsync(
+                ["not-a-message-id"], onConnectionReadyAgain: null, CancellationToken.None));
+
+        Assert.Equal(1, primary.BatchRequests);
+        Assert.Equal(0, backup.BatchRequests);
+        Assert.False(primaryProvider.IsTripped);
+        Assert.False(backupProvider.IsTripped);
+    }
+
     private static MultiConnectionNntpClient CreateProvider(
         INntpClient connection,
         string host = "test",

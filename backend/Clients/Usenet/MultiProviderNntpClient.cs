@@ -157,6 +157,14 @@ public class MultiProviderNntpClient(
                 }
                 return new UsenetDecodedBodyBatch { Responses = responses };
             }
+            catch (Exception e) when (e.TryGetCausingException(out UsenetArticleNotFoundException? _))
+            {
+                // Invalid / permanently missing segment ids are invalid on every provider.
+                deferredCallback.Discard();
+                InvokeCompletionCallback(
+                    onConnectionReadyAgain, ArticleBodyResult.NotRetrieved);
+                throw;
+            }
             catch (Exception e) when (!e.IsCancellationException(cancellationToken))
             {
                 deferredCallback.Discard();

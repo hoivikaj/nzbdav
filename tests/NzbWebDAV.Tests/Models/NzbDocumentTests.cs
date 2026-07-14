@@ -46,6 +46,27 @@ public class NzbDocumentTests
     }
 
     [Fact]
+    public async Task LoadAsync_TrimsWhitespaceAroundSegmentMessageIds()
+    {
+        const string xml = """
+            <nzb><file subject="file"><segments>
+              <segment bytes="10">
+                padded@example.com
+              </segment>
+              <segment bytes="20">  spaced@example.com  </segment>
+            </segments></file></nzb>
+            """;
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+
+        var document = await NzbDocument.LoadAsync(stream);
+
+        Assert.Collection(
+            Assert.Single(document.Files).Segments,
+            segment => Assert.Equal("padded@example.com", segment.MessageId),
+            segment => Assert.Equal("spaced@example.com", segment.MessageId));
+    }
+
+    [Fact]
     public async Task LoadAsync_UsesZeroForInvalidSegmentSize()
     {
         const string xml = """

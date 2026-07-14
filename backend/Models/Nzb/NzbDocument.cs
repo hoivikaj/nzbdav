@@ -110,7 +110,7 @@ public class NzbDocument
                 var segment = new NzbSegment
                 {
                     Bytes = long.TryParse(bytesAttr, out var bytes) ? bytes : 0,
-                    MessageId = await reader.ReadElementContentAsStringAsync().ConfigureAwait(false)
+                    MessageId = (await reader.ReadElementContentAsStringAsync().ConfigureAwait(false)).Trim()
                 };
                 file.Segments.Add(segment);
 

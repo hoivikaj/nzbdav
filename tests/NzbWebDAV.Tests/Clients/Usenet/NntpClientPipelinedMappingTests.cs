@@ -1,6 +1,7 @@
 using System.Text;
 using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Clients.Usenet.Models;
+using NzbWebDAV.Exceptions;
 using NzbWebDAV.Streams;
 using UsenetSharp.Models;
 using UsenetSharp.Streams;
@@ -13,9 +14,49 @@ public class NntpClientPipelinedMappingTests
     [InlineData("seg@example.com", "seg@example.com")]
     [InlineData("<seg@example.com>", "seg@example.com")]
     [InlineData(" <seg@example.com> ", "seg@example.com")]
+    [InlineData("seg@example.com>", "seg@example.com")]
+    [InlineData("<seg@example.com", "seg@example.com")]
+    [InlineData("< seg@example.com >", "seg@example.com")]
     public void NormalizeSegmentId_StripsAngleBrackets(string input, string expected)
     {
         Assert.Equal(expected, NntpClient.NormalizeSegmentId(input));
+    }
+
+    [Theory]
+    [InlineData("seg@example.com")]
+    [InlineData("<seg@example.com>")]
+    [InlineData("  seg@example.com  ")]
+    [InlineData("<seg@example.com>\n")]
+    [InlineData("\n<seg@example.com>")]
+    public void IsValidSegmentId_AcceptsNormalizedMessageIds(string input)
+    {
+        Assert.True(NntpClient.IsValidSegmentId(input));
+        Assert.Equal("seg@example.com", NntpClient.PrepareSegmentId(input).ToString());
+    }
+
+    [Theory]
+    [InlineData("<seg@example.com>\n")]
+    [InlineData("\n<seg@example.com>")]
+    public void PrepareSegmentId_NormalizesBracketAndWhitespaceCombos_AfterSegmentIdConversion(string raw)
+    {
+        // Mimic the production path: the raw DB string is converted to a SegmentId
+        // (which strips at most one bracket per end) before PrepareSegmentId runs.
+        SegmentId segmentId = raw;
+        Assert.Equal("seg@example.com", NntpClient.PrepareSegmentId(segmentId).ToString());
+    }
+
+    [Theory]
+    [InlineData("not-a-message-id")]
+    [InlineData("@example.com")]
+    [InlineData("local@")]
+    [InlineData("bad<id>@example.com")]
+    [InlineData("has space@example.com")]
+    [InlineData("")]
+    [InlineData("ab")]
+    public void PrepareSegmentId_ThrowsNotFound_ForInvalidIds(string input)
+    {
+        Assert.False(NntpClient.IsValidSegmentId(input));
+        Assert.Throws<UsenetArticleNotFoundException>(() => NntpClient.PrepareSegmentId(input));
     }
 
     [Fact]

@@ -233,6 +233,14 @@ public class MultiConnectionNntpClient(
                 LogException(() => onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved));
                 throw;
             }
+            catch (Exception e) when (e.TryGetCausingException(out UsenetArticleNotFoundException? _))
+            {
+                // Permanently missing / invalid segment ids are not connection failures.
+                deferredCallback.Discard();
+                LogException(() => connectionLock?.Dispose());
+                LogException(() => onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved));
+                throw;
+            }
             catch (Exception e)
             {
                 deferredCallback.Discard();
