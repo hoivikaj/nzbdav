@@ -79,6 +79,15 @@ class Program
             // Block upgrades to version 0.6.x
             BlockUpgradesToV06X();
 
+            // run database migration / restore, if necessary.
+            // Restore must run before opening the live DavDatabaseContext so pending
+            // migrations are computed against the restored schema.
+            if (args.Contains("--db-migration"))
+            {
+                await RunDatabaseMigrationsAsync(args).ConfigureAwait(false);
+                return;
+            }
+
             // initialize database
             await using var databaseContext = new DavDatabaseContext();
             await databaseContext.Database
@@ -86,12 +95,6 @@ class Program
                     "PRAGMA journal_mode = WAL;",
                     SigtermUtil.GetCancellationToken())
                 .ConfigureAwait(false);
-            // run database migration, if necessary.
-            if (args.Contains("--db-migration"))
-            {
-                await RunDatabaseMigrationsAsync(databaseContext, args).ConfigureAwait(false);
-                return;
-            }
 
             // The metrics database has its own schema and must also be current on
             // normal startup, where the operational migration runner is skipped.
@@ -167,6 +170,9 @@ class Program
                 .AddHostedService(sp => sp.GetRequiredService<WardenRemoteSourceService>())
                 .AddSingleton<WardenBackupService>()
                 .AddHostedService(sp => sp.GetRequiredService<WardenBackupService>())
+                .AddSingleton<DatabaseBackupStore>()
+                .AddSingleton<RestartService>()
+                .AddHostedService<DatabaseBackupSchedulerService>()
                 .AddSingleton<SearchExcludeSyncService>()
                 .AddHostedService(sp => sp.GetRequiredService<SearchExcludeSyncService>())
                 .AddSingleton<PlaybackFastVerifier>()
@@ -312,17 +318,47 @@ class Program
         Environment.Exit(1);
     }
 
-    private static async Task RunDatabaseMigrationsAsync(DavDatabaseContext databaseContext, string[] args)
+    private static async Task RunDatabaseMigrationsAsync(string[] args)
     {
         var ct = SigtermUtil.GetCancellationToken();
         var argIndex = args.ToList().IndexOf("--db-migration");
         var targetMigration = args.Length > argIndex + 1 ? args[argIndex + 1] : null;
+        var backupStore = new DatabaseBackupStore();
+        backupStore.EnsureInitialized();
+        var pendingRestore = backupStore.ReadPendingRestore();
+        var hasPendingRestore = pendingRestore is not null
+            && pendingRestore.StagedFiles.Count > 0
+            && pendingRestore.StagedFiles.All(name =>
+                File.Exists(Path.Combine(backupStore.RestoreStagingRoot, name)));
+        if (pendingRestore is not null && !hasPendingRestore)
+        {
+            Log.Warning(
+                "Discarding incomplete pending restore for backup {BackupId}",
+                pendingRestore.BackupId);
+            backupStore.ClearPendingRestore();
+            backupStore.ClearRestoreStaging();
+            pendingRestore = null;
+        }
 
         // An explicit target (design-time tooling / tests) uses the simple,
         // single-call path. Progress tracking only covers the common upgrade
         // path where all pending migrations are applied.
         if (targetMigration is not null)
         {
+            if (hasPendingRestore)
+            {
+                var progress = new MigrationProgress();
+                progress.Initialize(DatabaseRestoreRunner.GetRestoreSteps(pendingRestore!));
+                await using var statusServer = await MigrationStatusServer.StartAsync(progress, ct).ConfigureAwait(false);
+                await DatabaseRestoreRunner.ApplyPendingRestoreAsync(progress, ct).ConfigureAwait(false);
+                if (statusServer is not null)
+                    await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+            }
+
+            await using var databaseContext = new DavDatabaseContext();
+            await databaseContext.Database
+                .ExecuteSqlRawAsync("PRAGMA journal_mode = WAL;", ct)
+                .ConfigureAwait(false);
             Log.Information("Applying database migrations through {Target}", targetMigration);
             await databaseContext.Database.MigrateAsync(targetMigration, ct).ConfigureAwait(false);
             Log.Information("Database migrations completed");
@@ -332,47 +368,93 @@ class Program
             return;
         }
 
-        var pending = (await databaseContext.Database.GetPendingMigrationsAsync(ct).ConfigureAwait(false)).ToList();
-        var vacuumEnabled = await IsDatabaseStartupVacuumEnabledAsync().ConfigureAwait(false);
-
-        // Routine restarts with nothing to do: skip the status server and its
-        // grace delay so Docker does not bind/unbind :8080 just to say "idle".
-        if (MigrationProgress.IsIdleMaintenance(pending.Count, vacuumEnabled))
+        // When a restore is pending we always show the status page, even if there
+        // are no pending EF migrations after the swap.
+        if (!hasPendingRestore)
         {
-            Log.Information("No pending database migrations");
-            await using var metricsContext = new MetricsDbContext();
-            await metricsContext.Database.MigrateAsync(ct).ConfigureAwait(false);
-            Log.Information("Database migrations completed");
-            return;
+            await using var probeContext = new DavDatabaseContext();
+            await probeContext.Database
+                .ExecuteSqlRawAsync("PRAGMA journal_mode = WAL;", ct)
+                .ConfigureAwait(false);
+            var pendingProbe = (await probeContext.Database.GetPendingMigrationsAsync(ct).ConfigureAwait(false)).ToList();
+            var vacuumEnabledProbe = await IsDatabaseStartupVacuumEnabledAsync().ConfigureAwait(false);
+
+            // Routine restarts with nothing to do: skip the status server and its
+            // grace delay so Docker does not bind/unbind :8080 just to say "idle".
+            if (MigrationProgress.IsIdleMaintenance(pendingProbe.Count, vacuumEnabledProbe))
+            {
+                Log.Information("No pending database migrations");
+                await using var metricsContext = new MetricsDbContext();
+                await metricsContext.Database.MigrateAsync(ct).ConfigureAwait(false);
+                Log.Information("Database migrations completed");
+                return;
+            }
         }
 
-        // Build the ordered list of maintenance steps: each pending migration,
-        // then the metrics database, then the optional vacuum.
+        // Build the ordered list of maintenance steps: optional restore, then each
+        // pending migration (computed AFTER restore), then metrics, then optional vacuum.
         var steps = new List<MigrationProgress.MigrationStep>();
-        foreach (var id in pending)
-            steps.Add(new MigrationProgress.MigrationStep(id, MigrationProgress.FriendlyName(id), MigrationProgress.IsSlow(id)));
-        steps.Add(new MigrationProgress.MigrationStep(MigrationProgress.MetricsStepId, "Metrics database", false));
-        if (vacuumEnabled)
-            steps.Add(new MigrationProgress.MigrationStep(MigrationProgress.VacuumStepId, "Optimizing database (vacuum)", true));
+        if (hasPendingRestore)
+            steps.AddRange(DatabaseRestoreRunner.GetRestoreSteps(pendingRestore!));
 
-        var progress = new MigrationProgress();
-        progress.Initialize(steps);
+        var progressFull = new MigrationProgress();
+        // Restore steps are registered first; migration steps are appended after
+        // the swap so GetPendingMigrations reflects the restored schema.
+        progressFull.Initialize(steps);
 
-        // Serve live progress on the backend port for the duration of the migration.
-        await using var statusServer = await MigrationStatusServer.StartAsync(progress, ct).ConfigureAwait(false);
+        await using var statusServerFull = await MigrationStatusServer.StartAsync(progressFull, ct).ConfigureAwait(false);
 
         try
         {
+            if (hasPendingRestore)
+            {
+                Log.Information("Applying staged database restore for backup {BackupId}", pendingRestore!.BackupId);
+                await DatabaseRestoreRunner.ApplyPendingRestoreAsync(progressFull, ct).ConfigureAwait(false);
+            }
+
+            await using var databaseContext = new DavDatabaseContext();
+            await databaseContext.Database
+                .ExecuteSqlRawAsync("PRAGMA journal_mode = WAL;", ct)
+                .ConfigureAwait(false);
+
+            var pending = (await databaseContext.Database.GetPendingMigrationsAsync(ct).ConfigureAwait(false)).ToList();
+            var vacuumEnabled = await IsDatabaseStartupVacuumEnabledAsync().ConfigureAwait(false);
+
+            var remainingSteps = new List<MigrationProgress.MigrationStep>();
+            foreach (var id in pending)
+                remainingSteps.Add(new MigrationProgress.MigrationStep(id, MigrationProgress.FriendlyName(id), MigrationProgress.IsSlow(id)));
+            remainingSteps.Add(new MigrationProgress.MigrationStep(MigrationProgress.MetricsStepId, "Metrics database", false));
+            if (vacuumEnabled)
+                remainingSteps.Add(new MigrationProgress.MigrationStep(MigrationProgress.VacuumStepId, "Optimizing database (vacuum)", true));
+
+            // Re-initialize with restore steps (already completed) + remaining work so
+            // the UI shows the full plan. Completed restore steps keep their status via
+            // a fresh Initialize — instead append by re-init with all steps and mark
+            // restore steps completed again.
+            var allSteps = new List<MigrationProgress.MigrationStep>();
+            if (hasPendingRestore)
+                allSteps.AddRange(DatabaseRestoreRunner.GetRestoreSteps(pendingRestore!));
+            allSteps.AddRange(remainingSteps);
+            progressFull.Initialize(allSteps);
+            if (hasPendingRestore)
+            {
+                foreach (var step in DatabaseRestoreRunner.GetRestoreSteps(pendingRestore!))
+                {
+                    progressFull.BeginStep(step.Id);
+                    progressFull.CompleteStep(step.Id);
+                }
+            }
+
             if (pending.Count == 0)
                 Log.Information("No pending database migrations");
 
-            for (var i = 0; i < steps.Count; i++)
+            for (var i = 0; i < remainingSteps.Count; i++)
             {
-                var step = steps[i];
+                var step = remainingSteps[i];
                 Log.Information(
                     "Database maintenance step {Index}/{Total}: {Name}",
-                    i + 1, steps.Count, step.Name);
-                progress.BeginStep(step.Id);
+                    i + 1, remainingSteps.Count, step.Name);
+                progressFull.BeginStep(step.Id);
 
                 if (step.Id == MigrationProgress.MetricsStepId)
                 {
@@ -388,24 +470,24 @@ class Program
                     await databaseContext.Database.MigrateAsync(step.Id, ct).ConfigureAwait(false);
                 }
 
-                progress.CompleteStep(step.Id);
+                progressFull.CompleteStep(step.Id);
             }
 
-            progress.Complete();
+            progressFull.Complete();
             Log.Information("Database migrations completed");
 
             // Brief grace so the status page can render the final state before
             // this process exits and the port goes dark.
-            if (statusServer is not null)
+            if (statusServerFull is not null)
                 await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            progress.Fail(ex.Message);
+            progressFull.Fail(ex.Message);
             Log.Error(ex, "Database migration failed");
 
             // Keep the failure visible on the status page briefly before exiting.
-            if (statusServer is not null)
+            if (statusServerFull is not null)
             {
                 try { await Task.Delay(TimeSpan.FromSeconds(3), CancellationToken.None).ConfigureAwait(false); }
                 catch { /* ignore */ }

@@ -109,9 +109,24 @@ if [[ "$MIGRATE_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
-if [[ "$SKIP_MIGRATE" -eq 0 ]]; then
-  run_migration
-fi
+RESTORE_RESTART_EXIT_CODE=86
 
-echo "Starting backend at $BACKEND_URL (config: $CONFIG_PATH)"
-exec "$BINARY"
+while true; do
+  if [[ "$SKIP_MIGRATE" -eq 0 ]]; then
+    run_migration
+  fi
+
+  echo "Starting backend at $BACKEND_URL (config: $CONFIG_PATH)"
+  set +e
+  "$BINARY"
+  EXIT_CODE=$?
+  set -e
+
+  if [[ "$EXIT_CODE" -eq "$RESTORE_RESTART_EXIT_CODE" ]]; then
+    echo "Backend requested restore restart (exit $RESTORE_RESTART_EXIT_CODE). Re-running migration."
+    SKIP_MIGRATE=0
+    continue
+  fi
+
+  exit "$EXIT_CODE"
+done

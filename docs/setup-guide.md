@@ -540,7 +540,17 @@ These can also be set under **Settings → Maintenance** (`database.history-rete
 
 ### Back up NzbDav
 
-Back up the host directory mapped to `/config` (shown as `./config` in this guide). It contains the database, settings, credentials, and persisted application data, so store the backup securely. Stop the container or use a filesystem snapshot to get a consistent backup:
+NzbDav includes an in-app **Settings → Backup & Restore** flow that dumps all SQLite databases (`db.sqlite`, `metrics.sqlite`, and `warden.db`) to portable `.sql` files under `{CONFIG_PATH}/backups/`. You can:
+
+- create a backup on demand
+- schedule a daily backup and set a retention count
+- preserve important backups so retention never deletes them
+- download a backup as a zip, or upload a previously downloaded zip / `.sql` dump
+- restore through a guided flow that creates a pre-restore safety backup, stages the import, then restarts into maintenance mode to swap databases safely
+
+The `blobs/` folder is **not** included in these dumps. After a restore, the UI reports how many blob references point to missing files. Affected WebDAV items may fail to stream until they are re-downloaded.
+
+For a full filesystem-level backup (including blobs and data-protection keys), stop the container or use a filesystem snapshot and archive the host directory mapped to `/config`:
 
 ```bash
 docker compose stop nzbdav

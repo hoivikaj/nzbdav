@@ -70,6 +70,11 @@ public static class ConfigKeys
     public const string MaintenanceRemoveOrphanedScheduleEnabled = "maintenance.remove-orphaned-schedule-enabled";
     public const string MaintenanceRemoveOrphanedScheduleTime = "maintenance.remove-orphaned-schedule-time";
 
+    // database backups
+    public const string BackupScheduleEnabled = "backup.schedule-enabled";
+    public const string BackupScheduleTime = "backup.schedule-time";
+    public const string BackupRetentionCount = "backup.retention-count";
+
     // play
     public const string PlayCandidateNegativeCacheMinutes = "play.candidate-negative-cache-minutes";
     public const string PlayExcludePatterns = "play.exclude-patterns";

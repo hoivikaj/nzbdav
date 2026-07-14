@@ -10,6 +10,7 @@ import { isArrsSettingsUpdated, isArrsSettingsValid, ArrsSettings } from "./arrs
 import { isIndexersSettingsUpdated, isIndexersSettingsValid, IndexersSettings } from "./indexers/indexers";
 import { isProfilesSettingsUpdated, isProfilesSettingsValid, ProfilesSettings } from "./profiles/profiles";
 import { isMaintenanceSettingsUpdated, Maintenance } from "./maintenance/maintenance";
+import { isBackupSettingsUpdated, BackupSettings } from "./backup/backup";
 import { isRepairsSettingsUpdated, RepairsSettings } from "./repairs/repairs";
 import { isWatchdogSettingsUpdated, WatchdogSettings } from "./watchdog/watchdog";
 import { isPreflightSettingsUpdated, PreflightSettings } from "./preflight/preflight";
@@ -97,6 +98,9 @@ const defaultConfig = {
     "database.healthcheck-retention-days": "30",
     "maintenance.remove-orphaned-schedule-enabled": "false",
     "maintenance.remove-orphaned-schedule-time": "0",
+    "backup.schedule-enabled": "false",
+    "backup.schedule-time": "0",
+    "backup.retention-count": "5",
     "api.nzb-backup-enabled": "false",
     "api.nzb-backup-location": "",
     "watchtower.enabled": "false",
@@ -177,9 +181,10 @@ function Body(props: BodyProps) {
     const isPreflightUpdated = isPreflightSettingsUpdated(config, newConfig);
     const isRcloneUpdated = isRcloneSettingsUpdated(config, newConfig);
     const isMaintenanceUpdated = isMaintenanceSettingsUpdated(config, newConfig);
+    const isBackupUpdated = isBackupSettingsUpdated(config, newConfig);
     const isWatchtowerUpdated = isWatchtowerSettingsUpdated(config, newConfig);
     const isWardenUpdated = isWardenSettingsUpdated(config, newConfig);
-    const isUpdated = iseUsenetUpdated || isSabnzbdUpdated || isWebdavUpdated || isArrsUpdated || isIndexersUpdated || isProfilesUpdated || isRepairsUpdated || isWatchdogUpdated || isPreflightUpdated || isRcloneUpdated || isMaintenanceUpdated || isWatchtowerUpdated || isWardenUpdated;
+    const isUpdated = iseUsenetUpdated || isSabnzbdUpdated || isWebdavUpdated || isArrsUpdated || isIndexersUpdated || isProfilesUpdated || isRepairsUpdated || isWatchdogUpdated || isPreflightUpdated || isRcloneUpdated || isMaintenanceUpdated || isBackupUpdated || isWatchtowerUpdated || isWardenUpdated;
     const navigationBlocker = useNavigationBlocker(isUpdated);
 
     const saveButtonLabel = isSaving ? "Saving..."
@@ -250,6 +255,7 @@ function Body(props: BodyProps) {
                 {activeTab === "repairs" && <RepairsSettings config={newConfig} setNewConfig={setNewConfig} />}
                 {activeTab === "rclone" && <RcloneSettings config={newConfig} setNewConfig={setNewConfig} />}
                 {activeTab === "maintenance" && <Maintenance savedConfig={config} config={newConfig} setNewConfig={setNewConfig} />}
+                {activeTab === "backup" && <BackupSettings config={newConfig} setNewConfig={setNewConfig} />}
             </SettingsPanel>
 
             {saveError && (

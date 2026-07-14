@@ -113,66 +113,80 @@ cd /app/frontend
 su-exec "$USER_NAME" npm run start &
 FRONTEND_PID=$!
 
-# Run backend database migration
-cd /app/backend
-echo "Running database maintenance."
-su-exec "$USER_NAME" ./NzbWebDAV --db-migration
-MIGRATION_EXIT_CODE=$?
-if [ "$MIGRATION_EXIT_CODE" -ne 0 ]; then
-    echo "Database migration failed. Exiting with error code $MIGRATION_EXIT_CODE."
-    if [ -n "$FRONTEND_PID" ] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
-        kill "$FRONTEND_PID"
-        wait "$FRONTEND_PID" 2>/dev/null
-    fi
-    exit "$MIGRATION_EXIT_CODE"
-fi
-echo "Done with database maintenance."
+# Exit code 86 means the backend staged a database restore and needs the
+# maintenance phase to run again (swap DBs with WebDAV/SAB offline). Keep the
+# frontend alive and loop.
+RESTORE_RESTART_EXIT_CODE=86
 
-# Run backend as "$USER_NAME" in background
-su-exec "$USER_NAME" ./NzbWebDAV &
-BACKEND_PID=$!
-
-# Wait for backend health check
-echo "Waiting for backend to start."
-MAX_BACKEND_HEALTH_RETRIES=${MAX_BACKEND_HEALTH_RETRIES:-30}
-MAX_BACKEND_HEALTH_RETRY_DELAY=${MAX_BACKEND_HEALTH_RETRY_DELAY:-1}
-i=0
 while true; do
-    echo "Checking backend health: $BACKEND_URL/health ..."
-    if curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" | grep -q "^200$"; then
-        echo "Backend is healthy."
-        break
-    fi
-
-    i=$((i+1))
-    if [ "$i" -ge "$MAX_BACKEND_HEALTH_RETRIES" ]; then
-        echo "Backend failed health check after $MAX_BACKEND_HEALTH_RETRIES retries. Exiting."
-        kill "$BACKEND_PID"
-        wait "$BACKEND_PID"
+    # Run backend database migration / restore swap
+    cd /app/backend
+    echo "Running database maintenance."
+    su-exec "$USER_NAME" ./NzbWebDAV --db-migration
+    MIGRATION_EXIT_CODE=$?
+    if [ "$MIGRATION_EXIT_CODE" -ne 0 ]; then
+        echo "Database migration failed. Exiting with error code $MIGRATION_EXIT_CODE."
         if [ -n "$FRONTEND_PID" ] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
             kill "$FRONTEND_PID"
             wait "$FRONTEND_PID" 2>/dev/null
         fi
-        exit 1
+        exit "$MIGRATION_EXIT_CODE"
+    fi
+    echo "Done with database maintenance."
+
+    # Run backend as "$USER_NAME" in background
+    su-exec "$USER_NAME" ./NzbWebDAV &
+    BACKEND_PID=$!
+
+    # Wait for backend health check
+    echo "Waiting for backend to start."
+    MAX_BACKEND_HEALTH_RETRIES=${MAX_BACKEND_HEALTH_RETRIES:-30}
+    MAX_BACKEND_HEALTH_RETRY_DELAY=${MAX_BACKEND_HEALTH_RETRY_DELAY:-1}
+    i=0
+    while true; do
+        echo "Checking backend health: $BACKEND_URL/health ..."
+        if curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" | grep -q "^200$"; then
+            echo "Backend is healthy."
+            break
+        fi
+
+        i=$((i+1))
+        if [ "$i" -ge "$MAX_BACKEND_HEALTH_RETRIES" ]; then
+            echo "Backend failed health check after $MAX_BACKEND_HEALTH_RETRIES retries. Exiting."
+            kill "$BACKEND_PID"
+            wait "$BACKEND_PID"
+            if [ -n "$FRONTEND_PID" ] && kill -0 "$FRONTEND_PID" 2>/dev/null; then
+                kill "$FRONTEND_PID"
+                wait "$FRONTEND_PID" 2>/dev/null
+            fi
+            exit 1
+        fi
+
+        sleep "$MAX_BACKEND_HEALTH_RETRY_DELAY"
+    done
+
+    # Wait for either to exit
+    wait_either "$BACKEND_PID" "$FRONTEND_PID"
+    EXIT_CODE=$?
+
+    # Staged restore: backend asked to re-enter maintenance. Keep frontend and loop.
+    if [ "$EXITED_PID" -eq "$BACKEND_PID" ] && [ "$EXIT_CODE" -eq "$RESTORE_RESTART_EXIT_CODE" ]; then
+        echo "Backend requested restore restart (exit $RESTORE_RESTART_EXIT_CODE). Re-running database maintenance."
+        BACKEND_PID=""
+        continue
     fi
 
-    sleep "$MAX_BACKEND_HEALTH_RETRY_DELAY"
+    # Determine which process exited
+    if [ "$EXITED_PID" -eq "$FRONTEND_PID" ]; then
+        echo "The web-frontend has exited. Shutting down the web-backend..."
+    else
+        echo "The web-backend has exited. Shutting down the web-frontend..."
+    fi
+
+    # Kill the remaining process
+    kill "$REMAINING_PID"
+    wait "$REMAINING_PID" 2>/dev/null
+
+    # Exit with the code of the process that died first
+    exit $EXIT_CODE
 done
-
-# Wait for either to exit
-wait_either "$BACKEND_PID" "$FRONTEND_PID"
-EXIT_CODE=$?
-
-# Determine which process exited
-if [ "$EXITED_PID" -eq "$FRONTEND_PID" ]; then
-    echo "The web-frontend has exited. Shutting down the web-backend..."
-else
-    echo "The web-backend has exited. Shutting down the web-frontend..."
-fi
-
-# Kill the remaining process
-kill "$REMAINING_PID"
-wait "$REMAINING_PID" 2>/dev/null
-
-# Exit with the code of the process that died first
-exit $EXIT_CODE

@@ -11,7 +11,8 @@ export type SettingsTab =
     | "arrs"
     | "repairs"
     | "rclone"
-    | "maintenance";
+    | "maintenance"
+    | "backup";
 
 export type SettingsTabItem = {
     id: SettingsTab;
@@ -56,6 +57,7 @@ export const SETTINGS_TAB_GROUPS: SettingsTabGroup[] = [
         items: [
             { id: "repairs", label: "Repairs", icon: "build" },
             { id: "maintenance", label: "Maintenance", icon: "settings_suggest" },
+            { id: "backup", label: "Backup & Restore", icon: "settings_backup_restore" },
         ],
     },
 ];

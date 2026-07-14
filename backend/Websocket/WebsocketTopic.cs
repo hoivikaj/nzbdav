@@ -26,6 +26,10 @@ public class WebsocketTopic
     // Migration progress topic
     public static readonly WebsocketTopic UsenetFileToBlobstoreMigrationProgress = new("uftbmp", TopicType.State);
 
+    // Database backup / restore progress
+    public static readonly WebsocketTopic DatabaseBackupTaskProgress = new("dbbk", TopicType.State);
+    public static readonly WebsocketTopic DatabaseRestoreTaskProgress = new("dbrs", TopicType.State);
+
     public readonly string Name;
     public readonly TopicType Type;
 

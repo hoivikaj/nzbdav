@@ -192,6 +192,8 @@ public class ConfigManager
                 case ConfigKeys.DatabaseHistoryRetentionDays:
                 case ConfigKeys.DatabaseHealthcheckRetentionDays:
                 case ConfigKeys.MaintenanceRemoveOrphanedScheduleTime:
+                case ConfigKeys.BackupScheduleTime:
+                case ConfigKeys.BackupRetentionCount:
                     RequireLong(item.ConfigName, value);
                     break;
 
@@ -222,6 +224,7 @@ public class ConfigManager
                 case ConfigKeys.RcloneRcEnabled:
                 case ConfigKeys.DbIsStartupVacuumEnabled:
                 case ConfigKeys.MaintenanceRemoveOrphanedScheduleEnabled:
+                case ConfigKeys.BackupScheduleEnabled:
                     RequireBool(item.ConfigName, value);
                     break;
 
@@ -1150,6 +1153,32 @@ public class ConfigManager
         if (!int.TryParse(configValue, out var totalMinutes)) return defaultValue;
         if (totalMinutes < 0 || totalMinutes >= 24 * 60) return defaultValue;
         return TimeSpan.FromMinutes(totalMinutes);
+    }
+
+    public bool IsDatabaseBackupScheduleEnabled()
+    {
+        var defaultValue = false;
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.BackupScheduleEnabled));
+        return configValue != null ? bool.Parse(configValue) : defaultValue;
+    }
+
+    public TimeSpan DatabaseBackupSchedule()
+    {
+        var defaultValue = TimeSpan.Zero;
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.BackupScheduleTime));
+        if (configValue == null) return defaultValue;
+        if (!int.TryParse(configValue, out var totalMinutes)) return defaultValue;
+        if (totalMinutes < 0 || totalMinutes >= 24 * 60) return defaultValue;
+        return TimeSpan.FromMinutes(totalMinutes);
+    }
+
+    public int GetDatabaseBackupRetentionCount()
+    {
+        var defaultValue = 5;
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.BackupRetentionCount));
+        if (configValue == null) return defaultValue;
+        if (!int.TryParse(configValue, out var count) || count < 0) return defaultValue;
+        return count;
     }
 
     public class ConfigEventArgs : EventArgs

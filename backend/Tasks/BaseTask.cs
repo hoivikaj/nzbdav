@@ -11,6 +11,15 @@ public abstract class BaseTask
 
     protected readonly CancellationToken CancellationToken = SigtermUtil.GetCancellationToken();
 
+    public static bool IsRunning
+    {
+        get
+        {
+            var task = Volatile.Read(ref _runningTask);
+            return task is { IsCompleted: false };
+        }
+    }
+
     public async Task<bool> Execute()
     {
         await Semaphore.WaitAsync(CancellationToken).ConfigureAwait(false);

@@ -193,7 +193,7 @@ export function MigrationBoundary({ fallback }: { fallback: FallbackProps }) {
   );
 }
 
-function MigrationProgressView({ status }: { status: MigrationStatus }) {
+export function MigrationProgressView({ status }: { status: MigrationStatus }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
@@ -295,7 +295,7 @@ function MigrationProgressView({ status }: { status: MigrationStatus }) {
   );
 }
 
-function MigrationShell({
+export function MigrationShell({
   title,
   subtitle,
   children,
