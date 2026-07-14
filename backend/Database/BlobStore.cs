@@ -8,7 +8,7 @@ namespace NzbWebDAV.Database;
 public class BlobStore
 {
     private static readonly int CompressionLevel = 1;
-    private static readonly string ConfigPath = DavDatabaseContext.ConfigPath;
+    private static string ConfigPath => DavDatabaseContext.ConfigPath;
     private static readonly Lock LockObj = new();
     private static readonly MemoryCache MetadataCache = new(new MemoryCacheOptions
     {
