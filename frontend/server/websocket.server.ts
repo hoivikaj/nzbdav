@@ -3,9 +3,35 @@ import { isAuthenticated } from "../app/auth/authentication.server";
 import type { IncomingMessage } from 'http';
 import { logger } from "./logger";
 
+export const MAX_WEBSOCKET_PAYLOAD_BYTES = 64 * 1024;
+export const MAX_TOPICS_PER_SOCKET = 100;
+
+const TOPIC_KINDS = new Set(["state", "stream"]);
+
+/** Validate browser subscription payloads: flat Record<string, "state" | "stream">. */
+export function parseSubscriptionTopics(raw: string): Record<string, "state" | "stream"> | null {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+
+    const topics: Record<string, "state" | "stream"> = {};
+    for (const [topic, kind] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof topic !== "string" || topic.length === 0) return null;
+        if (kind !== "state" && kind !== "stream") return null;
+        if (!TOPIC_KINDS.has(kind)) return null;
+        topics[topic] = kind;
+    }
+    if (Object.keys(topics).length > MAX_TOPICS_PER_SOCKET) return null;
+    return topics;
+}
+
 function initializeWebsocketServer(wss: WebSocketServer) {
     // keep track of socket subscriptions
-    const websockets = new Map<WebSocket, any>();
+    const websockets = new Map<WebSocket, Record<string, "state" | "stream">>();
     const subscriptions = new Map<string, Set<WebSocket>>();
     const lastMessage = new Map<string, string>();
     initializeWebsocketClient(subscriptions, lastMessage);
@@ -19,20 +45,28 @@ function initializeWebsocketServer(wss: WebSocketServer) {
         const pendingMessages: WebSocket.MessageEvent[] = [];
 
         const applySubscription = (event: WebSocket.MessageEvent) => {
-            try {
-                const topics = JSON.parse(event.data.toString());
-                websockets.set(ws, topics);
-                for (const topic in topics) {
-                    const topicSubscriptions = subscriptions.get(topic);
-                    if (topicSubscriptions) topicSubscriptions.add(ws);
-                    else subscriptions.set(topic, new Set<WebSocket>([ws]));
-                    if (topics[topic] === 'state') {
-                        const messageToSend = lastMessage.get(topic);
-                        if (messageToSend) ws.send(messageToSend);
-                    }
-                }
-            } catch {
+            const topics = parseSubscriptionTopics(event.data.toString());
+            if (!topics) {
                 ws.close(1003, "Could not process topic subscription. If recently updated, try refreshing the page.");
+                return;
+            }
+
+            const previous = websockets.get(ws);
+            if (previous) {
+                for (const topic of Object.keys(previous)) {
+                    subscriptions.get(topic)?.delete(ws);
+                }
+            }
+
+            websockets.set(ws, topics);
+            for (const topic of Object.keys(topics)) {
+                const topicSubscriptions = subscriptions.get(topic);
+                if (topicSubscriptions) topicSubscriptions.add(ws);
+                else subscriptions.set(topic, new Set<WebSocket>([ws]));
+                if (topics[topic] === 'state') {
+                    const messageToSend = lastMessage.get(topic);
+                    if (messageToSend) ws.send(messageToSend);
+                }
             }
         };
 
@@ -50,7 +84,7 @@ function initializeWebsocketServer(wss: WebSocketServer) {
             const topics = websockets.get(ws);
             if (topics) {
                 websockets.delete(ws);
-                for (const topic in topics) {
+                for (const topic of Object.keys(topics)) {
                     const topicSubscriptions = subscriptions.get(topic);
                     if (topicSubscriptions) topicSubscriptions.delete(ws);
                 }
