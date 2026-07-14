@@ -31,6 +31,12 @@ public static class ServiceCollectionAuthExtensions
         if (WebApplicationAuthExtensions.IsWebdavAuthDisabled())
             return services;
 
+        // Invalidate in-memory credential cache when WebDAV credentials change.
+        // Basic-auth clients resend Authorization each request; the memory cache
+        // (HMAC-keyed including password hash) already makes stale entries unreachable,
+        // but clearing keeps the invariant explicit and frees memory.
+        configManager.OnConfigChanged += OnWebdavCredentialsChanged;
+
         // otherwise configure basic auth
         services
             .AddDataProtection()
@@ -40,13 +46,41 @@ public static class ServiceCollectionAuthExtensions
             .AddBasicAuthentication(opts =>
             {
                 opts.AllowInsecureProtocol = true;
-                opts.CacheCookieName = "nzb-webdav-backend";
-                opts.CacheCookieExpiration = TimeSpan.FromHours(1);
+                // Disable NWebDav's cookie-based auth cache. Once issued, that cookie
+                // authenticates without re-running OnValidateCredentials until expiry,
+                // so password changes would otherwise leave a residual session window.
+                // The VerifiedCredentials memory cache already skips PBKDF2 on repeats.
+                opts.CacheCookieName = string.Empty;
+                opts.CacheCookieExpiration = TimeSpan.Zero;
                 opts.Events.OnValidateCredentials = (ValidateCredentialsContext context) =>
                     ValidateCredentials(context, configManager);
             });
 
         return services;
+    }
+
+    internal static void OnWebdavCredentialsChanged(object? sender, ConfigManager.ConfigEventArgs e)
+    {
+        if (e.ChangedConfig.ContainsKey(ConfigKeys.WebdavUser)
+            || e.ChangedConfig.ContainsKey(ConfigKeys.WebdavPass))
+        {
+            ClearVerifiedCredentials();
+        }
+    }
+
+    internal static void ClearVerifiedCredentials() => VerifiedCredentials.Clear();
+
+    internal static bool HasCachedCredential(string cacheKey) =>
+        VerifiedCredentials.TryGetValue(cacheKey, out _);
+
+    /// <summary>
+    /// Test helper: insert a fake verified-credential entry for a known cache key.
+    /// </summary>
+    internal static void SeedVerifiedCredential(string cacheKey)
+    {
+        VerifiedCredentials.Set(cacheKey, true, new MemoryCacheEntryOptions()
+            .SetSize(1)
+            .SetSlidingExpiration(TimeSpan.FromMinutes(5)));
     }
 
     private static Task ValidateCredentials(ValidateCredentialsContext context, ConfigManager configManager)
