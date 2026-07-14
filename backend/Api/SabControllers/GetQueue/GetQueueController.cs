@@ -50,7 +50,8 @@ public class GetQueueController(
                 var isInProgress = queueItem == inProgressQueueItem;
                 var percentage = (isInProgress ? progressPercentage : 0)!.Value;
                 var status = isInProgress ? "Downloading" : "Queued";
-                var providerUsage = providerUsageTracker.Snapshot(queueItem!.Id);
+                IReadOnlyDictionary<string, long> providerUsage =
+                    GetProviderUsageForSlot(isInProgress, queueItem!.Id, providerUsageTracker);
                 if (isInProgress && configuredKeys.Count > 0)
                 {
                     var merged = new Dictionary<string, long>();
@@ -72,6 +73,20 @@ public class GetQueueController(
                 TotalCount = totalCount,
             }
         };
+    }
+
+    /// <summary>
+    /// Queued slots do not display live provider metrics; only snapshot the
+    /// in-progress item to keep large queues responsive.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, long> GetProviderUsageForSlot(
+        bool isInProgress,
+        Guid queueItemId,
+        ProviderUsageTracker providerUsageTracker)
+    {
+        return isInProgress
+            ? providerUsageTracker.Snapshot(queueItemId)
+            : new Dictionary<string, long>();
     }
 
     protected override async Task<IActionResult> Handle()
