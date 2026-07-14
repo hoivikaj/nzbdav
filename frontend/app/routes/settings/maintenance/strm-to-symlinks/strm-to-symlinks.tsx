@@ -1,7 +1,7 @@
 import { Button } from "~/components/ui/button";
 import { Alert } from "~/components/ui/feedback";
 import { Icon } from "~/components/ui/icon";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useWebsocketTopic } from "~/utils/shared-websocket";
 
 type ConvertStrmToSymlinksProps = {
