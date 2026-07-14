@@ -6,12 +6,13 @@ using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
+using NzbWebDAV.Services;
 using NzbWebDAV.Utils;
 using Serilog;
 
 namespace NzbWebDAV.Middlewares;
 
-public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManager)
+public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManager, StreamingFailureTracker failureTracker)
 {
     private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> RecentMissingArticles = new();
     private static readonly ConcurrentDictionary<string, (DateTime LastLogged, int SuppressedCount)> RecentConnectionLimitErrors = new();
@@ -198,6 +199,11 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
     {
         if (!configManager.IsRepairJobEnabled())
             return;
+
+        // Track every distinct streaming failure (not deduped by RepairDedupeWindow below) so the
+        // optional repair.auto-remove-after-failures policy in HealthCheckService can see how many
+        // times playback has actually failed against this item.
+        failureTracker.RecordFailure(davItemId);
 
         var now = DateTime.UtcNow;
         var isDuplicate = false;

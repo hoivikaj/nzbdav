@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Serilog;
 
 namespace NzbWebDAV.Models.Nzb;
 
@@ -6,6 +7,73 @@ public class NzbFile
 {
     public required string Subject { get; init; }
     public List<NzbSegment> Segments { get; } = [];
+
+    /// <summary>
+    /// Sort by segment number (when all present) and drop duplicates so every
+    /// consumer sees one logical segment per ordinal / message-id.
+    /// </summary>
+    public void CanonicalizeSegments()
+    {
+        if (Segments.Count <= 1) return;
+
+        var allNumbered = Segments.All(s => s.Number is not null);
+        if (allNumbered)
+        {
+            var ordered = Segments
+                .OrderBy(s => s.Number!.Value)
+                .ToList();
+
+            var deduped = new List<NzbSegment>(ordered.Count);
+            var duplicateCount = 0;
+            int? lastNumber = null;
+            foreach (var segment in ordered)
+            {
+                if (lastNumber == segment.Number)
+                {
+                    duplicateCount++;
+                    continue;
+                }
+
+                deduped.Add(segment);
+                lastNumber = segment.Number;
+            }
+
+            if (duplicateCount > 0)
+            {
+                Log.Warning(
+                    "NZB file {Subject} contained {Count} duplicate segment(s); deduplicated",
+                    Subject, duplicateCount);
+            }
+
+            Segments.Clear();
+            Segments.AddRange(deduped);
+            return;
+        }
+
+        // Numbers missing/partial: drop exact duplicate MessageIds only.
+        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        var kept = new List<NzbSegment>(Segments.Count);
+        var droppedIds = 0;
+        foreach (var segment in Segments)
+        {
+            if (!seenIds.Add(segment.MessageId))
+            {
+                droppedIds++;
+                continue;
+            }
+
+            kept.Add(segment);
+        }
+
+        if (droppedIds > 0)
+        {
+            Log.Warning(
+                "NZB file {Subject} contained {Count} duplicate segment(s); deduplicated",
+                Subject, droppedIds);
+            Segments.Clear();
+            Segments.AddRange(kept);
+        }
+    }
 
     public string[] GetSegmentIds()
     {

@@ -1,0 +1,237 @@
+using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Clients.Usenet.Models;
+using NzbWebDAV.Config;
+using NzbWebDAV.Database.Models;
+using UsenetSharp.Models;
+
+namespace NzbWebDAV.Tests.Clients.Usenet;
+
+public class DownloadingNntpClientStatGateTests
+{
+    [Fact]
+    public async Task StatAsync_RespectsMaxQueueConnections()
+    {
+        var gate = new ManualResetEventSlim(false);
+        var inFlight = 0;
+        var maxInFlight = 0;
+        var fake = new BlockingStatNntpClient(gate, () =>
+        {
+            var current = Interlocked.Increment(ref inFlight);
+            Interlocked.Exchange(ref maxInFlight, Math.Max(Volatile.Read(ref maxInFlight), current));
+        }, () => Interlocked.Decrement(ref inFlight));
+
+        var config = CreateConfig(maxQueueConnections: 2, maxDownloadConnections: 10);
+        using var client = new DownloadingNntpClient(fake, config);
+
+        var tasks = Enumerable.Range(0, 10)
+            .Select(i => client.StatAsync(new SegmentId($"seg-{i}"), CancellationToken.None))
+            .ToArray();
+
+        await Task.Delay(100);
+        Assert.True(Volatile.Read(ref maxInFlight) <= 2);
+
+        gate.Set();
+        await Task.WhenAll(tasks);
+
+        Assert.True(maxInFlight <= 2);
+        Assert.Equal(0, Volatile.Read(ref inFlight));
+    }
+
+    [Fact]
+    public async Task StatAsync_CancellationWhileWaiting_DoesNotLeakPermit()
+    {
+        var holdFirst = new ManualResetEventSlim(false);
+        var fake = new BlockingStatNntpClient(holdFirst, onEnter: null, onExit: null);
+        var config = CreateConfig(maxQueueConnections: 1, maxDownloadConnections: 10);
+        using var client = new DownloadingNntpClient(fake, config);
+
+        var first = client.StatAsync(new SegmentId("held"), CancellationToken.None);
+        await Task.Delay(50);
+
+        using var cts = new CancellationTokenSource();
+        var waiting = client.StatAsync(new SegmentId("waiting"), cts.Token);
+        await Task.Delay(50);
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await waiting);
+
+        holdFirst.Set();
+        await first;
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await client.StatAsync(new SegmentId("after"), timeout.Token);
+    }
+
+    [Fact]
+    public async Task HeadAsync_RespectsMaxQueueConnections()
+    {
+        var gate = new ManualResetEventSlim(false);
+        var inFlight = 0;
+        var maxInFlight = 0;
+        var fake = new BlockingHeadNntpClient(gate, () =>
+        {
+            var current = Interlocked.Increment(ref inFlight);
+            Interlocked.Exchange(ref maxInFlight, Math.Max(Volatile.Read(ref maxInFlight), current));
+        }, () => Interlocked.Decrement(ref inFlight));
+
+        var config = CreateConfig(maxQueueConnections: 2, maxDownloadConnections: 10);
+        using var client = new DownloadingNntpClient(fake, config);
+
+        var tasks = Enumerable.Range(0, 8)
+            .Select(i => client.HeadAsync(new SegmentId($"seg-{i}"), CancellationToken.None))
+            .ToArray();
+
+        await Task.Delay(100);
+        Assert.True(Volatile.Read(ref maxInFlight) <= 2);
+
+        gate.Set();
+        await Task.WhenAll(tasks);
+        Assert.True(maxInFlight <= 2);
+    }
+
+    private static ConfigManager CreateConfig(
+        int maxQueueConnections,
+        int maxDownloadConnections)
+    {
+        var config = new ConfigManager();
+        config.UpdateValues(
+        [
+            new ConfigItem { ConfigName = ConfigKeys.UsenetMaxQueueConnections, ConfigValue = maxQueueConnections.ToString() },
+            new ConfigItem { ConfigName = ConfigKeys.UsenetMaxDownloadConnections, ConfigValue = maxDownloadConnections.ToString() },
+        ]);
+        return config;
+    }
+
+    private abstract class MinimalNntpClient : NntpClient
+    {
+        public override Task ConnectAsync(string host, int port, bool useSsl, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public override Task<UsenetResponse> AuthenticateAsync(string user, string pass, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetStatResponse> StatAsync(SegmentId segmentId, CancellationToken cancellationToken) =>
+            Task.FromResult(new UsenetStatResponse
+            {
+                ResponseCode = (int)UsenetResponseType.ArticleExists,
+                ResponseMessage = $"223 0 0 <{segmentId}>",
+                ArticleExists = true,
+            });
+
+        public override Task<UsenetHeadResponse> HeadAsync(SegmentId segmentId, CancellationToken cancellationToken) =>
+            Task.FromResult(new UsenetHeadResponse
+            {
+                SegmentId = segmentId.ToString(),
+                ResponseCode = (int)UsenetResponseType.ArticleRetrievedHeadFollows,
+                ResponseMessage = "221",
+                ArticleHeaders = null!,
+            });
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+            IReadOnlyList<SegmentId> segmentIds,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDateResponse> DateAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync(
+            string segmentId, CancellationToken cancellationToken) =>
+            Task.FromResult(new UsenetExclusiveConnection(null));
+
+        public override Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync(
+            IReadOnlyList<SegmentId> segmentIds, CancellationToken cancellationToken) =>
+            Task.FromResult(new UsenetExclusiveConnection(null));
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId, UsenetExclusiveConnection exclusiveConnection, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+            IReadOnlyList<SegmentId> segmentIds,
+            UsenetExclusiveConnection exclusiveConnection,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId, UsenetExclusiveConnection exclusiveConnection, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override void Dispose()
+        {
+        }
+    }
+
+    private sealed class BlockingStatNntpClient(
+        ManualResetEventSlim gate,
+        Action? onEnter,
+        Action? onExit) : MinimalNntpClient
+    {
+        public override async Task<UsenetStatResponse> StatAsync(
+            SegmentId segmentId, CancellationToken cancellationToken)
+        {
+            onEnter?.Invoke();
+            try
+            {
+                while (!gate.IsSet)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+                }
+
+                return await base.StatAsync(segmentId, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                onExit?.Invoke();
+            }
+        }
+    }
+
+    private sealed class BlockingHeadNntpClient(
+        ManualResetEventSlim gate,
+        Action? onEnter,
+        Action? onExit) : MinimalNntpClient
+    {
+        public override async Task<UsenetHeadResponse> HeadAsync(
+            SegmentId segmentId, CancellationToken cancellationToken)
+        {
+            onEnter?.Invoke();
+            try
+            {
+                while (!gate.IsSet)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+                }
+
+                return await base.HeadAsync(segmentId, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                onExit?.Invoke();
+            }
+        }
+    }
+}

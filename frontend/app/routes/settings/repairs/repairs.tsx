@@ -8,6 +8,11 @@ type RepairsSettingsProps = {
     setNewConfig: Dispatch<SetStateAction<Record<string, string>>>
 };
 
+function isNonNegativeInteger(value: string) {
+    const num = Number(value);
+    return Number.isInteger(num) && num >= 0 && value.trim() === num.toString();
+}
+
 export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) {
     const libraryDirConfig = config["media.library-dir"];
     const arrConfig = JSON.parse(config["arr.instances"]);
@@ -18,6 +23,8 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
     const helpText = canEnableRepairs
         ? "When enabled, usenet items will be continuously monitored for health. Unhealthy items will be removed. If an unhealthy item is part of your Radarr/Sonarr library, a new search will be triggered to find a replacement."
         : "When enabled, usenet items will be continuously monitored for health. Unhealthy items will be removed and replaced. This setting can only be enabled once your Library-Directory and Radarr/Sonarr instances are configured.";
+    const autoRemoveAfter = config["repair.auto-remove-after-failures"] ?? "0";
+    const autoRemoveEnabled = isNonNegativeInteger(autoRemoveAfter) && Number(autoRemoveAfter) > 0;
 
     return (
         <SettingsPage>
@@ -54,6 +61,39 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
             </div>
             <hr />
             <div className="space-y-2">
+                <label className="block text-sm font-medium text-slate-200" htmlFor="auto-remove-after-failures-input">Auto-Remove After Streaming Failures</label>
+                <Input
+                    className={`w-full ${!isNonNegativeInteger(autoRemoveAfter || "0") ? "border-red-500" : ""}`}
+                    type="text"
+                    id="auto-remove-after-failures-input"
+                    aria-describedby="auto-remove-after-failures-help"
+                    placeholder="0"
+                    value={autoRemoveAfter}
+                    onChange={e => setNewConfig({ ...config, "repair.auto-remove-after-failures": e.target.value })} />
+                <p className="text-[11px] leading-relaxed text-base-content/45" id="auto-remove-after-failures-help">
+                    After this many streaming playback failures (missing articles), urgent repair will
+                    auto-remove the broken file. Set to 0 to disable (default). Example: 3 removes an
+                    unlinked file on the third failure.
+                </p>
+            </div>
+            <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <Checkbox
+                    id="auto-remove-unlinked-only-checkbox"
+                    aria-describedby="auto-remove-unlinked-only-help"
+                    checked={(config["repair.auto-remove-unlinked-only"] ?? "true") === "true"}
+                    disabled={!autoRemoveEnabled}
+                    onChange={e => setNewConfig({ ...config, "repair.auto-remove-unlinked-only": "" + e.target.checked })}  />
+                    <span>Auto-remove unlinked files only</span>
+                </label>
+                <p className="text-[11px] leading-relaxed text-base-content/45" id="auto-remove-unlinked-only-help">
+                    When enabled (default), library-linked files still go through Radarr/Sonarr
+                    remove-and-search instead of silent delete. Disable for aggressive mode that
+                    force-deletes linked files after the failure threshold.
+                </p>
+            </div>
+            <hr />
+            <div className="space-y-2">
                 <label className="block text-sm font-medium text-slate-200" htmlFor="library-dir-input">Library Directory</label>
                 <Input
                     className={'w-full'}
@@ -74,10 +114,15 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
 export function isRepairsSettingsUpdated(config: Record<string, string>, newConfig: Record<string, string>) {
     return config["repair.enable"] !== newConfig["repair.enable"]
         || config["repair.healthcheck-concurrency"] !== newConfig["repair.healthcheck-concurrency"]
+        || config["repair.auto-remove-after-failures"] !== newConfig["repair.auto-remove-after-failures"]
+        || config["repair.auto-remove-unlinked-only"] !== newConfig["repair.auto-remove-unlinked-only"]
         || config["media.library-dir"] !== newConfig["media.library-dir"];
 }
 
 export function isRepairsSettingsValid(newConfig: Record<string, string>) {
-    const value = newConfig["repair.healthcheck-concurrency"];
-    return value === undefined || value === "" || isPositiveInteger(value);
+    const concurrency = newConfig["repair.healthcheck-concurrency"];
+    const autoRemove = newConfig["repair.auto-remove-after-failures"];
+    const concurrencyOk = concurrency === undefined || concurrency === "" || isPositiveInteger(concurrency);
+    const autoRemoveOk = autoRemove === undefined || autoRemove === "" || isNonNegativeInteger(autoRemove);
+    return concurrencyOk && autoRemoveOk;
 }

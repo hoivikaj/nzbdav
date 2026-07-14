@@ -38,6 +38,7 @@ public class ConfigManager
             }
         }
         lock (_excludeLock) { _compiledExcludeCache = null; }
+        SyncPathSanitizer();
     }
 
     private string? GetConfigValue(string configName)
@@ -129,8 +130,13 @@ public class ConfigManager
         }
 
         var changedConfig = configItems.ToDictionary(x => x.ConfigName, x => x.ConfigValue);
+        if (changedConfig.ContainsKey(ConfigKeys.WebdavWindowsSafePaths))
+            SyncPathSanitizer();
         OnConfigChanged?.Invoke(this, new ConfigEventArgs { ChangedConfig = changedConfig });
     }
+
+    private void SyncPathSanitizer() =>
+        PathSanitizer.SetWindowsSafePathsEnabled(IsWindowsSafePathsEnabled());
 
     /// <summary>
     /// Validates incoming config values, failing fast for anything that would otherwise throw
@@ -151,8 +157,11 @@ public class ConfigManager
                 case ConfigKeys.UsenetMaxQueueConnections:
                 case ConfigKeys.UsenetPipeliningDepth:
                 case ConfigKeys.UsenetArticleBufferSize:
+                case ConfigKeys.UsenetIdleConnectionTimeoutSeconds:
                 case ConfigKeys.UsenetSegmentCacheMaxGb:
                 case ConfigKeys.UsenetStreamingPriority:
+                case ConfigKeys.UsenetStreamingSegmentTimeoutSeconds:
+                case ConfigKeys.UsenetStreamingSegmentRetries:
                 case ConfigKeys.WardenQuorum:
                 case ConfigKeys.WardenMaxSourceEntries:
                 case ConfigKeys.PlayTotalBudgetSeconds:
@@ -189,11 +198,13 @@ public class ConfigManager
                 case ConfigKeys.WatchtowerSeasonBundleFallbackRecentCount:
                 case ConfigKeys.WatchtowerSeasonBundleFallbackMaxEpisodes:
                 case ConfigKeys.RepairHealthcheckConcurrency:
+                case ConfigKeys.RepairAutoRemoveAfterFailures:
                 case ConfigKeys.DatabaseHistoryRetentionDays:
                 case ConfigKeys.DatabaseHealthcheckRetentionDays:
                 case ConfigKeys.MaintenanceRemoveOrphanedScheduleTime:
                 case ConfigKeys.BackupScheduleTime:
                 case ConfigKeys.BackupRetentionCount:
+                case ConfigKeys.ApiNzbBackupRetentionDays:
                     RequireLong(item.ConfigName, value);
                     break;
 
@@ -201,9 +212,11 @@ public class ConfigManager
                 case ConfigKeys.ApiIgnoreHistoryLimit:
                 case ConfigKeys.ApiLazyRarParsing:
                 case ConfigKeys.ApiNzbBackupEnabled:
+                case ConfigKeys.ApiSkipNonVideoOnMissingArticles:
                 case ConfigKeys.WebdavShowHiddenFiles:
                 case ConfigKeys.WebdavEnforceReadonly:
                 case ConfigKeys.WebdavPreviewPar2Files:
+                case ConfigKeys.WebdavWindowsSafePaths:
                 case ConfigKeys.UsenetMaxDownloadConnectionsPerStream:
                 case ConfigKeys.UsenetPipeliningEnabled:
                 case ConfigKeys.UsenetCascadeEnabled:
@@ -221,6 +234,7 @@ public class ConfigManager
                 case ConfigKeys.WardenHideDead:
                 case ConfigKeys.WardenBackboneScope:
                 case ConfigKeys.RepairEnable:
+                case ConfigKeys.RepairAutoRemoveUnlinkedOnly:
                 case ConfigKeys.RcloneRcEnabled:
                 case ConfigKeys.DbIsStartupVacuumEnabled:
                 case ConfigKeys.MaintenanceRemoveOrphanedScheduleEnabled:
@@ -336,6 +350,17 @@ public class ConfigManager
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
     }
 
+    /// <summary>
+    /// When true (default), non-video files with missing articles are skipped
+    /// instead of failing the job.
+    /// </summary>
+    public bool IsSkipNonVideoOnMissingArticlesEnabled()
+    {
+        var defaultValue = true;
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiSkipNonVideoOnMissingArticles));
+        return configValue != null ? bool.Parse(configValue) : defaultValue;
+    }
+
     public bool ShowHiddenWebdavFiles()
     {
         var defaultValue = false;
@@ -428,6 +453,18 @@ public class ConfigManager
         );
     }
 
+    /// <summary>
+    /// Idle timeout for pooled NNTP connections. Default 60s; clamped to [15, 300].
+    /// Takes effect on the next connection-pool rebuild (provider config change or restart).
+    /// </summary>
+    public int GetIdleConnectionTimeoutSeconds()
+    {
+        var configured = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetIdleConnectionTimeoutSeconds));
+        if (configured is null || !int.TryParse(configured, out var value))
+            return 60;
+        return Math.Clamp(value, 15, 300);
+    }
+
     public bool IsPipelinedBodyRequestsEnabled()
     {
         var configValue = StringUtil.EmptyToNull(
@@ -470,11 +507,31 @@ public class ConfigManager
         return new SemaphorePriorityOdds() { HighPriorityOdds = numericalValue };
     }
 
+    public TimeSpan GetStreamingSegmentTimeout()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetStreamingSegmentTimeoutSeconds));
+        var seconds = int.TryParse(v, out var n) ? Math.Clamp(n, 2, 40) : 8;
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    public int GetStreamingSegmentRetries()
+    {
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetStreamingSegmentRetries));
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 0, 5) : 3;
+    }
+
     public bool IsEnforceReadonlyWebdavEnabled()
     {
         var defaultValue = true;
         var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WebdavEnforceReadonly));
         return (configValue != null ? bool.Parse(configValue) : defaultValue);
+    }
+
+    public bool IsWindowsSafePathsEnabled()
+    {
+        var defaultValue = true;
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.WebdavWindowsSafePaths));
+        return configValue != null ? bool.Parse(configValue) : defaultValue;
     }
 
     public HashSet<string> GetEnsureArticleExistenceCategories()
@@ -995,6 +1052,28 @@ public class ConfigManager
         return Math.Clamp(configured, 1, Math.Max(1, poolSize));
     }
 
+    /// <summary>
+    /// Number of streaming failures before auto-removing a broken file during urgent repair.
+    /// 0 (default) disables auto-remove and preserves today's immediate-repair behavior.
+    /// </summary>
+    public int GetAutoRemoveAfterFailures()
+    {
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RepairAutoRemoveAfterFailures));
+        if (configValue == null) return 0;
+        return int.TryParse(configValue, out var n) ? Math.Max(0, n) : 0;
+    }
+
+    /// <summary>
+    /// When true (default), auto-remove only deletes unlinked/orphaned files; library-linked
+    /// items still go through *Arr remove-and-search. When false, linked items are force-deleted
+    /// after the failure threshold as well.
+    /// </summary>
+    public bool IsAutoRemoveUnlinkedOnly()
+    {
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RepairAutoRemoveUnlinkedOnly));
+        return configValue == null || bool.Parse(configValue);
+    }
+
     public ArrConfig GetArrConfig()
     {
         var defaultValue = new ArrConfig();
@@ -1025,7 +1104,7 @@ public class ConfigManager
 
     public HashSet<string> GetBlocklistedFiles()
     {
-        var defaultValue = "*.nfo, *.par2, *.sfv, *sample.mkv";
+        var defaultValue = "*.nfo, *.par2, *.sfv, *sample.mkv, *unpack.mkv, *.unpack.mp4";
         return (GetConfigValue(ConfigKeys.ApiDownloadFileBlocklist) ?? defaultValue)
             .Split(',', StringSplitOptions.RemoveEmptyEntries)
             .Select(x => x.Trim())
@@ -1119,10 +1198,10 @@ public class ConfigManager
             defaultValue: 30);
     }
 
-    private int GetRetentionDaysSetting(string configKey, string environmentVariable, int defaultValue)
+    private int GetRetentionDaysSetting(string configKey, string? environmentVariable, int defaultValue)
     {
         var rawValue = StringUtil.EmptyToNull(GetConfigValue(configKey))
-                       ?? EnvironmentUtil.GetEnvironmentVariable(environmentVariable);
+                       ?? (environmentVariable != null ? EnvironmentUtil.GetEnvironmentVariable(environmentVariable) : null);
         return int.TryParse(rawValue, out var parsed) && parsed >= 0 ? parsed : defaultValue;
     }
 
@@ -1136,6 +1215,18 @@ public class ConfigManager
     public string? GetNzbBackupLocation()
     {
         return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiNzbBackupLocation));
+    }
+
+    /// <summary>
+    /// Days to keep on-disk NZB backup files (written by <c>AddFileController</c> when
+    /// <see cref="IsNzbBackupEnabled"/> is on). 0 disables age-based pruning. Default is 30.
+    /// </summary>
+    public int GetNzbBackupRetentionDays()
+    {
+        return GetRetentionDaysSetting(
+            ConfigKeys.ApiNzbBackupRetentionDays,
+            environmentVariable: null,
+            defaultValue: 30);
     }
 
     public bool IsRemoveOrphanedFilesScheduleEnabled()

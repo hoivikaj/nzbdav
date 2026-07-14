@@ -1,4 +1,5 @@
 using System.Text;
+using NzbWebDAV.Models;
 using NzbWebDAV.Models.Nzb;
 
 namespace NzbWebDAV.Tests.Models;
@@ -91,5 +92,91 @@ public class NzbDocumentTests
 
         Assert.Equal("Could not parse the nzb document (malformed nzb)", exception.Message);
         Assert.IsType<System.Xml.XmlException>(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task LoadAsync_DedupesDuplicateSegmentNumbersKeepingFirst()
+    {
+        const string xml = """
+            <nzb><file subject="dup"><segments>
+              <segment bytes="10" number="1">a@example</segment>
+              <segment bytes="20" number="2">b-first@example</segment>
+              <segment bytes="21" number="2">b-second@example</segment>
+              <segment bytes="30" number="3">c@example</segment>
+            </segments></file></nzb>
+            """;
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+
+        var document = await NzbDocument.LoadAsync(stream);
+        var file = Assert.Single(document.Files);
+
+        Assert.Equal(3, file.Segments.Count);
+        Assert.Equal(["a@example", "b-first@example", "c@example"], file.GetSegmentIds());
+        Assert.Equal([1, 2, 3], file.Segments.Select(s => s.Number!.Value).ToArray());
+    }
+
+    [Fact]
+    public async Task LoadAsync_SortsSegmentsByNumber()
+    {
+        const string xml = """
+            <nzb><file subject="shuffled"><segments>
+              <segment bytes="30" number="3">c@example</segment>
+              <segment bytes="10" number="1">a@example</segment>
+              <segment bytes="20" number="2">b@example</segment>
+            </segments></file></nzb>
+            """;
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+
+        var document = await NzbDocument.LoadAsync(stream);
+
+        Assert.Equal(["a@example", "b@example", "c@example"],
+            Assert.Single(document.Files).GetSegmentIds());
+    }
+
+    [Fact]
+    public async Task LoadAsync_WithoutNumbers_DedupesDuplicateMessageIds()
+    {
+        const string xml = """
+            <nzb><file subject="ids"><segments>
+              <segment bytes="10">a@example</segment>
+              <segment bytes="20">b@example</segment>
+              <segment bytes="20">b@example</segment>
+              <segment bytes="30">c@example</segment>
+            </segments></file></nzb>
+            """;
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+
+        var document = await NzbDocument.LoadAsync(stream);
+
+        Assert.Equal(["a@example", "b@example", "c@example"],
+            Assert.Single(document.Files).GetSegmentIds());
+    }
+
+    [Fact]
+    public async Task GetSegmentByteRanges_RemainsContiguousAfterDedup()
+    {
+        const string xml = """
+            <nzb><file subject="ranges"><segments>
+              <segment bytes="100" number="1">a@example</segment>
+              <segment bytes="100" number="2">b-dup1@example</segment>
+              <segment bytes="100" number="2">b-dup2@example</segment>
+              <segment bytes="100" number="3">c@example</segment>
+            </segments></file></nzb>
+            """;
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        var file = Assert.Single((await NzbDocument.LoadAsync(stream)).Files);
+
+        file.Segments[0].ByteRange = new LongRange(0, 100);
+        file.Segments[^1].ByteRange = new LongRange(200, 300);
+
+        var ranges = file.GetSegmentByteRanges();
+        Assert.NotNull(ranges);
+        Assert.Equal(3, ranges.Length);
+        Assert.Equal(0, ranges[0].StartInclusive);
+        Assert.Equal(100, ranges[0].EndExclusive);
+        Assert.Equal(100, ranges[1].StartInclusive);
+        Assert.Equal(200, ranges[1].EndExclusive);
+        Assert.Equal(200, ranges[2].StartInclusive);
+        Assert.Equal(300, ranges[2].EndExclusive);
     }
 }

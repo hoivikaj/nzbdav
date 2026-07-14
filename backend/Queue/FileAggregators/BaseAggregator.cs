@@ -1,6 +1,7 @@
 ﻿using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Queue.FileProcessors;
+using NzbWebDAV.Utils;
 
 namespace NzbWebDAV.Queue.FileAggregators;
 
@@ -25,6 +26,7 @@ public abstract class BaseAggregator
     {
         var pathSegments = relativePath
             .Split(DirectorySeparators, StringSplitOptions.RemoveEmptyEntries)
+            .Select(segment => PathSanitizer.SanitizeComponent(segment))
             .ToArray();
         var parentDirectory = MountDirectory;
         var pathKey = "";
@@ -46,7 +48,7 @@ public abstract class BaseAggregator
         var directory = DavItem.New(
             id: Guid.NewGuid(),
             parent: parentDirectory,
-            name: directoryName,
+            name: PathSanitizer.SanitizeComponent(directoryName),
             fileSize: null,
             type: DavItem.ItemType.Directory,
             subType: DavItem.ItemSubType.Directory,
@@ -59,4 +61,7 @@ public abstract class BaseAggregator
         DBClient.Ctx.Items.Add(directory);
         return directory;
     }
+
+    protected static string SanitizeDavName(string name) =>
+        PathSanitizer.SanitizeComponent(name);
 }

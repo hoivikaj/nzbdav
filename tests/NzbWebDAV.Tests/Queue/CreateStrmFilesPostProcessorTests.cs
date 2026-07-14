@@ -1,0 +1,133 @@
+using Microsoft.EntityFrameworkCore;
+using NzbWebDAV.Config;
+using NzbWebDAV.Database;
+using NzbWebDAV.Database.Models;
+using NzbWebDAV.Queue.PostProcessors;
+
+namespace NzbWebDAV.Tests.Queue;
+
+public class CreateStrmFilesPostProcessorTests : IDisposable
+{
+    private readonly string _dbPath;
+    private readonly string _strmDir;
+    private readonly DavDatabaseContext _context;
+    private readonly DavDatabaseClient _dbClient;
+    private readonly ConfigManager _config;
+    private readonly Guid _historyItemId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    public CreateStrmFilesPostProcessorTests()
+    {
+        _dbPath = Path.Combine(Path.GetTempPath(), $"strm-test-{Guid.NewGuid():N}.sqlite");
+        _strmDir = Path.Combine(Path.GetTempPath(), $"strm-out-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_strmDir);
+
+        var options = new DbContextOptionsBuilder<DavDatabaseContext>()
+            .UseSqlite($"Data Source={_dbPath}")
+            .Options;
+        _context = new DavDatabaseContext(options);
+        _context.Database.EnsureCreated();
+        _dbClient = new DavDatabaseClient(_context);
+
+        _config = new ConfigManager();
+        _config.UpdateValues(
+        [
+            new() { ConfigName = ConfigKeys.ApiCompletedDownloadsDir, ConfigValue = _strmDir },
+            new() { ConfigName = ConfigKeys.ApiImportStrategy, ConfigValue = "strm" },
+            new() { ConfigName = "general.base-url", ConfigValue = "http://localhost:3000" },
+            new() { ConfigName = ConfigKeys.ApiStrmKey, ConfigValue = "test-strm-key" },
+        ]);
+    }
+
+    public void Dispose()
+    {
+        _context.Dispose();
+        try { File.Delete(_dbPath); } catch { /* ignore */ }
+        try { Directory.Delete(_strmDir, recursive: true); } catch { /* ignore */ }
+    }
+
+    [Fact]
+    public void GetPathRelativeToContentRoot_PreservesNestedSeasonFolders()
+    {
+        var relative = CreateStrmFilesPostProcessor.GetPathRelativeToContentRoot(
+            "/content/tv/Show/Season 01/ep.mkv");
+        Assert.Equal(Path.Join("tv", "Show", "Season 01", "ep.mkv"), relative);
+    }
+
+    [Fact]
+    public async Task CreateStrmFilesAsync_CreatesForPersistedVideosNotInAddedState()
+    {
+        var category = SeedDirectory(DavItem.ContentFolder, "tv");
+        var job = SeedDirectory(category, "Show", _historyItemId);
+        var season = SeedDirectory(job, "Season 01", _historyItemId);
+        for (var i = 1; i <= 8; i++)
+            SeedVideo(season, $"S01E{i:00}.mkv", _historyItemId);
+
+        await _context.SaveChangesAsync();
+        // Clear tracker so items are Unchanged, not Added.
+        _context.ChangeTracker.Clear();
+
+        var processor = new CreateStrmFilesPostProcessor(_config, _dbClient, _historyItemId);
+        await processor.CreateStrmFilesAsync();
+
+        var strmFiles = Directory.GetFiles(_strmDir, "*.strm", SearchOption.AllDirectories);
+        Assert.Equal(8, strmFiles.Length);
+    }
+
+    [Fact]
+    public async Task CreateStrmFilesAsync_SkipsExistingStrmNamedItems()
+    {
+        var category = SeedDirectory(DavItem.ContentFolder, "tv");
+        var job = SeedDirectory(category, "Show", _historyItemId);
+        SeedVideo(job, "episode.mkv", _historyItemId);
+        SeedVideo(job, "already.strm", _historyItemId);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var processor = new CreateStrmFilesPostProcessor(_config, _dbClient, _historyItemId);
+        await processor.CreateStrmFilesAsync();
+
+        var strmFiles = Directory.GetFiles(_strmDir, "*.strm", SearchOption.AllDirectories);
+        Assert.Single(strmFiles);
+        Assert.DoesNotContain(strmFiles, f => f.EndsWith("already.strm.strm", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task CreateStrmFilesAsync_IsIdempotentWhenContentUnchanged()
+    {
+        var category = SeedDirectory(DavItem.ContentFolder, "movies");
+        var job = SeedDirectory(category, "Movie", _historyItemId);
+        SeedVideo(job, "movie.mkv", _historyItemId);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var processor = new CreateStrmFilesPostProcessor(_config, _dbClient, _historyItemId);
+        await processor.CreateStrmFilesAsync();
+        var path = Directory.GetFiles(_strmDir, "*.strm", SearchOption.AllDirectories).Single();
+        var mtime1 = File.GetLastWriteTimeUtc(path);
+        await Task.Delay(50);
+        await processor.CreateStrmFilesAsync();
+        var mtime2 = File.GetLastWriteTimeUtc(path);
+
+        Assert.Equal(mtime1, mtime2);
+    }
+
+    private DavItem SeedDirectory(DavItem parent, string name, Guid? historyItemId = null)
+    {
+        var item = DavItem.New(
+            Guid.NewGuid(), parent, name, null,
+            DavItem.ItemType.Directory, DavItem.ItemSubType.Directory,
+            null, null, historyItemId, null);
+        _context.Items.Add(item);
+        return item;
+    }
+
+    private DavItem SeedVideo(DavItem parent, string name, Guid historyItemId)
+    {
+        var item = DavItem.New(
+            Guid.NewGuid(), parent, name, 100,
+            DavItem.ItemType.UsenetFile, DavItem.ItemSubType.NzbFile,
+            null, null, historyItemId, Guid.NewGuid());
+        _context.Items.Add(item);
+        return item;
+    }
+}

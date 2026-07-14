@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -33,7 +34,7 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        var (minThreads, maxThreads) = ThreadPoolUtil.ResolveLimits(
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance); var (minThreads, maxThreads) = ThreadPoolUtil.ResolveLimits(
             Environment.ProcessorCount,
             EnvironmentUtil.GetLongVariable("THREADPOOL_MIN_THREADS"),
             EnvironmentUtil.GetLongVariable("THREADPOOL_MAX_THREADS"));
@@ -152,6 +153,7 @@ class Program
                 .AddSingleton<ProviderUsageTracker>(sp =>
                     new ProviderUsageTracker(sp.GetRequiredService<ActiveReadRegistry>()))
                 .AddSingleton<QueueItemSourceTracker>()
+                .AddSingleton<StreamingFailureTracker>()
                 .AddSingleton<UsenetStreamingClient>()
                 // LazyRarResolver takes INntpClient (for testability) but must
                 // use the shared streaming client; wire it explicitly instead
@@ -202,6 +204,7 @@ class Program
                 .AddHostedService<ArrMonitoringService>()
                 .AddHostedService<BlobCleanupService>()
                 .AddHostedService<NzbBlobCleanupService>()
+                .AddHostedService<NzbBackupRetentionService>()
                 .AddHostedService<HistoryCleanupService>()
                 .AddHostedService<HistoryRetentionService>()
                 .AddHostedService<WatchdogPurgeService>()

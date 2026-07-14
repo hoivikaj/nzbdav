@@ -1169,8 +1169,6 @@ public class ProfilePlayController(
     private async Task<DavItem?> FindLargestVideoAsync(Guid historyItemId, CancellationToken ct)
         => await FindBestVideoAsync(historyItemId, entry: null, ct).ConfigureAwait(false);
 
-    private static readonly char[] TokenSeparators = ['.', '_', '-', ' ', '(', ')', '[', ']', '{', '}', '+'];
-
     private async Task<DavItem?> FindBestVideoAsync(Guid historyItemId, NzbResolutionCache.Entry? entry, CancellationToken ct)
     {
         var files = await dbClient.Ctx.Items.AsNoTracking()
@@ -1183,45 +1181,27 @@ public class ProfilePlayController(
             .ToList();
         if (videos.Count == 0) return null;
 
+        int? season = null;
+        int? episode = null;
         if (entry is not null && TryParseSeasonEpisode(entry.Type, entry.Id, out var reqSeason, out var reqEpisode))
         {
-            var episodeFile = SelectEpisodeFile(videos, reqSeason, reqEpisode);
-            if (episodeFile is not null) return episodeFile;
+            season = reqSeason;
+            episode = reqEpisode;
         }
 
-        if (entry is null)
+        var best = VideoSelection.SelectBest(videos, season, episode, entry?.Primary.Title);
+
+        Log.Debug("play selection for {HistoryItemId}: chose {Name} among {Count} videos",
+            historyItemId, best?.Name ?? "<none>", videos.Count);
+        var skippedDecoys = videos.Where(v => !ReferenceEquals(v, best) && VideoSelection.IsProbablyDecoy(v.Name)).ToList();
+        if (skippedDecoys.Count > 0)
         {
-            return videos.Count == 1
-                ? videos[0]
-                : videos.OrderByDescending(x => x.FileSize ?? 0).First();
+            Log.Information(
+                "play selection for {HistoryItemId}: skipped {Count} probable decoy file(s): {Names}",
+                historyItemId, skippedDecoys.Count, string.Join(", ", skippedDecoys.Select(v => v.Name)));
         }
 
-        var clickTokens = TokenizeName(entry.Primary.Title);
-        if (clickTokens.Count == 0)
-        {
-            return videos.Count == 1
-                ? videos[0]
-                : videos.OrderByDescending(x => x.FileSize ?? 0).First();
-        }
-
-        DavItem? best = null;
-        int bestScore = 0;
-        long bestSize = -1;
-        foreach (var v in videos)
-        {
-            if (v.Name.Contains("sample", StringComparison.OrdinalIgnoreCase)) continue;
-            var fileTokens = TokenizeName(Path.GetFileNameWithoutExtension(v.Name));
-            if (fileTokens.Count == 0) continue;
-            var score = fileTokens.Count(t => clickTokens.Contains(t));
-            var size = v.FileSize ?? 0;
-            if (score > bestScore || (score == bestScore && score > 0 && size > bestSize))
-            {
-                best = v;
-                bestScore = score;
-                bestSize = size;
-            }
-        }
-        return bestScore > 0 ? best : null;
+        return best;
     }
 
     private static bool TryParseSeasonEpisode(string? type, string? id, out int season, out int episode)
@@ -1232,36 +1212,6 @@ public class ProfilePlayController(
         var parts = id.Split(':');
         if (parts.Length < 3) return false;
         return int.TryParse(parts[^2], out season) && int.TryParse(parts[^1], out episode);
-    }
-
-    private static DavItem? SelectEpisodeFile(List<DavItem> videos, int season, int episode)
-    {
-        DavItem? best = null;
-        long bestSize = -1;
-        foreach (var v in videos)
-        {
-            if (v.Name.Contains("sample", StringComparison.OrdinalIgnoreCase)) continue;
-            if (FilenameMatcher.ParseEpisode(v.Name) is not { } tag) continue;
-            if (tag.Season != season) continue;
-            if (tag.Episode is not { } start) continue;
-            var end = tag.EpisodeEnd ?? start;
-            if (episode < start || episode > end) continue;
-            var size = v.FileSize ?? 0;
-            if (size > bestSize)
-            {
-                best = v;
-                bestSize = size;
-            }
-        }
-        return best;
-    }
-
-    private static HashSet<string> TokenizeName(string s)
-    {
-        if (string.IsNullOrWhiteSpace(s)) return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return s.Split(TokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(t => t.Length > 1)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private static string SanitizeFileName(string name)

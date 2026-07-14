@@ -83,10 +83,12 @@ public class UsenetStreamingClient : WrappingNntpClient
         _ = ProviderUsageHelper.SeedTrackerAsync(bytesTracker, providerConfig);
 
         var connectionPoolStats = new ConnectionPoolStats(providerConfig, websocketManager);
+        var idleTimeoutSeconds = configManager.GetIdleConnectionTimeoutSeconds();
         var providerClients = providerConfig.Providers
             .Select((provider, index) => CreateProviderClient(
                 provider,
-                connectionPoolStats.GetOnConnectionPoolChanged(index)
+                connectionPoolStats.GetOnConnectionPoolChanged(index),
+                idleTimeoutSeconds
             ))
             .ToList();
         return new MultiProviderNntpClient(providerClients, usageTracker, metricsWriter, bytesTracker,
@@ -96,13 +98,15 @@ public class UsenetStreamingClient : WrappingNntpClient
     private static MultiConnectionNntpClient CreateProviderClient
     (
         UsenetProviderConfig.ConnectionDetails connectionDetails,
-        EventHandler<ConnectionPoolStats.ConnectionPoolChangedEventArgs> onConnectionPoolChanged
+        EventHandler<ConnectionPoolStats.ConnectionPoolChangedEventArgs> onConnectionPoolChanged,
+        int idleTimeoutSeconds
     )
     {
         var connectionPool = CreateNewConnectionPool(
             maxConnections: connectionDetails.MaxConnections,
             connectionFactory: ct => CreateNewConnection(connectionDetails, ct),
-            onConnectionPoolChanged
+            onConnectionPoolChanged,
+            idleTimeoutSeconds
         );
         var circuitBreaker = new ProviderCircuitBreaker(connectionDetails.Host);
         // Ensure a metrics key even if startup backfill was skipped somehow.
@@ -126,10 +130,16 @@ public class UsenetStreamingClient : WrappingNntpClient
     (
         int maxConnections,
         Func<CancellationToken, ValueTask<INntpClient>> connectionFactory,
-        EventHandler<ConnectionPoolStats.ConnectionPoolChangedEventArgs> onConnectionPoolChanged
+        EventHandler<ConnectionPoolStats.ConnectionPoolChangedEventArgs> onConnectionPoolChanged,
+        int idleTimeoutSeconds
     )
     {
-        var connectionPool = new ConnectionPool<INntpClient>(maxConnections, connectionFactory);
+        var idleTimeout = TimeSpan.FromSeconds(idleTimeoutSeconds);
+        Log.Information(
+            "Creating NNTP connection pool max={Max} idleTimeout={IdleTimeoutSeconds}s",
+            maxConnections, idleTimeoutSeconds);
+        var connectionPool = new ConnectionPool<INntpClient>(
+            maxConnections, connectionFactory, idleTimeout);
         connectionPool.OnConnectionPoolChanged += onConnectionPoolChanged;
         var args = new ConnectionPoolStats.ConnectionPoolChangedEventArgs(0, 0, maxConnections);
         onConnectionPoolChanged(connectionPool, args);

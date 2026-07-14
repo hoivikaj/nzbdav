@@ -317,7 +317,8 @@ public class QueueItemProcessor(
 
             // create strm files, if necessary
             if (configManager.GetImportStrategy() == "strm")
-                await new CreateStrmFilesPostProcessor(configManager, dbClient).CreateStrmFilesAsync()
+                await new CreateStrmFilesPostProcessor(configManager, dbClient, queueItem.Id)
+                    .CreateStrmFilesAsync()
                     .ConfigureAwait(false);
 
             return mountFolder;
@@ -351,7 +352,7 @@ public class QueueItemProcessor(
 
             else if (group.Key == "other")
                 foreach (var fileInfo in group)
-                    yield return new FileProcessor(fileInfo, usenetClient, ct);
+                    yield return new FileProcessor(fileInfo, usenetClient, configManager, ct);
         }
     }
 

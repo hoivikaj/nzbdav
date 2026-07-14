@@ -1,4 +1,5 @@
 ﻿using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Config;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Models.Nzb;
 using NzbWebDAV.Queue.DeobfuscationSteps._3.GetFileInfos;
@@ -10,6 +11,7 @@ namespace NzbWebDAV.Queue.FileProcessors;
 public class FileProcessor(
     GetFileInfosStep.FileInfo fileInfo,
     INntpClient usenetClient,
+    ConfigManager configManager,
     CancellationToken ct
 ) : BaseProcessor
 {
@@ -28,9 +30,11 @@ public class FileProcessor(
             };
         }
 
-        // Ignore missing articles if it's not a video file.
+        // Ignore missing articles if it's not a video file (default).
         // In that case, simply skip the file altogether.
-        catch (UsenetArticleNotFoundException) when (!FilenameUtil.IsVideoFile(fileInfo.FileName))
+        catch (UsenetArticleNotFoundException) when (
+            !FilenameUtil.IsVideoFile(fileInfo.FileName)
+            && configManager.IsSkipNonVideoOnMissingArticlesEnabled())
         {
             Log.Warning(
                 "File {FileName} has missing articles; skipping it because it is not a video",

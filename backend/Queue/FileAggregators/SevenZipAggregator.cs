@@ -31,7 +31,7 @@ public class SevenZipAggregator(
             var pathWithinArchive = sevenZipFile.PathWithinArchive;
             var davMultipartFileMeta = sevenZipFile.DavMultipartFileMeta;
             var parentDirectory = EnsureParentDirectory(pathWithinArchive);
-            var name = Path.GetFileName(pathWithinArchive);
+            var name = SanitizeDavName(Path.GetFileName(pathWithinArchive));
 
             // If there is only one file in the archive and the file-name is obfuscated,
             // then rename the file to the same name as the containing mount directory.

@@ -24,13 +24,16 @@ public static class ConfigKeys
     public const string ApiManualCategory = "api.manual-category";
     public const string ApiNzbBackupEnabled = "api.nzb-backup-enabled";
     public const string ApiNzbBackupLocation = "api.nzb-backup-location";
+    public const string ApiNzbBackupRetentionDays = "api.nzb-backup-retention-days";
     public const string ApiSearchUserAgent = "api.search-user-agent";
+    public const string ApiSkipNonVideoOnMissingArticles = "api.skip-non-video-on-missing-articles";
     public const string ApiStrmKey = "api.strm-key";
     public const string ApiUserAgent = "api.user-agent";
 
     // usenet
     public const string UsenetArticleBufferSize = "usenet.article-buffer-size";
     public const string UsenetCascadeEnabled = "usenet.cascade.enabled";
+    public const string UsenetIdleConnectionTimeoutSeconds = "usenet.idle-connection-timeout-seconds";
     public const string UsenetMaxDownloadConnections = "usenet.max-download-connections";
     public const string UsenetMaxDownloadConnectionsPerStream = "usenet.max-download-connections-per-stream";
     public const string UsenetMaxDownloadConnectionsPerStreamPreset = "usenet.max-download-connections-per-stream-preset";
@@ -43,6 +46,8 @@ public static class ConfigKeys
     public const string UsenetSegmentCacheMaxGb = "usenet.segment-cache.max-gb";
     public const string UsenetSegmentCachePath = "usenet.segment-cache.path";
     public const string UsenetStreamingPriority = "usenet.streaming-priority";
+    public const string UsenetStreamingSegmentTimeoutSeconds = "usenet.streaming-segment-timeout-seconds";
+    public const string UsenetStreamingSegmentRetries = "usenet.streaming-segment-retries";
 
     // webdav
     public const string WebdavEnforceReadonly = "webdav.enforce-readonly";
@@ -50,11 +55,14 @@ public static class ConfigKeys
     public const string WebdavPreviewPar2Files = "webdav.preview-par2-files";
     public const string WebdavShowHiddenFiles = "webdav.show-hidden-files";
     public const string WebdavUser = "webdav.user";
+    public const string WebdavWindowsSafePaths = "webdav.windows-safe-paths";
 
     // media / repair / arr
     public const string MediaLibraryDir = "media.library-dir";
     public const string RepairEnable = "repair.enable";
     public const string RepairHealthcheckConcurrency = "repair.healthcheck-concurrency";
+    public const string RepairAutoRemoveAfterFailures = "repair.auto-remove-after-failures";
+    public const string RepairAutoRemoveUnlinkedOnly = "repair.auto-remove-unlinked-only";
     public const string ArrInstances = "arr.instances";
 
     // rclone

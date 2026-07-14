@@ -197,6 +197,24 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-slate-300">
                     <Checkbox
+                    id="fail-missing-non-video-checkbox"
+                    aria-describedby="fail-missing-non-video-help"
+                    checked={config["api.skip-non-video-on-missing-articles"] === "false"}
+                    onChange={e => setNewConfig({
+                        ...config,
+                        "api.skip-non-video-on-missing-articles": String(!e.target.checked)
+                    })} />
+                    <span>Fail downloads when non-video files have missing articles</span>
+                </label>
+                <p className="text-[11px] leading-relaxed text-base-content/45" id="fail-missing-non-video-help">
+                    By default, missing articles in PAR2/NFO/subtitle files are skipped and the job still completes.
+                    Enable this to fail the download instead so *Arr can grab an alternate release.
+                </p>
+            </div>
+            <hr />
+            <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <Checkbox
                     id="ensure-article-existence-checkbox"
                     aria-describedby="ensure-article-existence-help"
                     ref={ensureArticleExistanceSetting.masterCheckboxRef}
@@ -251,6 +269,21 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                 <p className="text-[11px] leading-relaxed text-base-content/45" id="nzb-backup-location-help">
                     When enabled, a copy of each incoming NZB will be saved to this directory, organized by category.
                     The directory will be created if it doesn't already exist.
+                </p>
+                <label className="mt-4 flex items-center gap-2 text-sm text-slate-300" htmlFor="nzb-backup-retention-days-input">
+                    <span>Keep NZB backups for (days)</span>
+                </label>
+                <Input
+                    className="mt-2 w-full"
+                    type="number"
+                    min={0}
+                    id="nzb-backup-retention-days-input"
+                    aria-describedby="nzb-backup-retention-days-help"
+                    value={config["api.nzb-backup-retention-days"] ?? "30"}
+                    disabled={config["api.nzb-backup-enabled"] !== "true"}
+                    onChange={e => setNewConfig({ ...config, "api.nzb-backup-retention-days": e.target.value })} />
+                <p className="text-[11px] leading-relaxed text-base-content/45" id="nzb-backup-retention-days-help">
+                    Aged <code>*.nzb</code> files under the backup directory are pruned hourly. Use <code>0</code> to keep backups forever. Default is 30 days.
                 </p>
             </div>
         </SettingsPage>
@@ -319,6 +352,7 @@ export function isSabnzbdSettingsUpdated(config: Record<string, string>, newConf
         || config["api.manual-category"] !== newConfig["api.manual-category"]
         || config["rclone.mount-dir"] !== newConfig["rclone.mount-dir"]
         || config["api.ensure-importable-video"] !== newConfig["api.ensure-importable-video"]
+        || config["api.skip-non-video-on-missing-articles"] !== newConfig["api.skip-non-video-on-missing-articles"]
         || config["api.ensure-article-existence-categories"] !== newConfig["api.ensure-article-existence-categories"]
         || config["api.ignore-history-limit"] !== newConfig["api.ignore-history-limit"]
         || config["api.duplicate-nzb-behavior"] !== newConfig["api.duplicate-nzb-behavior"]
@@ -329,6 +363,7 @@ export function isSabnzbdSettingsUpdated(config: Record<string, string>, newConf
         || config["api.user-agent"] !== newConfig["api.user-agent"]
         || config["api.nzb-backup-enabled"] !== newConfig["api.nzb-backup-enabled"]
         || config["api.nzb-backup-location"] !== newConfig["api.nzb-backup-location"]
+        || config["api.nzb-backup-retention-days"] !== newConfig["api.nzb-backup-retention-days"]
 }
 
 export function isSabnzbdSettingsValid(newConfig: Record<string, string>) {

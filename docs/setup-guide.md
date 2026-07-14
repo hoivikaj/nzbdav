@@ -539,6 +539,12 @@ NzbDav can prune aged SAB history and health-check rows so `db.sqlite` does not 
 
 These can also be set under **Settings → Maintenance** (`database.history-retention-days`, `database.healthcheck-retention-days`). Use **Reset Health-Check Statistics** on that page to clear all health-check counters immediately.
 
+### NZB blob and backup lifetime
+
+Incoming NZB documents are stored as blobs under `{CONFIG_PATH}/blobs/`. A blob is kept while it is still referenced by a queue item, a history row, or mounted WebDAV content under `/content`. When the last reference is removed, a background cleanup deletes the blob and its `NzbNames` mapping. History retention prunes aged SAB history without deleting mounted content, so blobs for still-mounted releases are retained on purpose.
+
+When **Settings → SABnzbd → Save backup copies of incoming NZBs** is enabled, copies are written under the configured backup directory (by category). Those on-disk `*.nzb` files are pruned by age according to `api.nzb-backup-retention-days` (default 30; `0` keeps them forever).
+
 ### Back up NzbDav
 
 NzbDav includes an in-app **Settings → Backup & Restore** flow that dumps all SQLite databases (`db.sqlite`, `metrics.sqlite`, and `warden.db`) to portable `.sql` files under `{CONFIG_PATH}/backups/`. You can:
@@ -590,6 +596,10 @@ docker compose logs --tail=200 -f nzbdav_rclone
 ```
 
 If the Rclone mount fails, first verify that `/dev/fuse` exists on the host, the sidecar has started after NzbDav became healthy, and the WebDAV username/password in `rclone.conf` match `Settings` → `WebDAV`. If Rclone specifically rejects `--allow-other`, enable `user_allow_other` in the FUSE configuration available inside the sidecar. If **Test Conn** on `Settings` → `Rclone Server` fails, confirm the sidecar has the `--rc*` flags, the host is `http://nzbdav_rclone:5572`, and the RC user/password match.
+
+### Korean / Japanese (CJK) filenames
+
+NzbDav stores and serves WebDAV paths as UTF-8. If CJK release names appear as mojibake or are inaccessible from a Windows WebDAV mapping or rclone, check the **client** encoding settings (for example rclone `--local-encoding` / Windows system locale / UTF-8 code page). Filenames recovered from PAR2 packets are decoded as UTF-8 when valid, with a Windows-1252 fallback for legacy packers.
 
 ---
 

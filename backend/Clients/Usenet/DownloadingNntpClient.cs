@@ -8,8 +8,9 @@ using UsenetSharp.Models;
 namespace NzbWebDAV.Clients.Usenet;
 
 /// <summary>
-/// This client is only responsible for limiting download operations (BODY/ARTICLE)
-/// to the configured number of maximum download connections.
+/// This client limits download operations (BODY/ARTICLE) and individual STAT/HEAD
+/// requests to the configured maximum download/queue connections via prioritized
+/// semaphores.
 /// </summary>
 /// <param name="usenetClient"></param>
 public class DownloadingNntpClient : WrappingNntpClient
@@ -45,6 +46,34 @@ public class DownloadingNntpClient : WrappingNntpClient
 
         if (e.ChangedConfig.ContainsKey(ConfigKeys.UsenetStreamingPriority))
             _streamingSemaphore.UpdatePriorityOdds(_configManager.GetStreamingPriority());
+    }
+
+    public override async Task<UsenetStatResponse> StatAsync(SegmentId segmentId, CancellationToken cancellationToken)
+    {
+        // STAT is request/response — release in finally (unlike BODY, whose permit
+        // is released by the streaming completion callback).
+        var semaphore = await AcquireExclusiveConnectionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await base.StatAsync(segmentId, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
+
+    public override async Task<UsenetHeadResponse> HeadAsync(SegmentId segmentId, CancellationToken cancellationToken)
+    {
+        var semaphore = await AcquireExclusiveConnectionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await base.HeadAsync(segmentId, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
     }
 
     public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(SegmentId segmentId,

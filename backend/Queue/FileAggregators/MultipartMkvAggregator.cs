@@ -28,7 +28,7 @@ public class MultipartMkvAggregator(
         {
             var fileParts = multipartMkvFile.Parts;
             var parentDirectory = MountDirectory;
-            var name = multipartMkvFile.Filename;
+            var name = SanitizeDavName(multipartMkvFile.Filename);
 
             var davMultipartFile = new DavMultipartFile()
             {

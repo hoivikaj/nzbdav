@@ -24,6 +24,7 @@ public class HealthCheckService : BackgroundService
     private readonly INntpClient _usenetClient;
     private readonly WebsocketManager _websocketManager;
     private readonly BenchmarkGate _benchmarkGate;
+    private readonly StreamingFailureTracker _failureTracker;
 
     private static readonly HashSet<string> _missingSegmentIds = [];
     private static readonly Queue<string> _missingSegmentOrder = [];
@@ -33,13 +34,15 @@ public class HealthCheckService : BackgroundService
         ConfigManager configManager,
         UsenetStreamingClient usenetClient,
         WebsocketManager websocketManager,
-        BenchmarkGate benchmarkGate
+        BenchmarkGate benchmarkGate,
+        StreamingFailureTracker failureTracker
     )
     {
         _configManager = configManager;
         _usenetClient = usenetClient;
         _websocketManager = websocketManager;
         _benchmarkGate = benchmarkGate;
+        _failureTracker = failureTracker;
 
         _configManager.OnConfigChanged += (_, configEventArgs) =>
         {
@@ -141,7 +144,7 @@ public class HealthCheckService : BackgroundService
         if (isUrgentRepair)
         {
             Log.Information("Performing urgent dynamic repair for {FilePath}", davItem.Path);
-            await Repair(davItem, dbClient, ct).ConfigureAwait(false);
+            await HandleUrgentRepair(davItem, dbClient, ct).ConfigureAwait(false);
             return;
         }
 
@@ -177,6 +180,7 @@ public class HealthCheckService : BackgroundService
             var utcNow = DateTimeOffset.UtcNow;
             davItem.LastHealthCheck = utcNow;
             davItem.NextHealthCheck = ComputeNextHealthCheck(davItem.ReleaseDate, utcNow);
+            _failureTracker.ClearFailure(davItem.Id);
             var healthyMessage = sampled.Count < totalSegments
                 ? $"File is healthy (sampled {sampled.Count}/{totalSegments} segments)."
                 : "File is healthy.";
@@ -296,7 +300,86 @@ public class HealthCheckService : BackgroundService
         return [];
     }
 
-    private async Task Repair(DavItem davItem, DavDatabaseClient dbClient, CancellationToken ct)
+    /// <summary>
+    /// How an urgent (streaming-triggered) repair should proceed given auto-remove settings.
+    /// </summary>
+    public enum UrgentRepairDisposition
+    {
+        /// <summary>Call Repair() with today's behavior (Arr search or orphan delete).</summary>
+        RepairNormally,
+        /// <summary>Clear the urgent flag and wait for more streaming failures.</summary>
+        Defer,
+        /// <summary>Force the repair-delete path even for library-linked items.</summary>
+        ForceDelete,
+    }
+
+    /// <summary>
+    /// Decides urgent-repair disposition from failure count and auto-remove config.
+    /// Threshold 0 disables the feature (identical to today's immediate Repair).
+    /// </summary>
+    public static UrgentRepairDisposition GetUrgentRepairDisposition(
+        int threshold,
+        int failureCount,
+        bool hasLibraryLink,
+        bool autoRemoveUnlinkedOnly)
+    {
+        if (threshold <= 0)
+            return UrgentRepairDisposition.RepairNormally;
+
+        if (failureCount < threshold)
+        {
+            // Library-linked + unlinked-only: prefer Arr remove-and-search immediately.
+            // Unlinked (and aggressive linked) wait until the threshold before deleting.
+            if (hasLibraryLink && autoRemoveUnlinkedOnly)
+                return UrgentRepairDisposition.RepairNormally;
+            return UrgentRepairDisposition.Defer;
+        }
+
+        if (hasLibraryLink && autoRemoveUnlinkedOnly)
+            return UrgentRepairDisposition.RepairNormally;
+
+        return UrgentRepairDisposition.ForceDelete;
+    }
+
+    private async Task HandleUrgentRepair(DavItem davItem, DavDatabaseClient dbClient, CancellationToken ct)
+    {
+        var threshold = _configManager.GetAutoRemoveAfterFailures();
+        var failureCount = _failureTracker.GetFailureCount(davItem.Id);
+        var unlinkedOnly = _configManager.IsAutoRemoveUnlinkedOnly();
+        var hasLibraryLink = OrganizedLinksUtil.GetLink(davItem, _configManager) != null;
+        var disposition = GetUrgentRepairDisposition(threshold, failureCount, hasLibraryLink, unlinkedOnly);
+
+        if (disposition == UrgentRepairDisposition.Defer)
+        {
+            var utcNow = DateTimeOffset.UtcNow;
+            davItem.LastHealthCheck = utcNow;
+            davItem.NextHealthCheck = utcNow + TimeSpan.FromHours(1);
+            await RecordHealthResult(
+                dbClient, davItem,
+                HealthCheckResult.HealthResult.Unhealthy,
+                HealthCheckResult.RepairAction.ActionNeeded,
+                string.Join(" ", [
+                    "File had missing articles during streaming.",
+                    $"Streaming failure count: {failureCount}/{threshold}.",
+                    "Auto-remove deferred until the failure threshold is reached."
+                ]), ct).ConfigureAwait(false);
+            return;
+        }
+
+        await Repair(
+            davItem,
+            dbClient,
+            ct,
+            forceDelete: disposition == UrgentRepairDisposition.ForceDelete,
+            streamingFailureCount: failureCount).ConfigureAwait(false);
+    }
+
+    private async Task Repair(
+        DavItem davItem,
+        DavDatabaseClient dbClient,
+        CancellationToken ct,
+        bool forceDelete = false,
+        int? streamingFailureCount = null)
     {
         try
         {
@@ -310,6 +393,7 @@ public class HealthCheckService : BackgroundService
                     davItem,
                     "missing articles; filename matches blocklist pattern");
                 dbClient.Ctx.Items.Remove(davItem);
+                _failureTracker.ClearFailure(davItem.Id);
                 await RecordHealthResult(
                     dbClient, davItem,
                     HealthCheckResult.HealthResult.Unhealthy,
@@ -322,25 +406,59 @@ public class HealthCheckService : BackgroundService
                 return;
             }
 
-            // if the unhealthy item is unlinked/orphaned,
-            // then we can simply delete it.
+            // if the unhealthy item is unlinked/orphaned, or auto-remove force-delete is requested,
+            // then we can simply delete it (and the library link when present).
             var symlinkOrStrmPath = OrganizedLinksUtil.GetLink(davItem, _configManager);
-            if (symlinkOrStrmPath == null)
+            if (symlinkOrStrmPath == null || forceDelete)
             {
-                DeletionAuditLog.Record(
-                    "health-repair",
-                    davItem,
-                    "missing articles; orphaned (no library symlink/strm)");
+                if (forceDelete && symlinkOrStrmPath != null)
+                    await Task.Run(() => File.Delete(symlinkOrStrmPath)).ConfigureAwait(false);
+
+                var auditReason = forceDelete
+                    ? streamingFailureCount is > 0
+                        ? $"missing articles; auto-removed after repeated streaming failures (count={streamingFailureCount})"
+                        : "missing articles; auto-removed after repeated streaming failures"
+                    : "missing articles; orphaned (no library symlink/strm)";
+                DeletionAuditLog.Record("health-repair", davItem, auditReason);
+
                 dbClient.Ctx.Items.Remove(davItem);
+                _failureTracker.ClearFailure(davItem.Id);
+
+                var failureNote = streamingFailureCount is > 0
+                    ? $" Streaming failure count: {streamingFailureCount}."
+                    : "";
+                string deleteMessage;
+                if (forceDelete && symlinkOrStrmPath != null)
+                {
+                    var forceDeleteLinkType = symlinkOrStrmPath.ToLower().EndsWith("strm") ? "strm-file" : "symlink";
+                    deleteMessage = string.Join(" ", [
+                        "File had missing articles.",
+                        $"Auto-removed after repeated streaming failures.{failureNote}",
+                        $"Deleted the webdav-file and {forceDeleteLinkType}."
+                    ]);
+                }
+                else if (forceDelete)
+                {
+                    deleteMessage = string.Join(" ", [
+                        "File had missing articles.",
+                        $"Auto-removed after repeated streaming failures.{failureNote}",
+                        "Deleted file."
+                    ]);
+                }
+                else
+                {
+                    deleteMessage = string.Join(" ", [
+                        "File had missing articles.",
+                        "Could not find corresponding symlink or strm-file within Library Dir.",
+                        "Deleted file."
+                    ]);
+                }
+
                 await RecordHealthResult(
                     dbClient, davItem,
                     HealthCheckResult.HealthResult.Unhealthy,
                     HealthCheckResult.RepairAction.Deleted,
-                    string.Join(" ", [
-                        "File had missing articles.",
-                        "Could not find corresponding symlink or strm-file within Library Dir.",
-                        "Deleted file."
-                    ]), ct).ConfigureAwait(false);
+                    deleteMessage, ct).ConfigureAwait(false);
                 return;
             }
 
@@ -400,6 +518,7 @@ public class HealthCheckService : BackgroundService
                         davItem,
                         "missing articles; Arr remove-and-search triggered");
                     dbClient.Ctx.Items.Remove(davItem);
+                    _failureTracker.ClearFailure(davItem.Id);
                     await RecordHealthResult(
                         dbClient, davItem,
                         HealthCheckResult.HealthResult.Unhealthy,
@@ -448,6 +567,7 @@ public class HealthCheckService : BackgroundService
                 davItem,
                 "missing articles; library link present but no Arr media-item (confirmed orphan)");
             dbClient.Ctx.Items.Remove(davItem);
+            _failureTracker.ClearFailure(davItem.Id);
             await RecordHealthResult(
                 dbClient, davItem,
                 HealthCheckResult.HealthResult.Unhealthy,

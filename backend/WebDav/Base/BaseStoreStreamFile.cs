@@ -20,6 +20,13 @@ public abstract class BaseStoreStreamFile(HttpContext context, ConfigManager con
         };
         var scopedDownloadPriorityContext = cancellationToken.SetContext(downloadPriorityContext);
 
+        var streamingTimeoutContext = new StreamingTimeoutContext
+        {
+            PerSegmentTimeout = configManager.GetStreamingSegmentTimeout(),
+            MaxRetries = configManager.GetStreamingSegmentRetries(),
+        };
+        var scopedStreamingTimeoutContext = cancellationToken.SetContext(streamingTimeoutContext);
+
         // Keep this stream's per-stream budget in sync with live config changes,
         // mirroring how DownloadingNntpClient resizes the shared streaming semaphore.
         // The per-stream count depends on the total connection setting, the preset,
@@ -47,6 +54,7 @@ public abstract class BaseStoreStreamFile(HttpContext context, ConfigManager con
         {
             if (onConfigChanged is not null) configManager.OnConfigChanged -= onConfigChanged;
             scopedDownloadPriorityContext.Dispose();
+            scopedStreamingTimeoutContext.Dispose();
             streamSemaphore?.Dispose();
             return Task.CompletedTask;
         });

@@ -54,11 +54,12 @@ public partial class FilenameUtil
     public static string GetJobName(string filename)
     {
         var passMatch = PasswordRegex.Match(filename);
-        return Path.GetFileNameWithoutExtension(
+        var jobName = Path.GetFileNameWithoutExtension(
             passMatch.Success ?
             filename.Replace(passMatch.Groups["rm"].Value, "") :
             filename
         );
+        return PathSanitizer.SanitizeComponentWithLog(jobName);
     }
 
     public static string? GetNzbPassword(string filename)

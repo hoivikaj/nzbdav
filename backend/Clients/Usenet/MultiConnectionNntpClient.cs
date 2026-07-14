@@ -110,7 +110,7 @@ public class MultiConnectionNntpClient(
         return RunWithConnection(
             "STAT",
             SemaphorePriority.Low,
-            (connection, _) => connection.StatAsync(segmentId, ct),
+            (connection, _, commandCt) => connection.StatAsync(segmentId, commandCt),
             onConnectionReadyAgain: null,
             ct
         );
@@ -121,7 +121,7 @@ public class MultiConnectionNntpClient(
         return RunWithConnection(
             "HEAD",
             SemaphorePriority.Low,
-            (connection, _) => connection.HeadAsync(segmentId, ct),
+            (connection, _, commandCt) => connection.HeadAsync(segmentId, commandCt),
             onConnectionReadyAgain: null,
             ct
         );
@@ -132,7 +132,7 @@ public class MultiConnectionNntpClient(
         return RunWithConnection(
             "BODY",
             GetDownloadPriority(ct),
-            (connection, onDone) => connection.DecodedBodyAsync(segmentId, onDone, ct),
+            (connection, onDone, commandCt) => connection.DecodedBodyAsync(segmentId, onDone, commandCt),
             onConnectionReadyAgain: null,
             ct
         );
@@ -147,7 +147,7 @@ public class MultiConnectionNntpClient(
         return RunWithConnection(
             "ARTICLE",
             GetDownloadPriority(ct),
-            (connection, onDone) => connection.DecodedArticleAsync(segmentId, onDone, ct),
+            (connection, onDone, commandCt) => connection.DecodedArticleAsync(segmentId, onDone, commandCt),
             onConnectionReadyAgain: null,
             ct
         );
@@ -158,7 +158,7 @@ public class MultiConnectionNntpClient(
         return RunWithConnection(
             "DATE",
             SemaphorePriority.Low,
-            (connection, _) => connection.DateAsync(ct),
+            (connection, _, commandCt) => connection.DateAsync(commandCt),
             onConnectionReadyAgain: null,
             ct
         );
@@ -174,7 +174,7 @@ public class MultiConnectionNntpClient(
         return RunWithConnection(
             "BODY",
             GetDownloadPriority(ct),
-            (connection, onDone) => connection.DecodedBodyAsync(segmentId, onDone, ct),
+            (connection, onDone, commandCt) => connection.DecodedBodyAsync(segmentId, onDone, commandCt),
             onConnectionReadyAgain,
             ct
         );
@@ -287,7 +287,7 @@ public class MultiConnectionNntpClient(
         return RunWithConnection(
             "ARTICLE",
             GetDownloadPriority(ct),
-            (connection, onDone) => connection.DecodedArticleAsync(segmentId, onDone, ct),
+            (connection, onDone, commandCt) => connection.DecodedArticleAsync(segmentId, onDone, commandCt),
             onConnectionReadyAgain,
             ct
         );
@@ -297,12 +297,16 @@ public class MultiConnectionNntpClient(
     (
         string name,
         SemaphorePriority priority,
-        Func<INntpClient, Action<ArticleBodyResult>, Task<T>> command,
+        Func<INntpClient, Action<ArticleBodyResult>, CancellationToken, Task<T>> command,
         Action<ArticleBodyResult>? onConnectionReadyAgain,
         CancellationToken ct,
         int retryCount = 1
     ) where T : UsenetResponse
     {
+        var streamingTimeout = ct.GetContext<StreamingTimeoutContext>();
+        if (streamingTimeout != null)
+            retryCount = streamingTimeout.MaxRetries;
+
         while (true)
         {
             ConnectionLock<INntpClient>? connectionLock = null;
@@ -335,10 +339,47 @@ public class MultiConnectionNntpClient(
 
             T? result;
             var deferredCallback = new DeferredArticleBodyCallback();
+            CancellationTokenSource? attemptCts = null;
             try
             {
-                result = await command(connectionLock.Connection, deferredCallback.Invoke)
+                var commandCt = ct;
+                if (streamingTimeout != null)
+                {
+                    attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    attemptCts.CancelAfter(streamingTimeout.PerSegmentTimeout);
+                    commandCt = attemptCts.Token;
+                }
+
+                result = await command(connectionLock.Connection, deferredCallback.Invoke, commandCt)
                     .ConfigureAwait(false);
+            }
+            catch (Exception e) when (
+                streamingTimeout != null
+                && e.IsCancellationException()
+                && !ct.IsCancellationRequested)
+            {
+                // Per-segment CancelAfter fired while the caller is still alive.
+                // The connection has an in-flight command → NotRetrieved (replace).
+                // Do not invoke onConnectionReadyAgain on retry: the outer download
+                // permit stays held across attempts (same pattern as other retries).
+                deferredCallback.Discard();
+                LogException(() => connectionLock?.Replace());
+                LogException(() => connectionLock?.Dispose());
+                if (retryCount > 0)
+                {
+                    Log.Debug(
+                        "Streaming timeout executing nntp {Command} command after {Timeout}s. Retrying with a new connection ({Retries} left).",
+                        name, streamingTimeout.PerSegmentTimeout.TotalSeconds, retryCount);
+                    retryCount--;
+                    continue;
+                }
+
+                Log.Warning(
+                    "Streaming timeout executing nntp {Command} command after {Timeout}s. No retries left.",
+                    name, streamingTimeout.PerSegmentTimeout.TotalSeconds);
+                LogException(() => onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved));
+                throw new TimeoutException(
+                    $"Timeout executing nntp {name} command after {streamingTimeout.MaxRetries + 1} attempts.");
             }
             catch (Exception e) when (e.IsCancellationException(ct))
             {
@@ -398,6 +439,10 @@ public class MultiConnectionNntpClient(
                     "Error executing nntp {Command} command for provider {Provider}.", name, providerName);
                 LogException(() => onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved));
                 throw;
+            }
+            finally
+            {
+                attemptCts?.Dispose();
             }
 
             // stat, head, and date
