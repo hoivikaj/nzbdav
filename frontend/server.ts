@@ -4,6 +4,7 @@ import http from "http";
 import { WebSocketServer } from "ws";
 import { logger, requestLogger } from "./server/logger.js";
 import { shouldSkipCompression } from "./server/proxy-path.js";
+import { securityHeadersMiddleware } from "./server/security-headers.js";
 
 // Short-circuit the type-checking of the built output.
 const BUILD_PATH = "../build/server/index.js";
@@ -37,6 +38,7 @@ app.use(
   }),
 );
 app.disable("x-powered-by");
+app.use(securityHeadersMiddleware);
 
 // Frontend-local healthcheck. Registered BEFORE request logging and the React
 // Router catch-all so probes bypass SSR and stay quiet in access logs.
