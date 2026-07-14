@@ -70,6 +70,18 @@ public class DavCleanupService : BackgroundService
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        if (deletedItems.Count > 0)
+        {
+            Guid? parentId = Guid.TryParse(cleanupItemId, out var parsedParentId)
+                ? parsedParentId
+                : null;
+            DeletionAuditLog.RecordBatch(
+                "dav-cleanup",
+                deletedItems,
+                "cascading child sweep after parent directory delete",
+                parentId);
+        }
+
         await dbContext.Database.ExecuteSqlRawAsync(
             """
             DELETE FROM DavItems
@@ -77,6 +89,11 @@ public class DavCleanupService : BackgroundService
             """,
             CreateParentIdParameters(cleanupItemId),
             cancellationToken).ConfigureAwait(false);
+
+        var parentId = Guid.TryParse(cleanupItemId, out var parsedParentId) ? parsedParentId : (Guid?)null;
+        DeletionAuditLog.RecordBatch(
+            "dav-cleanup", deletedItems,
+            "cascading child sweep after parent deletion", parentId);
 
         _ = DavDatabaseContext.RcloneVfsForget(deletedItems);
 

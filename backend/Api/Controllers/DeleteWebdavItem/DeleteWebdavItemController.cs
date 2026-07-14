@@ -5,6 +5,7 @@ using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Extensions;
+using NzbWebDAV.Services;
 
 namespace NzbWebDAV.Api.Controllers.DeleteWebdavItem;
 
@@ -66,6 +67,10 @@ public class DeleteWebdavItemController(DavDatabaseClient dbClient, ConfigManage
         foreach (var childId in childIds)
             await DeleteRecursiveAsync(childId, ct).ConfigureAwait(false);
         var item = await dbClient.Ctx.Items.FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
-        if (item is not null) dbClient.Ctx.Items.Remove(item);
+        if (item is not null)
+        {
+            DeletionAuditLog.Record("api-delete", item, "admin delete-webdav-item");
+            dbClient.Ctx.Items.Remove(item);
+        }
     }
 }

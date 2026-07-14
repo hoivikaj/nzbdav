@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Services;
 using Serilog;
 
 namespace NzbWebDAV.Queue.PostProcessors;
@@ -78,6 +79,10 @@ public class BlocklistedFilePostProcessor(ConfigManager configManager, DavDataba
             return;
         }
 
+        DeletionAuditLog.Record(
+            "blocklist-filter",
+            davItem,
+            "filename matches blocklist pattern during queue post-process");
         dbClient.Ctx.Items.Remove(davItem);
     }
 }

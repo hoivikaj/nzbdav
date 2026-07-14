@@ -37,6 +37,20 @@ public class HistoryCleanupService : BackgroundService
                         .Select(x => new DavItem { Id = x.Id, Type = x.Type, Path = x.Path })
                         .ToListAsync(stoppingToken);
 
+                    // Loud warning for large deletes; does not block (SAB semantics unchanged).
+                    DeletionAuditLog.WarnBulkDelete(
+                        "history-cleanup",
+                        deletedItems.Count,
+                        $"DeleteMountedFiles=true historyItemId={cleanupItem.Id}");
+
+                    foreach (var deletedItem in deletedItems)
+                    {
+                        DeletionAuditLog.Record(
+                            "history-cleanup",
+                            deletedItem,
+                            $"DeleteMountedFiles=true historyItemId={cleanupItem.Id}");
+                    }
+
                     // Delete the corresponding dav-items
                     await dbContext.Items
                         .Where(x => x.HistoryItemId == cleanupItem.Id)

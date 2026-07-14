@@ -4,6 +4,7 @@ using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Extensions;
+using NzbWebDAV.Services;
 using NzbWebDAV.Utils;
 using NzbWebDAV.Websocket;
 using Serilog;
@@ -277,6 +278,14 @@ public class RemoveUnlinkedFilesTask(
                 break;
 
             // Delete by the exact Id text from the select so stored casing never matters.
+            foreach (var item in itemsToDelete)
+            {
+                DeletionAuditLog.Record(
+                    "remove-orphaned",
+                    new DavItem { Id = Guid.Parse(item.Id), Path = item.Path },
+                    "no library symlink/strm link");
+            }
+
             var deleted = await DeleteItemsByIdTextAsync(dbContext, itemsToDelete)
                 .ConfigureAwait(false);
 
@@ -356,6 +365,14 @@ public class RemoveUnlinkedFilesTask(
 
             // Delete by the exact Id text from the select so stored casing never matters
             // (the Fix-Empty-Categories migration seeds a lowercase-Id folder).
+            foreach (var dir in emptyDirs)
+            {
+                DeletionAuditLog.Record(
+                    "remove-orphaned",
+                    new DavItem { Id = Guid.Parse(dir.Id), Path = dir.Path },
+                    "empty directory after orphaned-file cleanup");
+            }
+
             var deleted = await DeleteItemsByIdTextAsync(dbContext, emptyDirs, cancellationToken)
                 .ConfigureAwait(false);
 
