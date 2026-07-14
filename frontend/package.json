@@ -27,7 +27,7 @@
     "compression": "^1.7.5",
     "express": "^5.2.0",
     "express-rate-limit": "^8.5.2",
-    "http-proxy-middleware": "^4.1.1",
+    "http-proxy-middleware": "^4.2.0",
     "isbot": "^5.1.0",
     "material-symbols": "^0.45.7",
     "mime-types": "^3.0.2",
