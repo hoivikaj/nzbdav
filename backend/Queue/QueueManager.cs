@@ -4,6 +4,7 @@ using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Services;
+using NzbWebDAV.Services.Metrics;
 using NzbWebDAV.Utils;
 using NzbWebDAV.Websocket;
 using Serilog;
@@ -228,11 +229,23 @@ public class QueueManager : IDisposable
     private string BuildProvidersMessage(Guid queueItemId)
     {
         var snapshot = _providerUsageTracker.Snapshot(queueItemId);
-        var configured = _configManager.GetUsenetProviderConfig().Providers
+        var providers = _configManager.GetUsenetProviderConfig().Providers;
+        var displayByMetricsKey = ProviderUsageHelper.BuildDisplayByMetricsKey(providers);
+
+        // The wire format is host-based; resolve metrics keys to display hosts so
+        // Guids never reach the UI, aggregating same-host accounts into one entry.
+        var merged = new Dictionary<string, long>();
+        foreach (var kv in snapshot)
+        {
+            var host = displayByMetricsKey.TryGetValue(kv.Key, out var display) ? display.Host : kv.Key;
+            merged.TryGetValue(host, out var existing);
+            merged[host] = existing + kv.Value;
+        }
+
+        var configured = providers
             .Select(p => p.Host)
             .Where(h => !string.IsNullOrEmpty(h))
             .Distinct();
-        var merged = new Dictionary<string, long>(snapshot);
         foreach (var host in configured)
             if (!merged.ContainsKey(host)) merged[host] = 0;
         var payload = string.Join(",", merged.Select(kv => $"{kv.Key}={kv.Value}"));
