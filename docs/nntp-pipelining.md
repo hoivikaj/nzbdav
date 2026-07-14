@@ -53,10 +53,12 @@ pipelining helps at your connection count.
 
 ## Limitations
 
-- **Cross-provider failover mid-batch is limited.** A batch runs on the selected
-  provider; per-segment failover to a backup provider mid-batch is not performed.
-  Misses degrade gracefully per consumer:
-  - queue first-segment → marked `MissingFirstSegment` (name still recoverable via par2)
-  - streaming → handled by the WebDAV batch path and provider failover logic
-  - health check → concurrent per-segment failover across providers
-- The segment cache bypasses pipelined queue paths when caching is enabled.
+- **Queue / WebDAV pipelined BODY batches use the same per-segment failover as
+  `DecodedBodiesAsync`.** Each depth-sized chunk selects an ordered provider list
+  and retries individual misses on the primary (then backups) before yielding
+  `Found = false`. Queue first-segment rescue still re-fetches any remaining null
+  slots with full per-article failover.
+- **`StatsPipelinedAsync` remains primary-only.** Health checks use concurrent
+  per-segment `STAT` with failover elsewhere, so this does not affect correctness.
+- The per-queue-item article cache bypasses pipelined queue paths when caching is
+  enabled (pre-existing; first segments may be re-fetched during RAR header parse).

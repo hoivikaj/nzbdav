@@ -188,7 +188,7 @@ public class MultiConnectionNntpClient(
             try
             {
                 connectionLock = await connectionPool
-                    .GetConnectionLockAsync(SemaphorePriority.High, ct)
+                    .GetConnectionLockAsync(GetDownloadPriority(ct), ct)
                     .ConfigureAwait(false);
                 var batch = await connectionLock.Connection.DecodedBodiesAsync(
                     segmentIds, deferredCallback.Invoke, ct).ConfigureAwait(false);

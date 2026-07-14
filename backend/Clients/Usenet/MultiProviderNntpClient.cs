@@ -781,73 +781,23 @@ public class MultiProviderNntpClient(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         if (segmentIds.Count == 0) yield break;
-        var orderedProviders = SelectOrderedProviders(out var reserved);
-        using var releasePending = new ScopeReleaser(() => reserved?.ReleasePending());
-        var primary = orderedProviders.Count > 0 ? orderedProviders[0] : null;
-        if (primary == null) yield break;
-        var effectiveDepth = ResolveDepth(primary, depth);
-        var stopwatch = Stopwatch.StartNew();
 
-        await foreach (var result in primary.DecodedBodiesPipelinedAsync(segmentIds, effectiveDepth, cancellationToken)
-                           .WithCancellation(cancellationToken).ConfigureAwait(false))
+        // Resolve per-provider depth without holding a reservation across the whole
+        // enumeration — each DecodedBodiesAsync batch selects providers itself and
+        // already records metrics / wraps streams for byte counting.
+        int effectiveDepth;
         {
-            stopwatch.Stop();
-            if (result.Found)
-            {
-                _usageTracker.RecordSuccess(primary.Host);
-                RecordFetch(primary.Host, SegmentFetch.FetchStatus.Ok, stopwatch.ElapsedMilliseconds, 0);
-                yield return WrapPipelinedBody(result, primary.Host);
-            }
-            else
-            {
-                RecordFetch(primary.Host, SegmentFetch.FetchStatus.Missing, stopwatch.ElapsedMilliseconds, 0);
-                yield return result;
-            }
-            stopwatch.Restart();
+            var orderedProviders = SelectOrderedProviders(out var reserved);
+            using var releasePending = new ScopeReleaser(() => reserved?.ReleasePending());
+            var primary = orderedProviders.Count > 0 ? orderedProviders[0] : null;
+            if (primary == null) yield break;
+            effectiveDepth = ResolveDepth(primary, depth);
         }
-    }
 
-    public override async IAsyncEnumerable<PipelinedArticleResult> DecodedArticlesPipelinedAsync(
-        IReadOnlyList<string> segmentIds, int depth,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        if (segmentIds.Count == 0) yield break;
-        var orderedProviders = SelectOrderedProviders(out var reserved);
-        using var releasePending = new ScopeReleaser(() => reserved?.ReleasePending());
-        var primary = orderedProviders.Count > 0 ? orderedProviders[0] : null;
-        if (primary == null) yield break;
-        var effectiveDepth = ResolveDepth(primary, depth);
-        var stopwatch = Stopwatch.StartNew();
-
-        await foreach (var result in primary.DecodedArticlesPipelinedAsync(segmentIds, effectiveDepth, cancellationToken)
+        await foreach (var result in base.DecodedBodiesPipelinedAsync(
+                           segmentIds, effectiveDepth, cancellationToken)
                            .WithCancellation(cancellationToken).ConfigureAwait(false))
-        {
-            stopwatch.Stop();
-            if (result.Found)
-            {
-                _usageTracker.RecordSuccess(primary.Host);
-                RecordFetch(primary.Host, SegmentFetch.FetchStatus.Ok, stopwatch.ElapsedMilliseconds, 0);
-                yield return WrapPipelinedArticle(result, primary.Host);
-            }
-            else
-            {
-                RecordFetch(primary.Host, SegmentFetch.FetchStatus.Missing, stopwatch.ElapsedMilliseconds, 0);
-                yield return result;
-            }
-            stopwatch.Restart();
-        }
-    }
-
-    private PipelinedBodyResult WrapPipelinedBody(PipelinedBodyResult result, string host)
-    {
-        if (bytesTracker == null || result.Stream == null) return result;
-        return result with { Stream = new CountingYencStream(result.Stream, bytesTracker, host) };
-    }
-
-    private PipelinedArticleResult WrapPipelinedArticle(PipelinedArticleResult result, string host)
-    {
-        if (bytesTracker == null || result.Stream == null) return result;
-        return result with { Stream = new CountingYencStream(result.Stream, bytesTracker, host) };
+            yield return result;
     }
 
     private static void InvokeCompletionCallback(

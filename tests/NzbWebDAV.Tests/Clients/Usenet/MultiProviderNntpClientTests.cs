@@ -113,28 +113,102 @@ public class MultiProviderNntpClientTests
         Assert.Equal(1, connection.BatchRequests);
     }
 
-    [Theory]
-    [InlineData(222)]
-    [InlineData(430)]
-    public async Task PipelinedBodyResponse_RecordsFetchMetric(int responseCode)
+    [Fact]
+    public async Task PipelinedBodyResponse_RecordsFetchMetric_OnSuccess()
     {
         var writer = new MetricsWriter();
         var connection = new ScriptedNntpClient
         {
-            BatchResponseCode = responseCode,
-            SingularResponseCode = responseCode,
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
         };
         using var client = new MultiProviderNntpClient(
             [CreateProvider(connection)], metricsWriter: writer);
 
-        await foreach (var result in client.DecodedBodiesPipelinedAsync(
-                           ["segment"], 1, CancellationToken.None))
-            if (result.Stream != null)
-                await result.Stream.DisposeAsync();
+        var results = await CollectPipelinedAsync(client, ["segment"], 1);
+        Assert.Single(results);
+        Assert.True(results[0].Found);
+        if (results[0].Stream != null)
+            await results[0].Stream.DisposeAsync();
 
+        // Exactly one fetch — must not double-count override metrics + DecodedBodiesAsync.
         Assert.Equal(1, writer.Stats.QueuedFetches);
         Assert.Equal(1, connection.BatchRequests);
         Assert.Equal(0, connection.SingularRequests);
+    }
+
+    [Fact]
+    public async Task PipelinedBody_PrimaryMiss_FailsOverToBackup()
+    {
+        var primary = new ScriptedNntpClient
+        {
+            BatchResponseCode = 430,
+            SingularResponseCode = 430,
+        };
+        var backup = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(primary, host: "a.example"),
+            CreateProvider(backup, host: "b.example"),
+        ]);
+
+        var results = await CollectPipelinedAsync(client, ["segment"], depth: 2);
+
+        Assert.Single(results);
+        Assert.True(results[0].Found);
+        Assert.NotNull(results[0].Stream);
+        await results[0].Stream!.DisposeAsync();
+        Assert.True(primary.BatchRequests >= 1);
+        Assert.True(primary.SingularRequests >= 1);
+        Assert.Equal(1, backup.SingularRequests);
+    }
+
+    [Fact]
+    public async Task PipelinedBody_SuccessfulPrimary_DoesNotCallBackup()
+    {
+        var primary = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        var backup = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(primary, host: "a.example"),
+            CreateProvider(backup, host: "b.example"),
+        ]);
+
+        var results = await CollectPipelinedAsync(client, ["seg-a", "seg-b"], depth: 2);
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, r => Assert.True(r.Found));
+        foreach (var result in results)
+            if (result.Stream != null)
+                await result.Stream.DisposeAsync();
+        Assert.Equal(1, primary.BatchRequests);
+        Assert.Equal(0, primary.SingularRequests);
+        Assert.Equal(0, backup.BatchRequests);
+        Assert.Equal(0, backup.SingularRequests);
+    }
+
+    private static async Task<List<PipelinedBodyResult>> CollectPipelinedAsync(
+        MultiProviderNntpClient client,
+        IReadOnlyList<string> segmentIds,
+        int depth)
+    {
+        var results = new List<PipelinedBodyResult>();
+        await foreach (var result in client.DecodedBodiesPipelinedAsync(
+                           segmentIds, depth, CancellationToken.None))
+            results.Add(result);
+        return results;
     }
 
     [Fact]

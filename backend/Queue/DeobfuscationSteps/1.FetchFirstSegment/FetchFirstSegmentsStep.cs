@@ -48,20 +48,44 @@ public static class FetchFirstSegmentsStep
         var depth = configManager.GetPipeliningDepth();
         var segmentIds = files.Select(x => x.Segments[0].MessageId).ToList();
         var results = new NzbFileWithFirstSegment?[files.Count];
+        var indexBySegmentId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < files.Count; i++)
+        {
+            var key = NntpClient.NormalizeSegmentId(files[i].Segments[0].MessageId);
+            if (key.Length > 0)
+                indexBySegmentId.TryAdd(key, i);
+        }
         var completed = 0;
-        var index = 0;
 
         try
         {
             await foreach (var article in usenetClient.DecodedArticlesPipelinedAsync(segmentIds, depth, cancellationToken)
                                .WithCancellation(cancellationToken).ConfigureAwait(false))
             {
-                var i = index++;
+                var key = NntpClient.NormalizeSegmentId(article.SegmentId);
+                if (key.Length == 0 || !indexBySegmentId.TryGetValue(key, out var i))
+                {
+                    Log.Warning(
+                        "Pipelined first-segment result SegmentId {SegmentId} did not match any pending file; leaving for rescue",
+                        article.SegmentId);
+                    if (article.Stream != null)
+                    {
+                        try { await article.Stream.DisposeAsync().ConfigureAwait(false); }
+                        catch (Exception e) { Log.Debug(e, "Failed to dispose unmatched first-segment stream"); }
+                    }
+                    continue;
+                }
+
                 if (article.Found && article.Stream != null)
                 {
                     results[i] = await BuildFirstSegment(files[i], article.Stream, article.ArticleHeaders, cancellationToken)
                         .ConfigureAwait(false);
                     progress?.Report(++completed);
+                }
+                else if (article.Stream != null)
+                {
+                    try { await article.Stream.DisposeAsync().ConfigureAwait(false); }
+                    catch (Exception e) { Log.Debug(e, "Failed to dispose missing first-segment stream"); }
                 }
             }
         }
@@ -147,6 +171,9 @@ public static class FetchFirstSegmentsStep
 
         var first16KB = totalRead < buffer.Length ? buffer.AsSpan(0, totalRead).ToArray() : buffer;
         var yencHeaders = await stream.GetYencHeadersAsync(cancellationToken).ConfigureAwait(false);
+        if (yencHeaders is not null)
+            nzbFile.Segments[0].ByteRange =
+                LongRange.FromStartAndSize(yencHeaders.PartOffset, yencHeaders.PartSize);
 
         return new NzbFileWithFirstSegment
         {

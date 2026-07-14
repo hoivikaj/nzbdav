@@ -5,6 +5,7 @@ using NzbWebDAV.Extensions;
 using NzbWebDAV.Models;
 using NzbWebDAV.Models.Nzb;
 using NzbWebDAV.Streams;
+using Serilog;
 using UsenetSharp.Models;
 
 namespace NzbWebDAV.Clients.Usenet;
@@ -309,6 +310,26 @@ public abstract class NntpClient : INntpClient
                 throw new UsenetUnexpectedResponseException(segmentId, response.ResponseMessage);
             }
 
+            if (HasSegmentIdMismatch(segmentId, response.SegmentId, response.ResponseMessage, out var actualId))
+            {
+                Log.Warning(
+                    "Pipelined BODY SegmentId mismatch: expected {Expected}, got {Actual} (message: {Message}). " +
+                    "Treating as not found so queue rescue can refetch.",
+                    NormalizeSegmentId(segmentId), actualId, response.ResponseMessage);
+                if (response.Stream != null)
+                {
+                    try { await response.Stream.DisposeAsync().ConfigureAwait(false); }
+                    catch (Exception e) { Log.Debug(e, "Failed to dispose mismatched pipelined BODY stream"); }
+                }
+
+                return new PipelinedBodyResult
+                {
+                    SegmentId = segmentId,
+                    Found = false,
+                    Stream = null,
+                };
+            }
+
             return new PipelinedBodyResult
             {
                 SegmentId = segmentId,
@@ -325,6 +346,60 @@ public abstract class NntpClient : INntpClient
                 Stream = null,
             };
         }
+    }
+
+    /// <summary>
+    /// Returns true when the response carries a different message-id than requested.
+    /// Prefers <see cref="UsenetDecodedBodyResponse.SegmentId"/> when set; also checks
+    /// a <c>&lt;mid&gt;</c> echoed in <c>ResponseMessage</c> (typical 222 form). Cache /
+    /// synthetic responses without a wire id are treated as matching.
+    /// </summary>
+    internal static bool HasSegmentIdMismatch(
+        string requestedSegmentId,
+        string? responseSegmentId,
+        string? responseMessage,
+        out string actualId)
+    {
+        var expected = NormalizeSegmentId(requestedSegmentId);
+        actualId = "";
+
+        var responseId = NormalizeSegmentId(responseSegmentId);
+        if (responseId.Length > 0 &&
+            !string.Equals(responseId, expected, StringComparison.OrdinalIgnoreCase))
+        {
+            actualId = responseId;
+            return true;
+        }
+
+        if (TryExtractMessageIdFromResponseMessage(responseMessage, out var wireId) &&
+            !string.Equals(NormalizeSegmentId(wireId), expected, StringComparison.OrdinalIgnoreCase))
+        {
+            actualId = NormalizeSegmentId(wireId);
+            return true;
+        }
+
+        return false;
+    }
+
+    internal static string NormalizeSegmentId(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return "";
+        var trimmed = id.Trim();
+        if (trimmed.Length >= 2 && trimmed[0] == '<' && trimmed[^1] == '>')
+            trimmed = trimmed[1..^1];
+        return trimmed;
+    }
+
+    internal static bool TryExtractMessageIdFromResponseMessage(string? message, out string messageId)
+    {
+        messageId = "";
+        if (string.IsNullOrEmpty(message)) return false;
+        var start = message.IndexOf('<');
+        if (start < 0) return false;
+        var end = message.IndexOf('>', start + 1);
+        if (end < 0) return false;
+        messageId = message[(start + 1)..end];
+        return messageId.Length > 0;
     }
 
     public virtual async Task CheckAllSegmentsPipelinedAsync
