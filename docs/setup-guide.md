@@ -124,6 +124,9 @@ The image runs two processes: the frontend and public proxy on port `3000`, and 
 >
 > Frontend session cookies: set `SECURE_COOKIES=true` when the UI is only served over HTTPS. Optionally set `SESSION_KEY` to a long random secret (otherwise a stable key is persisted under `CONFIG_PATH/session.key` so restarts do not log everyone out). Optionally set `SESSION_MAX_AGE` in seconds (default one year).
 
+> [!NOTE]
+> Small, memory-constrained deployments can override the backend thread-pool limits with `THREADPOOL_MIN_THREADS` and `THREADPOOL_MAX_THREADS` in the container environment. When unset, NzbDav retains the existing defaults: `max(2 × processor count, 50)` minimum threads and `max(50 × processor count, 1000)` maximum threads. Lowering the minimum may reduce reserved stack memory but can also reduce streaming responsiveness under load; restart the container after changing either value.
+
 ### 2. Core configuration
 
 Navigate to `http://your-server-ip:3000`.

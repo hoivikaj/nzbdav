@@ -15,6 +15,11 @@ export FRONTEND_BACKEND_API_KEY=$(head -c 32 /dev/urandom | hexdump -ve '1/1 "%.
 export BACKEND_URL=http://localhost:5000
 ```
 
+The backend thread-pool limits can optionally be overridden with
+`THREADPOOL_MIN_THREADS` and `THREADPOOL_MAX_THREADS`. When unset, they retain
+the production defaults of `max(2 × processor count, 50)` minimum threads and
+`max(50 × processor count, 1000)` maximum threads.
+
 You need some packages in order to run the project:
 
 - dotnet-sdk
