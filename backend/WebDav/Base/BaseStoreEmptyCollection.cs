@@ -1,4 +1,5 @@
-﻿using NWebDav.Server.Stores;
+﻿using System.Runtime.CompilerServices;
+using NWebDav.Server.Stores;
 using NzbWebDAV.WebDav.Requests;
 
 namespace NzbWebDAV.WebDav.Base;
@@ -14,8 +15,11 @@ public class BaseStoreEmptyCollection(string name) : BaseStoreReadonlyCollection
         return Task.FromResult<IStoreItem?>(null);
     }
 
-    protected override Task<IStoreItem[]> GetAllItemsAsync(CancellationToken cancellationToken)
+    protected override async IAsyncEnumerable<IStoreItem> GetAllItemsAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        return Task.FromResult<IStoreItem[]>([]);
+        cancellationToken.ThrowIfCancellationRequested();
+        await Task.CompletedTask.ConfigureAwait(false);
+        yield break;
     }
 }

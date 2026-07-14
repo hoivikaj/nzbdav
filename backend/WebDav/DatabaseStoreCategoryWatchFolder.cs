@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 using NWebDav.Server;
 using NWebDav.Server.Stores;
@@ -34,12 +35,15 @@ public class DatabaseStoreCategoryWatchFolder(
         return new DatabaseStoreQueueItem(queueItem, dbClient);
     }
 
-    protected override async Task<IStoreItem[]> GetAllItemsAsync(CancellationToken cancellationToken)
+    protected override async IAsyncEnumerable<IStoreItem> GetAllItemsAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        return (await dbClient.GetQueueItems(category, 0, int.MaxValue, cancellationToken).ConfigureAwait(false))
-            .Select(x => new DatabaseStoreQueueItem(x, dbClient))
-            .Select(IStoreItem (x) => x)
-            .ToArray();
+        foreach (var queueItem in await dbClient
+                     .GetQueueItems(category, 0, int.MaxValue, cancellationToken)
+                     .ConfigureAwait(false))
+        {
+            yield return new DatabaseStoreQueueItem(queueItem, dbClient);
+        }
     }
 
     protected override async Task<StoreItemResult> CreateItemAsync(CreateItemRequest request)

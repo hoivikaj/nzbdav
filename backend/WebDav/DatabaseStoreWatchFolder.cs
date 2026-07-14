@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 using NWebDav.Server.Stores;
 using NzbWebDAV.Config;
@@ -30,14 +31,15 @@ public class DatabaseStoreWatchFolder(
             request.Name, dbClient, configManager, queueManager, websocketManager);
     }
 
-    protected override async Task<IStoreItem[]> GetAllItemsAsync(CancellationToken cancellationToken)
+    protected override async IAsyncEnumerable<IStoreItem> GetAllItemsAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var categories = await GetCategoriesAsync(cancellationToken).ConfigureAwait(false);
-        return categories
-            .Select(c => new DatabaseStoreCategoryWatchFolder(
-                c, dbClient, configManager, queueManager, websocketManager))
-            .Select(IStoreItem (x) => x)
-            .ToArray();
+        foreach (var category in categories)
+        {
+            yield return new DatabaseStoreCategoryWatchFolder(
+                category, dbClient, configManager, queueManager, websocketManager);
+        }
     }
 
     private async Task<IReadOnlySet<string>> GetCategoriesAsync(CancellationToken cancellationToken)

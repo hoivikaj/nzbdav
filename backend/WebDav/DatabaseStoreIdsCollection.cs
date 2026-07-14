@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using System.Runtime.CompilerServices;
+using Microsoft.AspNetCore.Http;
 using NWebDav.Server.Stores;
 using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Config;
@@ -47,21 +48,27 @@ public class DatabaseStoreIdsCollection(
         return item == null ? null : new DatabaseStoreIdFile(item, ctx, dbClient, usenet, config, lazy);
     }
 
-    protected override async Task<IStoreItem[]> GetAllItemsAsync(CancellationToken cancellationToken)
+    protected override async IAsyncEnumerable<IStoreItem> GetAllItemsAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var (ctx, db, usenet, config, lazy) =
             (httpContext, dbClient, usenetClient, configManager, lazyRarResolver);
         if (_currentPathParts.Length < DavItem.IdPrefixLength)
-            return Alphabet
-                .Select(x => x.ToString())
-                .Select(x => new DatabaseStoreIdsCollection(x, Path.Join(currentPath, x), ctx, db, usenet, config, lazy))
-                .Select(x => x as IStoreItem)
-                .ToArray();
+        {
+            foreach (var segment in Alphabet)
+            {
+                yield return new DatabaseStoreIdsCollection(
+                    segment.ToString(), Path.Join(currentPath, segment.ToString()), ctx, db, usenet, config, lazy);
+            }
+
+            yield break;
+        }
 
         var idPrefix = string.Join("", _currentPathParts);
-        return (await dbClient.GetFilesByIdPrefix(idPrefix).ConfigureAwait(false))
-            .Select(x => new DatabaseStoreIdFile(x, ctx, db, usenet, config, lazy))
-            .Select(x => x as IStoreItem)
-            .ToArray();
+        foreach (var item in await dbClient.GetFilesByIdPrefix(idPrefix).ConfigureAwait(false))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return new DatabaseStoreIdFile(item, ctx, dbClient, usenet, config, lazy);
+        }
     }
 }

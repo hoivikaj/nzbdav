@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using System.Runtime.CompilerServices;
 using NWebDav.Server;
 using NWebDav.Server.Stores;
 using NzbWebDAV.Clients.Usenet;
@@ -61,31 +62,35 @@ public class DatabaseStoreCollection(
         return null;
     }
 
-    protected override async Task<IStoreItem[]> GetAllItemsAsync(CancellationToken cancellationToken)
+    protected override async IAsyncEnumerable<IStoreItem> GetAllItemsAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        // read DavItems from the database
-        var children = await dbClient
-            .GetDirectoryChildrenAsync(davDirectory.Id, cancellationToken)
-            .ConfigureAwait(false);
+        var isContentFolder = davDirectory.Id == DavItem.ContentFolder.Id;
+        HashSet<string>? childNames = isContentFolder ? [] : null;
 
-        // map DavItems to IStoreItems
-        var result = children.Select(child => DatabaseStoreItemFactory.Create(
-            child, httpContext, dbClient, configManager, usenetClient, queueManager, websocketManager,
-            lazyRarResolver));
+        await foreach (var child in dbClient
+                           .GetDirectoryChildrenEnumerableAsync(davDirectory.Id, cancellationToken)
+                           .ConfigureAwait(false))
+        {
+            childNames?.Add(child.Name);
+            yield return DatabaseStoreItemFactory.Create(
+                child, httpContext, dbClient, configManager, usenetClient, queueManager, websocketManager,
+                lazyRarResolver);
+        }
 
         // include the readme file
         if (davDirectory.Id == DavItem.Root.Id)
-            result = result.Append(Readme);
+            yield return Readme;
 
         // include any missing category folders
-        if (davDirectory.Id == DavItem.ContentFolder.Id)
+        if (isContentFolder)
         {
-            result = result.Concat(configManager.GetApiCategories()
-                .Except(children.Select(x => x.Name))
-                .Select(x => new BaseStoreEmptyCollection(x)));
+            foreach (var category in configManager.GetApiCategories())
+            {
+                if (!childNames!.Contains(category))
+                    yield return new BaseStoreEmptyCollection(category);
+            }
         }
-
-        return result.ToArray();
     }
 
     protected override bool SupportsFastMove(SupportsFastMoveRequest request)

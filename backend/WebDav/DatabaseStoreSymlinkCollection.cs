@@ -1,4 +1,5 @@
 ﻿using System.Text.RegularExpressions;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Caching.Memory;
 using NWebDav.Server;
 using NWebDav.Server.Stores;
@@ -51,31 +52,40 @@ public class DatabaseStoreSymlinkCollection(
         return null;
     }
 
-    protected override async Task<IStoreItem[]> GetAllItemsAsync(CancellationToken cancellationToken)
+    protected override async IAsyncEnumerable<IStoreItem> GetAllItemsAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // if we are a category folder within the /completed-symlinks dir,
         // then we only want to show children that correspond to Completed History items.
         var isCategoryFolder = davDirectory.ParentId == DavItem.ContentFolder.Id;
         var children = isCategoryFolder
-            ? await dbClient.GetCompletedSymlinkCategoryChildren(davDirectory.Name, cancellationToken)
-                .ConfigureAwait(false)
-            : await dbClient.GetDirectoryChildrenAsync(TargetId, cancellationToken).ConfigureAwait(false);
-
-        // map DavItems to IStoreItems
-        var result = children.Select(GetItem);
+            ? dbClient.GetCompletedSymlinkCategoryChildrenEnumerableAsync(davDirectory.Name, cancellationToken)
+            : dbClient.GetDirectoryChildrenEnumerableAsync(TargetId, cancellationToken);
 
         // include any missing category folders
         var isSymlinkFolder = davDirectory.Id == DavItem.SymlinkFolder.Id;
-        if (isSymlinkFolder)
+        HashSet<string>? childNames = isSymlinkFolder ? [] : null;
+
+        await foreach (var child in children.ConfigureAwait(false))
         {
-            result = result.Concat(configManager.GetApiCategories()
-                .Except(children.Select(x => x.Name))
-                .Select(x => new BaseStoreEmptyCollection(x)));
+            childNames?.Add(child.Name);
+            var item = GetItem(child);
+            if (!DeletedFiles.IsDeleted(item.Name))
+                yield return item;
         }
 
-        return result
-            .Where(x => !DeletedFiles.IsDeleted(x.Name)) // must appear after Select(GetItem) for correct Name.
-            .ToArray();
+        if (isSymlinkFolder)
+        {
+            foreach (var category in configManager.GetApiCategories())
+            {
+                if (childNames!.Contains(category))
+                    continue;
+
+                var item = new BaseStoreEmptyCollection(category);
+                if (!DeletedFiles.IsDeleted(item.Name))
+                    yield return item;
+            }
+        }
     }
 
     protected override Task<DavStatusCode> DeleteItemAsync(DeleteItemRequest request)

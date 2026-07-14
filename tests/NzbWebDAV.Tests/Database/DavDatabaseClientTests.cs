@@ -60,12 +60,54 @@ public sealed class DavDatabaseClientTests : IAsyncLifetime
         var children = await _client.GetDirectoryChildrenAsync(directory.Id);
         Assert.Equal(
             new[] { "first.mkv", "science-fiction" },
-            children.Select(item => item.Name).Order());
+            children.Select(item => item.Name));
+
+        var streamedChildren = new List<DavItem>();
+        await foreach (var child in _client.GetDirectoryChildrenEnumerableAsync(directory.Id))
+            streamedChildren.Add(child);
+        Assert.Equal(
+            new[] { "first.mkv", "science-fiction" },
+            streamedChildren.Select(item => item.Name));
+
         Assert.Equal(350, await _client.GetRecursiveSize(directory.Id));
         Assert.Equal(firstFile.Id, (await _client.GetFileById(firstFile.Id.ToString()))?.Id);
         Assert.Equal(
             firstFile.Id,
             (await _client.GetFilesByIdPrefix(firstFile.IdPrefix)).Single().Id);
+    }
+
+    [Fact]
+    public async Task CompletedSymlinkCategoryChildren_AreDistinctAndOrdered()
+    {
+        var zetaDirectory = DavItem.New(
+            Guid.NewGuid(), DavItem.ContentFolder, "zeta", null,
+            DavItem.ItemType.Directory, DavItem.ItemSubType.Directory,
+            null, null, null, null);
+        var alphaDirectory = DavItem.New(
+            Guid.NewGuid(), DavItem.ContentFolder, "alpha", null,
+            DavItem.ItemType.Directory, DavItem.ItemSubType.Directory,
+            null, null, null, null);
+        var failedDirectory = DavItem.New(
+            Guid.NewGuid(), DavItem.ContentFolder, "failed", null,
+            DavItem.ItemType.Directory, DavItem.ItemSubType.Directory,
+            null, null, null, null);
+
+        _context.Items.AddRange(zetaDirectory, alphaDirectory, failedDirectory);
+        _context.HistoryItems.AddRange(
+            CreateHistoryItem("zeta.nzb", zetaDirectory.Id, HistoryItem.DownloadStatusOption.Completed),
+            CreateHistoryItem("zeta-duplicate.nzb", zetaDirectory.Id, HistoryItem.DownloadStatusOption.Completed),
+            CreateHistoryItem("alpha.nzb", alphaDirectory.Id, HistoryItem.DownloadStatusOption.Completed),
+            CreateHistoryItem("failed.nzb", failedDirectory.Id, HistoryItem.DownloadStatusOption.Failed));
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var children = await _client.GetCompletedSymlinkCategoryChildren("movies");
+        Assert.Equal(new[] { "alpha", "zeta" }, children.Select(item => item.Name));
+
+        var streamedChildren = new List<DavItem>();
+        await foreach (var child in _client.GetCompletedSymlinkCategoryChildrenEnumerableAsync("movies"))
+            streamedChildren.Add(child);
+        Assert.Equal(new[] { "alpha", "zeta" }, streamedChildren.Select(item => item.Name));
     }
 
     [Fact]
@@ -140,6 +182,23 @@ public sealed class DavDatabaseClientTests : IAsyncLifetime
         Assert.Equal(queueItem.Id, historyItem.Id);
         Assert.Equal(HistoryItem.DownloadStatusOption.Failed, historyItem.DownloadStatus);
         Assert.Equal("The NZB file could not be found.", historyItem.FailMessage);
+    }
+
+    private static HistoryItem CreateHistoryItem(
+        string fileName,
+        Guid downloadDirId,
+        HistoryItem.DownloadStatusOption status)
+    {
+        return new HistoryItem
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = DateTime.UtcNow,
+            FileName = fileName,
+            JobName = Path.GetFileNameWithoutExtension(fileName),
+            Category = "movies",
+            DownloadStatus = status,
+            DownloadDirId = downloadDirId
+        };
     }
 
     public async Task DisposeAsync()

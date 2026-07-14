@@ -1,4 +1,5 @@
 using System.Text;
+using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Database.Models;
 
@@ -28,13 +29,34 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
     // directory
     public Task<List<DavItem>> GetDirectoryChildrenAsync(Guid dirId, CancellationToken ct = default)
     {
-        return ctx.Items.AsNoTracking().Where(x => x.ParentId == dirId).ToListAsync(ct);
+        return GetDirectoryChildrenQuery(dirId).ToListAsync(ct);
+    }
+
+    public async IAsyncEnumerable<DavItem> GetDirectoryChildrenEnumerableAsync(
+        Guid dirId,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await foreach (var child in GetDirectoryChildrenQuery(dirId)
+                           .AsAsyncEnumerable()
+                           .WithCancellation(ct)
+                           .ConfigureAwait(false))
+        {
+            yield return child;
+        }
     }
 
     public Task<DavItem?> GetDirectoryChildAsync(Guid dirId, string childName, CancellationToken ct = default)
     {
         return ctx.Items.AsNoTracking()
             .FirstOrDefaultAsync(x => x.ParentId == dirId && x.Name == childName, ct);
+    }
+
+    private IQueryable<DavItem> GetDirectoryChildrenQuery(Guid dirId)
+    {
+        return ctx.Items
+            .AsNoTracking()
+            .Where(x => x.ParentId == dirId)
+            .OrderBy(x => x.Name);
     }
 
     // Resolves a persisted item by its absolute virtual path in a single indexed lookup,
@@ -353,8 +375,26 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
     }
 
     // completed-symlinks
-    public async Task<List<DavItem>> GetCompletedSymlinkCategoryChildren(string category,
+    public Task<List<DavItem>> GetCompletedSymlinkCategoryChildren(string category,
         CancellationToken ct = default)
+    {
+        return GetCompletedSymlinkCategoryChildrenQuery(category).ToListAsync(ct);
+    }
+
+    public async IAsyncEnumerable<DavItem> GetCompletedSymlinkCategoryChildrenEnumerableAsync(
+        string category,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await foreach (var child in GetCompletedSymlinkCategoryChildrenQuery(category)
+                           .AsAsyncEnumerable()
+                           .WithCancellation(ct)
+                           .ConfigureAwait(false))
+        {
+            yield return child;
+        }
+    }
+
+    private IQueryable<DavItem> GetCompletedSymlinkCategoryChildrenQuery(string category)
     {
         var query = from historyItem in Ctx.HistoryItems
             .AsNoTracking()
@@ -364,6 +404,6 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
                     join davItem in Ctx.Items.AsNoTracking() on historyItem.DownloadDirId equals davItem.Id
                     where davItem.Type == DavItem.ItemType.Directory
                     select davItem;
-        return await query.Distinct().ToListAsync(ct).ConfigureAwait(false);
+        return query.Distinct().OrderBy(x => x.Name);
     }
 }
