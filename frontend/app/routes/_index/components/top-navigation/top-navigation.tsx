@@ -3,10 +3,11 @@ import { Form, useNavigate } from "react-router";
 import type { RequiredTopNavProps } from "../page-layout/page-layout";
 import { LiveUsenetConnections } from "../live-usenet-connections/live-usenet-connections";
 import { Icon } from "~/components/ui";
+import { isComparableVersion, type UpdateAvailable } from "~/utils/update-check";
 
 export type TopNavigationProps = RequiredTopNavProps & {
   version?: string,
-  updateAvailable?: { latestVersion: string; releaseUrl: string } | null,
+  updateAvailable?: UpdateAvailable | null,
   isFrontendAuthDisabled?: boolean,
   hasUsenetProviders?: boolean,
 };
@@ -23,6 +24,7 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
   const navigate = useNavigate();
   const displayVersion = version || "unknown";
   const hasUpdate = Boolean(updateAvailable);
+  const channelLabel = isComparableVersion(version) ? "Stable" : "Dev";
 
   return (
     <>
@@ -74,7 +76,7 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
                 <>
                   <span className="inline-flex items-center gap-2 whitespace-nowrap">
                     <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-base-content/40">
-                      Stable
+                      {channelLabel}
                     </span>
                     <span className="h-3 w-px bg-base-content/15" aria-hidden="true" />
                     <span className="font-mono text-sm tracking-tight text-base-content/80">
@@ -97,13 +99,13 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
           >
             <li className="menu-title">
               <span className="flex items-center justify-between gap-2">
-                <span>NzbDav Stable</span>
+                <span>NzbDav {channelLabel}</span>
                 <span className="font-mono font-normal normal-case tracking-normal">
                   {displayVersion}
                 </span>
               </span>
             </li>
-            {updateAvailable && (
+            {updateAvailable?.kind === "release" && (
               <li>
                 <a
                   href={updateAvailable.releaseUrl}
@@ -113,6 +115,21 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
                 >
                   <Icon name="arrow_circle_up" className="!text-[18px]" />
                   Update to v{updateAvailable.latestVersion}
+                </a>
+              </li>
+            )}
+            {updateAvailable?.kind === "dev" && (
+              <li>
+                <a
+                  href={updateAvailable.compareUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="bg-primary/15 font-medium text-primary"
+                >
+                  <Icon name="arrow_circle_up" className="!text-[18px]" />
+                  {updateAvailable.commitsBehind === 1
+                    ? "1 new commit on main"
+                    : `${updateAvailable.commitsBehind} new commits on main`}
                 </a>
               </li>
             )}

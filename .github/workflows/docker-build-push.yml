@@ -54,6 +54,7 @@ jobs:
           tags: ${{ inputs.tags }}
           build-args: |
             NZBDAV_VERSION=${{ inputs.nzbdav_version }}
+            NZBDAV_COMMIT_SHA=${{ inputs.checkout_ref || github.sha }}
             REPO_URL=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
