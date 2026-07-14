@@ -46,8 +46,12 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
                         className="max-w-xs"
                     />
                     <p className="text-[11px] leading-relaxed text-base-content/45" id="history-retention-days-help">
-                        Automatically prune SAB history rows older than this many days. Mounted WebDAV content is preserved.
-                        Set to 0 to keep everything. Can also be set with DATABASE_HISTORY_RETENTION_DAYS.
+                        Automatically prune SAB history rows older than this many days.
+                        Pruning unlinks mounts from SAB history but does not delete WebDAV files —
+                        they remain under /content until you delete them (or Remove Orphaned Files
+                        removes items with no library symlink/STRM). History pruning alone does not
+                        make items eligible for orphan removal. Set to 0 to keep everything.
+                        Can also be set with DATABASE_HISTORY_RETENTION_DAYS.
                     </p>
                 </div>
                 <hr />

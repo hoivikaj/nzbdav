@@ -12,6 +12,7 @@ An opinionated, step-by-step walkthrough for setting up NzbDav for maximum perfo
 6. [Phase 5 — Usenet streaming in Stremio (via AIOStreams)](#phase-5--usenet-streaming-in-stremio-via-aiostreams)
 7. [Phase 6 — Search profiles and adapters](#phase-6--search-profiles-and-adapters)
 8. [Phase 7 — Operations](#phase-7--operations)
+9. [Why did my files disappear?](#why-did-my-files-disappear)
 
 ## How the "infinite library" works
 
@@ -532,7 +533,7 @@ NzbDav can prune aged SAB history and health-check rows so `db.sqlite` does not 
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DATABASE_HISTORY_RETENTION_DAYS` | `90` | Keep SAB history entries for this many days. Set to `0` to retain everything. Mounted WebDAV content is **not** deleted. |
+| `DATABASE_HISTORY_RETENTION_DAYS` | `90` | Keep SAB history entries for this many days. Set to `0` to retain everything. Pruning **unlinks** mounts from SAB history but does **not** delete WebDAV files. Remove Orphaned Files uses library symlinks/STRM links, not history, so retention alone does not make items eligible for deletion. |
 | `DATABASE_HEALTHCHECK_RETENTION_DAYS` | `30` | Keep health-check result rows for this many days. Set to `0` to retain everything. |
 | `DATABASE_MAINTENANCE_INTERVAL_HOURS` | `6` | How often the background retention sweeps run. |
 
@@ -599,3 +600,50 @@ If the Rclone mount fails, first verify that `/dev/fuse` exists on the host, the
 ### Korean / Japanese (CJK) filenames
 
 NzbDav stores and serves WebDAV paths as UTF-8. If CJK release names appear as mojibake or are inaccessible from a Windows WebDAV mapping or rclone, check the **client** encoding settings (for example rclone `--local-encoding` / Windows system locale / UTF-8 code page). Filenames recovered from PAR2 packets are decoded as UTF-8 when valid, with a Windows-1252 fallback for legacy packers.
+
+---
+
+## Why did my files disappear?
+
+Mounted content under `/content` can vanish for several independent reasons. Reports of files “disappearing by themselves” usually conflate these paths:
+
+| Cause | Trigger | What happens |
+| --- | --- | --- |
+| History delete with delete-files | SAB API / UI history delete with `del_files=1` | Mounted DavItems for that history row are deleted (download dir immediately; children via background cleanup). |
+| Cascading child sweep | Any deleted directory | Children are deleted in the background (`DavCleanupService`). |
+| Health repair | `repair.enable` + missing Usenet articles | Orphaned/blocklisted items are deleted; linked items may be removed after *Arr remove-and-search. Unreachable *Arr instances defer deletion (fail safe). |
+| Remove Orphaned Files | Scheduled or manual task | Deletes Usenet files with **no library symlink/STRM** (and empty dirs). Uses library links, **not** SAB history. Aborts if fewer than 5 linked files are found or if more than 90% of deletable items look unlinked. |
+| History retention | `database.history-retention-days` > 0 | Prunes old SAB history rows with `deleteFiles: false`. Mounts stay on disk but lose their history link — they are **not** deleted by retention and are **not** made eligible for orphan removal by that unlink alone. |
+| Manual delete | WebDAV client DELETE, or the admin UI/API `delete-webdav-item` action | Explicit, user-initiated deletion of the file/folder (and its children). Not a "disappearing by itself" report, but still audited. |
+| Blocklist filter | `queue.blocklisted-files` pattern match during post-processing | Newly-downloaded files matching a blocklisted filename pattern are removed before ever appearing in `/content`. |
+| Non-persistent `/config` | Docker volume not mounted or wiped | Fresh SQLite on restart — the entire library appears empty. |
+
+### Diagnosing with the deletion audit log
+
+Every DavItem deletion emits a structured Serilog line. Grep container logs for:
+
+```text
+dav-delete
+```
+
+Example formats:
+
+```text
+dav-delete source=history-cleanup id=... path=/content/... reason=DeleteMountedFiles=true ...
+dav-delete source=dav-cleanup count=12 parentId=... samplePaths=... reason=cascading child sweep ...
+dav-delete source=health-repair id=... path=... reason=missing articles; orphaned ...
+dav-delete source=remove-orphaned id=... path=... reason=no library symlink/strm link
+dav-delete source=webdav-delete id=... path=... reason=client DELETE on UsenetFile
+dav-delete source=api-delete id=... path=... reason=admin delete-webdav-item
+dav-delete source=blocklist-filter id=... path=... reason=filename matches blocklist pattern ...
+```
+
+Large history deletes with `DeleteMountedFiles=true` (more than 500 items in one cleanup row) also emit:
+
+```text
+dav-delete-bulk source=history-cleanup count=...
+```
+
+### Persist `/config`
+
+Map a durable host directory to `/config` in Docker Compose. Without that, every recreate/reboot starts with an empty database and it will look like all content disappeared.

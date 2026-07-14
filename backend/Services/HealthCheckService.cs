@@ -388,6 +388,10 @@ public class HealthCheckService : BackgroundService
             var blocklistedFiles = _configManager.GetBlocklistedFiles();
             if (BlocklistedFilePostProcessor.MatchesAnyPattern(davItem.Name, blocklistedFiles))
             {
+                DeletionAuditLog.Record(
+                    "health-repair",
+                    davItem,
+                    "missing articles; filename matches blocklist pattern");
                 dbClient.Ctx.Items.Remove(davItem);
                 _failureTracker.ClearFailure(davItem.Id);
                 await RecordHealthResult(
@@ -409,6 +413,13 @@ public class HealthCheckService : BackgroundService
             {
                 if (forceDelete && symlinkOrStrmPath != null)
                     await Task.Run(() => File.Delete(symlinkOrStrmPath)).ConfigureAwait(false);
+
+                var auditReason = forceDelete
+                    ? streamingFailureCount is > 0
+                        ? $"missing articles; auto-removed after repeated streaming failures (count={streamingFailureCount})"
+                        : "missing articles; auto-removed after repeated streaming failures"
+                    : "missing articles; orphaned (no library symlink/strm)";
+                DeletionAuditLog.Record("health-repair", davItem, auditReason);
 
                 dbClient.Ctx.Items.Remove(davItem);
                 _failureTracker.ClearFailure(davItem.Id);
@@ -502,6 +513,10 @@ public class HealthCheckService : BackgroundService
 
                 if (removedAndSearched)
                 {
+                    DeletionAuditLog.Record(
+                        "health-repair",
+                        davItem,
+                        "missing articles; Arr remove-and-search triggered");
                     dbClient.Ctx.Items.Remove(davItem);
                     _failureTracker.ClearFailure(davItem.Id);
                     await RecordHealthResult(
@@ -547,6 +562,10 @@ public class HealthCheckService : BackgroundService
             // if we could not find a corresponding arr instance
             // then we can delete both the item and the link-file.
             await Task.Run(() => File.Delete(symlinkOrStrmPath)).ConfigureAwait(false);
+            DeletionAuditLog.Record(
+                "health-repair",
+                davItem,
+                "missing articles; library link present but no Arr media-item (confirmed orphan)");
             dbClient.Ctx.Items.Remove(davItem);
             _failureTracker.ClearFailure(davItem.Id);
             await RecordHealthResult(

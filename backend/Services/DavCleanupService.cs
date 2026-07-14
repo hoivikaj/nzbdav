@@ -70,6 +70,18 @@ public class DavCleanupService : BackgroundService
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        if (deletedItems.Count > 0)
+        {
+            Guid? parentId = Guid.TryParse(cleanupItemId, out var parsedParentId)
+                ? parsedParentId
+                : null;
+            DeletionAuditLog.RecordBatch(
+                "dav-cleanup",
+                deletedItems,
+                "cascading child sweep after parent directory delete",
+                parentId);
+        }
+
         await dbContext.Database.ExecuteSqlRawAsync(
             """
             DELETE FROM DavItems

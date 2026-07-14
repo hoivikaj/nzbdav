@@ -117,6 +117,7 @@ public class DatabaseStoreCollection(
         if (davItem.Type is DavItem.ItemType.UsenetFile)
         {
             var historyItemId = davItem.HistoryItemId;
+            DeletionAuditLog.Record("webdav-delete", davItem, "client DELETE on UsenetFile");
             dbClient.Ctx.Items.Remove(davItem);
             await dbClient.Ctx.SaveChangesAsync().ConfigureAwait(false);
             await PruneEmptyHistoryAsync(historyItemId, request.CancellationToken).ConfigureAwait(false);
@@ -127,6 +128,7 @@ public class DatabaseStoreCollection(
         if (davItem.Type == DavItem.ItemType.Directory && !davItem.IsProtected())
         {
             var historyItemId = davItem.HistoryItemId;
+            DeletionAuditLog.Record("webdav-delete", davItem, "client DELETE on directory");
             dbClient.Ctx.Items.Remove(davItem);
             await dbClient.Ctx.SaveChangesAsync().ConfigureAwait(false);
             await PruneEmptyHistoryAsync(historyItemId, request.CancellationToken).ConfigureAwait(false);

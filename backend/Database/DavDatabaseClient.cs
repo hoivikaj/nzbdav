@@ -2,6 +2,7 @@ using System.Text;
 using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Services;
 
 namespace NzbWebDAV.Database;
 
@@ -316,6 +317,14 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
 
             var historyItems = results.Select(r => r.HistoryItem).ToList();
             var davItems = results.Where(r => r.DavItem != null).Select(r => r.DavItem!).ToList();
+            foreach (var davItem in davItems)
+            {
+                DeletionAuditLog.Record(
+                    "history-delete",
+                    davItem,
+                    "SAB/history delete with deleteFiles=true (download dir)");
+            }
+
             Ctx.Items.RemoveRange(davItems);
             Ctx.HistoryItems.RemoveRange(historyItems);
             Ctx.HistoryCleanupItems.AddRange(historyItems.Select(x => new HistoryCleanupItem
