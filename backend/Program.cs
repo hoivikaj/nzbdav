@@ -33,12 +33,12 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        // Update thread-pool
-        var coreCount = Environment.ProcessorCount;
-        var minThreads = Math.Max(coreCount * 2, 50); // 2x cores, minimum 50
-        var maxThreads = Math.Max(coreCount * 50, 1000); // 50x cores, minimum 1000
-        ThreadPool.SetMinThreads(minThreads, minThreads);
+        var (minThreads, maxThreads) = ThreadPoolUtil.ResolveLimits(
+            Environment.ProcessorCount,
+            EnvironmentUtil.GetLongVariable("THREADPOOL_MIN_THREADS"),
+            EnvironmentUtil.GetLongVariable("THREADPOOL_MAX_THREADS"));
         ThreadPool.SetMaxThreads(maxThreads, maxThreads);
+        ThreadPool.SetMinThreads(minThreads, minThreads);
 
         // Initialize logger
         var defaultLevel = LogEventLevel.Information;
@@ -71,6 +71,10 @@ class Program
                 ConfigManager.AppVersion,
                 DavDatabaseContext.ConfigPath,
                 level);
+            Log.Information(
+                "ThreadPool configured with minimum {MinThreads} and maximum {MaxThreads} worker and IOCP threads",
+                minThreads,
+                maxThreads);
 
             // Block upgrades to version 0.6.x
             BlockUpgradesToV06X();
