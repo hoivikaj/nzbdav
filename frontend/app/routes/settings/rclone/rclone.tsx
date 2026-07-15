@@ -61,7 +61,7 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
                     <span>{`Enable Rclone RC Server Notifications`}</span>
                 </label>
                 <p className="text-[11px] leading-relaxed text-base-content/45" id="rclone-rc-enabled-help">
-                    When enabled, nzbdav will automatically notify your rclone mount via the RC API whenever files are added or removed on the webdav. This allows setting a high dir-cache-time setting on Rclone.
+                    When enabled, NzbDAV will automatically notify your rclone mount via the RC API whenever files are added or removed on the webdav. This allows setting a high dir-cache-time setting on Rclone.
                 </p>
             </div>
             <hr />

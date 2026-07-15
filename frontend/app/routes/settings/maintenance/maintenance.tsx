@@ -25,7 +25,7 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
                     <span>Perform Database Vacuum on Start</span>
                 </label>
                     <p className="text-[11px] leading-relaxed text-base-content/45" id="db-startup-vacuum-enabled-help">
-                        When enabled, nzbdav will run a SQLite VACUUM on the database at every startup. This reclaims unused disk space and can improve query performance over time, but may increase startup time for large databases.
+                        When enabled, NzbDAV will run a SQLite VACUUM on the database at every startup. This reclaims unused disk space and can improve query performance over time, but may increase startup time for large databases.
                     </p>
                 </div>
                 <hr />

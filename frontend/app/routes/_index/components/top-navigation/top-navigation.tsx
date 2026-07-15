@@ -43,7 +43,7 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
           onClick={() => navigate("/")}
         >
           <img className="h-8 w-7" src="/logo.svg" alt="" />
-          <span className="text-xl font-bold tracking-tight">Nzb DAV</span>
+          <span className="text-xl font-bold tracking-tight">NzbDAV</span>
         </button>
       </div>
 
@@ -99,7 +99,7 @@ export const TopNavigation = memo(function TopNavigation(props: TopNavigationPro
           >
             <li className="menu-title">
               <span className="flex items-center justify-between gap-2">
-                <span>NzbDav {channelLabel}</span>
+                <span>NzbDAV {channelLabel}</span>
                 <span className="font-mono font-normal normal-case tracking-normal">
                   {displayVersion}
                 </span>

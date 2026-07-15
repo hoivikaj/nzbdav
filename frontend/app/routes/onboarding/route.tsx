@@ -52,9 +52,9 @@ export default function Index({ loaderData, actionData }: Route.ComponentProps) 
                 >
                     <div className="card-body gap-5">
                         <div className="flex flex-col items-center gap-3 text-center">
-                            <img className="h-16 w-16" src="/logo.svg" alt="NzbDav" />
+                            <img className="h-16 w-16" src="/logo.svg" alt="NzbDAV" />
                             <div>
-                                <h1 className="text-2xl font-bold tracking-tight">NzbDav</h1>
+                                <h1 className="text-2xl font-bold tracking-tight">NzbDAV</h1>
                                 <p className="mt-1 text-sm text-base-content/60">Set up your administrator account</p>
                             </div>
                         </div>
@@ -67,7 +67,7 @@ export default function Index({ loaderData, actionData }: Route.ComponentProps) 
                         {!pageData.error &&
                             <Alert variant="warning">
                                 <p className="mb-1 font-semibold">Welcome!</p>
-                                Create credentials for managing your NzbDav server.
+                                Create credentials for managing your NzbDAV server.
                             </Alert>
                         }
 

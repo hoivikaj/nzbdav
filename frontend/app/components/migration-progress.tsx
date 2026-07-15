@@ -314,7 +314,7 @@ export function MigrationShell({
         >
           <div className="card-body gap-4">
             <div className="flex items-center gap-3">
-              <img className="h-9 w-9" src="/logo.svg" alt="NzbDav" />
+              <img className="h-9 w-9" src="/logo.svg" alt="NzbDAV" />
               <div className="space-y-1">
                 <h1 className="text-xl font-bold tracking-tight">{title}</h1>
                 {subtitle ? <p className="text-sm leading-relaxed text-base-content/70">{subtitle}</p> : null}
