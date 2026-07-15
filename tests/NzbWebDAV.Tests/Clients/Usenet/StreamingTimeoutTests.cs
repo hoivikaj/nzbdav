@@ -132,6 +132,68 @@ public class StreamingTimeoutTests
         Assert.Equal(2, created);
     }
 
+    [Fact]
+    public async Task RunWithConnection_StreamingTimeoutExhausted_RecordsBreakerFailure()
+    {
+        var breaker = new ProviderCircuitBreaker("streaming-timeout-breaker");
+        using var pool = new ConnectionPool<INntpClient>(
+            maxConnections: 2,
+            _ => ValueTask.FromResult<INntpClient>(new HangingNntpClient()));
+
+        using var client = new MultiConnectionNntpClient(
+            pool, ProviderType.Pooled, breaker, "streaming-timeout-breaker");
+
+        using var cts = new CancellationTokenSource();
+        using var timeoutScope = cts.Token.SetContext(new StreamingTimeoutContext
+        {
+            PerSegmentTimeout = TimeSpan.FromMilliseconds(50),
+            MaxRetries = 1,
+        });
+
+        // Three exhausted segments → consecutive-failure trip threshold (3).
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.False(breaker.IsTripped);
+            await Assert.ThrowsAsync<TimeoutException>(() =>
+                client.DecodedBodyAsync($"seg-{i}", onConnectionReadyAgain: null, cts.Token));
+        }
+
+        Assert.True(breaker.IsTripped);
+        Assert.True(breaker.TrippedUntilMs > 0);
+    }
+
+    [Fact]
+    public async Task RunWithConnection_StreamingTimeoutThenSuccess_DoesNotTripBreaker()
+    {
+        var breaker = new ProviderCircuitBreaker("streaming-timeout-recover");
+        var created = 0;
+        using var pool = new ConnectionPool<INntpClient>(maxConnections: 2, _ =>
+        {
+            var n = Interlocked.Increment(ref created);
+            if (n == 1)
+                return ValueTask.FromResult<INntpClient>(new HangingNntpClient());
+            return ValueTask.FromResult<INntpClient>(
+                new HealthyNntpClient(new Dictionary<string, byte[]> { ["seg"] = [1, 2, 3] }));
+        });
+
+        using var client = new MultiConnectionNntpClient(
+            pool, ProviderType.Pooled, breaker, "streaming-timeout-recover");
+
+        using var cts = new CancellationTokenSource();
+        using var timeoutScope = cts.Token.SetContext(new StreamingTimeoutContext
+        {
+            PerSegmentTimeout = TimeSpan.FromMilliseconds(50),
+            MaxRetries = 1,
+        });
+
+        // Timeout then success on retry — exhaustion path never runs, so no
+        // breaker failure is recorded for this segment.
+        var response = await client.DecodedBodyAsync("seg", onConnectionReadyAgain: null, cts.Token);
+        Assert.True(response.Success);
+        Assert.False(breaker.IsTripped);
+        Assert.Equal(0, breaker.TrippedUntilMs);
+    }
+
     /// <summary>
     /// BODY that hangs until cancelled, firing NotRetrieved exactly once
     /// (in-flight cancel → connection not reusable).
