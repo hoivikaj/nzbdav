@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.20](https://github.com/nzbdav/nzbdav/compare/v0.7.19...v0.7.20) (2026-07-15)
+
+
+### Bug Fixes
+
+* **auth:** use fixed-time comparison for websocket API key auth ([5a94f18](https://github.com/nzbdav/nzbdav/commit/5a94f18482e5ddd1b37a4892cfe847a3400c1045))
+* **config:** clamp streaming-priority and harden numeric getters ([43cc7d0](https://github.com/nzbdav/nzbdav/commit/43cc7d04bde7c3d5ee9704533304537993e4a248))
+* **config:** validate usenet providers to prevent MaxConnections boot-loop ([5cabda4](https://github.com/nzbdav/nzbdav/commit/5cabda4339a4e3987f87735e95e212b1acd850d3))
+* **metrics:** do not record STAT/HEAD/DATE successes as Missing ([4a004ce](https://github.com/nzbdav/nzbdav/commit/4a004ce11296df07b83742bc1d58248bfbc67231))
+* **nntp:** wake queued waiters when PrioritizedSemaphore max increases ([5d486ef](https://github.com/nzbdav/nzbdav/commit/5d486ef837b5d8a9752ec60f8f3fc7e3114038a3))
+* **queue:** back off on persistent loop errors and honor shutdown idle ([7df775e](https://github.com/nzbdav/nzbdav/commit/7df775e788e3742113b412a61b7602129fd6e9a4))
+* **queue:** cap ArticleCachingNntpClient cache-dir delete retries ([8405e1f](https://github.com/nzbdav/nzbdav/commit/8405e1f9f3b0d2eb19b1cb2aeefc5050c2401b1b))
+* **queue:** harden Remove Orphaned Files empty-dir sweep ([37d5766](https://github.com/nzbdav/nzbdav/commit/37d57667c3bddc3ff788fafd4d2546f7d54c85ba))
+* **queue:** harden Remove Orphaned Files empty-dir sweep ([43994a5](https://github.com/nzbdav/nzbdav/commit/43994a59d7d9996314653e14e1cefe030e2e9c79))
+
 ## [0.7.19](https://github.com/nzbdav/nzbdav/compare/v0.7.18...v0.7.19) (2026-07-15)
 
 
