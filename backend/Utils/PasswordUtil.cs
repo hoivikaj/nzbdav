@@ -7,7 +7,10 @@ namespace NzbWebDAV.Utils;
 
 public static class PasswordUtil
 {
-    private static readonly MemoryCache Cache = new(new MemoryCacheOptions() { SizeLimit = 5 });
+    // 1024 entries (~a few hundred KB worst case, each expiring after 5 idle minutes) so
+    // Basic Auth retry storms with many distinct credentials — e.g. WebDAV clients hammering
+    // during a provider outage — cannot thrash the cache back into per-request PBKDF2 work.
+    private static readonly MemoryCache Cache = new(new MemoryCacheOptions() { SizeLimit = 1024 });
     private static readonly PasswordHasher<object> Hasher = new();
     private static readonly byte[] CacheKeySecret = RandomNumberGenerator.GetBytes(32);
 
