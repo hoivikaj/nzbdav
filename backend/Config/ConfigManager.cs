@@ -475,10 +475,8 @@ public class ConfigManager
 
     public int GetArticleBufferSize()
     {
-        return int.Parse(
-            StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetArticleBufferSize))
-            ?? "40"
-        );
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetArticleBufferSize));
+        return int.TryParse(v, out var n) ? Math.Clamp(n, 0, 1000) : 40;
     }
 
     /// <summary>
@@ -514,7 +512,8 @@ public class ConfigManager
 
     public long GetSegmentCacheMaxBytes()
     {
-        var gb = long.Parse(StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetSegmentCacheMaxGb)) ?? "10");
+        var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetSegmentCacheMaxGb));
+        var gb = long.TryParse(v, out var n) ? n : 10;
         return Math.Max(1, gb) * 1024L * 1024L * 1024L;
     }
 
@@ -531,8 +530,8 @@ public class ConfigManager
     public SemaphorePriorityOdds GetStreamingPriority()
     {
         var stringValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.UsenetStreamingPriority));
-        var numericalValue = int.Parse(stringValue ?? "80");
-        return new SemaphorePriorityOdds() { HighPriorityOdds = numericalValue };
+        var numericalValue = int.TryParse(stringValue, out var n) ? Math.Clamp(n, 0, 100) : 80;
+        return new SemaphorePriorityOdds { HighPriorityOdds = numericalValue };
     }
 
     public TimeSpan GetStreamingSegmentTimeout()
