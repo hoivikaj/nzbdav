@@ -30,6 +30,14 @@ public class QueueManager : IDisposable
     private CancellationTokenSource _sleepingQueueToken = new();
     private readonly Lock _sleepingQueueLock = new();
 
+    // Overridable in tests so persistent-failure / idle-sleep behaviour can be
+    // exercised without a real database.
+    internal TimeSpan ErrorBackoffDelay { get; set; } = TimeSpan.FromSeconds(5);
+    internal TimeSpan IdleDelay { get; set; } = TimeSpan.FromMinutes(1);
+    internal Func<CancellationToken, Task<(QueueItem? queueItem, Stream? queueNzbStream)>>?
+        GetTopQueueItemOverride
+    { get; set; }
+
     public QueueManager(
         UsenetStreamingClient usenetClient,
         ConfigManager configManager,
@@ -38,6 +46,21 @@ public class QueueManager : IDisposable
         WatchdogLog watchdogLog,
         QueueItemSourceTracker sourceTracker,
         BenchmarkGate benchmarkGate
+    ) : this(
+        usenetClient, configManager, websocketManager, providerUsageTracker,
+        watchdogLog, sourceTracker, benchmarkGate, startLoop: true)
+    {
+    }
+
+    internal QueueManager(
+        UsenetStreamingClient usenetClient,
+        ConfigManager configManager,
+        WebsocketManager websocketManager,
+        ProviderUsageTracker providerUsageTracker,
+        WatchdogLog watchdogLog,
+        QueueItemSourceTracker sourceTracker,
+        BenchmarkGate benchmarkGate,
+        bool startLoop
     )
     {
         _usenetClient = usenetClient;
@@ -49,7 +72,8 @@ public class QueueManager : IDisposable
         _benchmarkGate = benchmarkGate;
         _cancellationTokenSource = CancellationTokenSource
             .CreateLinkedTokenSource(SigtermUtil.GetCancellationToken());
-        _ = ProcessQueueAsync(_cancellationTokenSource.Token);
+        if (startLoop)
+            _ = ProcessQueueAsync(_cancellationTokenSource.Token);
     }
 
     public (QueueItem? queueItem, int? progress) GetInProgressQueueItem()
@@ -92,7 +116,7 @@ public class QueueManager : IDisposable
         }).ConfigureAwait(false);
     }
 
-    private async Task ProcessQueueAsync(CancellationToken ct)
+    internal async Task ProcessQueueAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
@@ -109,58 +133,90 @@ public class QueueManager : IDisposable
 
             try
             {
-                // get the next queue-item from the database
-                await using var dbContext = new DavDatabaseContext();
-                var dbClient = new DavDatabaseClient(dbContext);
-                var topItem = await LockAsync(() => dbClient.GetTopQueueItem(ct)).ConfigureAwait(false);
-                if (topItem.queueItem is null)
-                {
-                    try
-                    {
-                        // if we're done with the queue, wait a minute before checking again.
-                        // or wait until awoken by cancellation of _sleepingQueueToken
-                        await Task.Delay(TimeSpan.FromMinutes(1), _sleepingQueueToken.Token).ConfigureAwait(false);
-                    }
-                    catch when (_sleepingQueueToken.IsCancellationRequested)
-                    {
-                        lock (_sleepingQueueLock)
-                        {
-                            if (!_sleepingQueueToken.TryReset())
-                            {
-                                _sleepingQueueToken.Dispose();
-                                _sleepingQueueToken = new CancellationTokenSource();
-                            }
-                        }
-                    }
-
-                    continue;
-                }
-
-                // create an article-caching nntp-client.
-                // the cache will be scoped only to this single queue-item.
-                using var cachingUsenetClient = new ArticleCachingNntpClient(_usenetClient);
-
-                // process the queue-item
+                // get the next queue-item from the database (or test override)
+                (QueueItem? queueItem, Stream? queueNzbStream) topItem;
+                DavDatabaseClient? dbClient = null;
+                DavDatabaseContext? dbContext = null;
                 try
                 {
-                    using var queueItemCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    await LockAsync(() =>
+                    if (GetTopQueueItemOverride is not null)
                     {
-                        // ReSharper disable twice AccessToDisposedClosure
-                        _inProgressQueueItem = BeginProcessingQueueItem(dbClient, cachingUsenetClient,
-                            topItem.queueItem, topItem.queueNzbStream, queueItemCancellationTokenSource);
-                    }).ConfigureAwait(false);
-                    await (_inProgressQueueItem?.ProcessingTask ?? Task.CompletedTask).ConfigureAwait(false);
+                        topItem = await GetTopQueueItemOverride(ct).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        dbContext = new DavDatabaseContext();
+                        dbClient = new DavDatabaseClient(dbContext);
+                        topItem = await LockAsync(() => dbClient.GetTopQueueItem(ct)).ConfigureAwait(false);
+                    }
+
+                    if (topItem.queueItem is null)
+                    {
+                        try
+                        {
+                            // if we're done with the queue, wait a minute before checking again.
+                            // or wait until awoken by cancellation of _sleepingQueueToken /
+                            // process shutdown (ct).
+                            using var idleWait = CancellationTokenSource.CreateLinkedTokenSource(
+                                ct, _sleepingQueueToken.Token);
+                            await Task.Delay(IdleDelay, idleWait.Token).ConfigureAwait(false);
+                        }
+                        catch when (_sleepingQueueToken.IsCancellationRequested)
+                        {
+                            lock (_sleepingQueueLock)
+                            {
+                                if (!_sleepingQueueToken.TryReset())
+                                {
+                                    _sleepingQueueToken.Dispose();
+                                    _sleepingQueueToken = new CancellationTokenSource();
+                                }
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // ct fired: fall through; the while condition exits the loop
+                        }
+
+                        continue;
+                    }
+
+                    // create an article-caching nntp-client.
+                    // the cache will be scoped only to this single queue-item.
+                    using var cachingUsenetClient = new ArticleCachingNntpClient(_usenetClient);
+
+                    // process the queue-item
+                    try
+                    {
+                        using var queueItemCancellationTokenSource =
+                            CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        await LockAsync(() =>
+                        {
+                            // ReSharper disable twice AccessToDisposedClosure
+                            _inProgressQueueItem = BeginProcessingQueueItem(
+                                dbClient!, cachingUsenetClient,
+                                topItem.queueItem, topItem.queueNzbStream,
+                                queueItemCancellationTokenSource);
+                        }).ConfigureAwait(false);
+                        await (_inProgressQueueItem?.ProcessingTask ?? Task.CompletedTask)
+                            .ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        if (topItem.queueNzbStream is not null)
+                            await topItem.queueNzbStream!.DisposeAsync();
+                    }
                 }
                 finally
                 {
-                    if (topItem.queueNzbStream is not null)
-                        await topItem.queueNzbStream!.DisposeAsync();
+                    if (dbContext is not null)
+                        await dbContext.DisposeAsync().ConfigureAwait(false);
                 }
             }
             catch (Exception e)
             {
                 Log.Error(e, "An unexpected error occurred while processing the queue");
+                try { await Task.Delay(ErrorBackoffDelay, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { /* shutting down */ }
             }
             finally
             {
