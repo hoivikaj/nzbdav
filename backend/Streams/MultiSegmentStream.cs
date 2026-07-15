@@ -16,6 +16,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
     private const int MaxBodyRetries = 2;
 
     private readonly Memory<string> _segmentIds;
+    private readonly string[][]? _segmentFallbacks;
     private readonly INntpClient _usenetClient;
     private readonly long _expectedSegmentSize;
     private readonly bool _failFastOnFirstSegment;
@@ -34,7 +35,8 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         bool usePipelinedBodyRequests,
         CancellationToken cancellationToken,
         string? fileName = null,
-        long? readBudget = null)
+        long? readBudget = null,
+        string[][]? segmentFallbacks = null)
     {
         return Create(
             segmentIds,
@@ -45,7 +47,8 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
             usePipelinedBodyRequests,
             cancellationToken,
             fileName,
-            readBudget);
+            readBudget,
+            segmentFallbacks);
     }
 
     public static Stream Create
@@ -58,11 +61,13 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         bool usePipelinedBodyRequests,
         CancellationToken cancellationToken,
         string? fileName = null,
-        long? readBudget = null
+        long? readBudget = null,
+        string[][]? segmentFallbacks = null
     )
     {
         return articleBufferSize == 0
-            ? new UnbufferedMultiSegmentStream(segmentIds, usenetClient, expectedSegmentSize, fileName)
+            ? new UnbufferedMultiSegmentStream(
+                segmentIds, usenetClient, expectedSegmentSize, fileName, segmentFallbacks)
             : new MultiSegmentStream(
                 segmentIds,
                 usenetClient,
@@ -72,7 +77,8 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
                 usePipelinedBodyRequests,
                 cancellationToken,
                 fileName,
-                readBudget);
+                readBudget,
+                segmentFallbacks);
     }
 
     private MultiSegmentStream
@@ -85,10 +91,12 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         bool usePipelinedBodyRequests,
         CancellationToken cancellationToken,
         string? fileName,
-        long? readBudget
+        long? readBudget,
+        string[][]? segmentFallbacks
     )
     {
         _segmentIds = segmentIds;
+        _segmentFallbacks = segmentFallbacks;
         _usenetClient = usenetClient;
         _expectedSegmentSize = expectedSegmentSize;
         _failFastOnFirstSegment = failFastOnFirstSegment;
@@ -152,6 +160,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
                 .Select((response, index) => DownloadBatchSegment(
                     response,
                     segmentIds[index],
+                    segmentIndex: batchStart + index,
                     isFirstSegment: batchStart + index == 0,
                     cancellationToken))
                 .ToArray();
@@ -192,7 +201,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
             var connection = await _usenetClient.AcquireExclusiveConnectionAsync(
                 segmentId, cancellationToken);
             var streamTask = DownloadSegment(
-                segmentId, connection, isFirstSegment: index == 0, cancellationToken);
+                segmentId, index, connection, isFirstSegment: index == 0, cancellationToken);
             try
             {
                 await _streamTasks.Writer.WriteAsync(streamTask, cancellationToken);
@@ -218,6 +227,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
 
     private async Task<Stream> DownloadSegment(
         string segmentId,
+        int segmentIndex,
         UsenetExclusiveConnection exclusiveConnection,
         bool isFirstSegment,
         CancellationToken cancellationToken
@@ -239,6 +249,11 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
             }
             catch (UsenetArticleNotFoundException e)
             {
+                var fallback = await TryFallbackSegmentsAsync(segmentIndex, cancellationToken)
+                    .ConfigureAwait(false);
+                if (fallback is not null)
+                    return fallback;
+
                 if (_failFastOnFirstSegment && isFirstSegment)
                 {
                     e.LogWarningKnownOrStack(
@@ -282,6 +297,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
     private async Task<Stream> DownloadBatchSegment(
         Task<UsenetDecodedBodyResponse> responseTask,
         string segmentId,
+        int segmentIndex,
         bool isFirstSegment,
         CancellationToken cancellationToken)
     {
@@ -292,6 +308,11 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         }
         catch (UsenetArticleNotFoundException e)
         {
+            var fallback = await TryFallbackSegmentsAsync(segmentIndex, cancellationToken)
+                .ConfigureAwait(false);
+            if (fallback is not null)
+                return fallback;
+
             if (_failFastOnFirstSegment && isFirstSegment) throw;
             return ZeroFillSegment(
                 "Article {SegmentId} missing on all providers while reading {FileName}. Zero-filling {Bytes} bytes to keep playback alive.",
@@ -304,6 +325,49 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
                 "Segment {SegmentId} unavailable while reading {FileName}. Zero-filling {Bytes} bytes to keep playback alive.",
                 segmentId, e);
         }
+    }
+
+    /// <summary>
+    /// Try alternate MessageIds for a missing primary segment. Each BODY
+    /// attempt completes its callback exactly once via DecodedBodyAsync.
+    /// </summary>
+    private async Task<Stream?> TryFallbackSegmentsAsync(
+        int segmentIndex,
+        CancellationToken cancellationToken)
+    {
+        var fallbacks = GetFallbacks(segmentIndex);
+        if (fallbacks.Length == 0) return null;
+
+        foreach (var fallbackId in fallbacks)
+        {
+            try
+            {
+                var bodyResponse = await _usenetClient
+                    .DecodedBodyAsync(fallbackId, cancellationToken)
+                    .ConfigureAwait(false);
+                Log.Debug(
+                    "Segment {PrimaryIndex} recovered via fallback MessageId {FallbackId} while reading {FileName}.",
+                    segmentIndex, fallbackId, _fileName);
+                return await DrainSegmentAsync(bodyResponse.Stream!, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (UsenetArticleNotFoundException)
+            {
+                // Try the next alternate MessageId.
+            }
+        }
+
+        return null;
+    }
+
+    private string[] GetFallbacks(int segmentIndex)
+    {
+        if (_segmentFallbacks is null ||
+            segmentIndex < 0 ||
+            segmentIndex >= _segmentFallbacks.Length)
+            return [];
+
+        return _segmentFallbacks[segmentIndex] ?? [];
     }
 
     private static async Task DisposeStreamAsync(Task<Stream> streamTask)

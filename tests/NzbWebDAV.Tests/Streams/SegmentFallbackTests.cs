@@ -1,0 +1,253 @@
+using System.Text;
+using MemoryPack;
+using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Clients.Usenet.Models;
+using NzbWebDAV.Database.Models;
+using NzbWebDAV.Exceptions;
+using NzbWebDAV.Streams;
+using UsenetSharp.Models;
+using UsenetSharp.Streams;
+
+namespace NzbWebDAV.Tests.Streams;
+
+public class SegmentFallbackTests
+{
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MultiSegmentStream_FallsBackWhenPrimaryArticleMissing(
+        bool usePipelinedBodyRequests)
+    {
+        var client = new RawBodyNntpClient(new Dictionary<string, byte[]>
+        {
+            // primary "one" is intentionally absent → 430
+            ["one-fallback"] = Encoding.ASCII.GetBytes("hello"),
+            ["two"] = Encoding.ASCII.GetBytes("world"),
+        });
+
+        await using var stream = MultiSegmentStream.Create(
+            new[] { "one", "two" }.AsMemory(),
+            client,
+            articleBufferSize: 4,
+            expectedSegmentSize: 5,
+            failFastOnFirstSegment: false,
+            usePipelinedBodyRequests: usePipelinedBodyRequests,
+            cancellationToken: CancellationToken.None,
+            fileName: "fallback.bin",
+            segmentFallbacks: [["one-fallback"], []]);
+
+        using var destination = new MemoryStream();
+        await stream.CopyToAsync(destination);
+
+        Assert.Equal("helloworld", Encoding.ASCII.GetString(destination.ToArray()));
+        Assert.Contains("one", client.RequestedSegmentIds);
+        Assert.Contains("one-fallback", client.RequestedSegmentIds);
+        Assert.Contains("two", client.RequestedSegmentIds);
+        // Primary 430 + fallback success + second segment.
+        Assert.True(client.BodyRequestCount >= 3,
+            $"Expected BODY for primary, fallback, and second segment; got {client.BodyRequestCount}");
+    }
+
+    [Fact]
+    public async Task MultiSegmentStream_Unbuffered_FallsBackWhenPrimaryMissing()
+    {
+        var client = new RawBodyNntpClient(new Dictionary<string, byte[]>
+        {
+            ["alt"] = Encoding.ASCII.GetBytes("abcde"),
+        });
+
+        await using var stream = MultiSegmentStream.Create(
+            new[] { "missing" }.AsMemory(),
+            client,
+            articleBufferSize: 0,
+            expectedSegmentSize: 5,
+            failFastOnFirstSegment: false,
+            usePipelinedBodyRequests: false,
+            cancellationToken: CancellationToken.None,
+            segmentFallbacks: [["alt"]]);
+
+        var buffer = new byte[5];
+        var read = await stream.ReadAsync(buffer);
+
+        Assert.Equal(5, read);
+        Assert.Equal("abcde", Encoding.ASCII.GetString(buffer));
+        Assert.Equal(2, client.BodyRequestCount);
+    }
+
+    [Fact]
+    public void DavNzbFile_MemoryPackRoundTrip_WithAndWithoutFallbacks()
+    {
+        var without = new DavNzbFile
+        {
+            Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            SegmentIds = ["a", "b"],
+        };
+        var with = new DavNzbFile
+        {
+            Id = Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            SegmentIds = ["a", "b"],
+            SegmentFallbackIds = [[], ["b-alt1", "b-alt2"]],
+        };
+
+        var withoutRoundTrip = MemoryPackSerializer.Deserialize<DavNzbFile>(
+            MemoryPackSerializer.Serialize(without))!;
+        var withRoundTrip = MemoryPackSerializer.Deserialize<DavNzbFile>(
+            MemoryPackSerializer.Serialize(with))!;
+
+        Assert.Equal(without.Id, withoutRoundTrip.Id);
+        Assert.Equal(without.SegmentIds, withoutRoundTrip.SegmentIds);
+        Assert.Null(withoutRoundTrip.SegmentFallbackIds);
+
+        Assert.Equal(with.Id, withRoundTrip.Id);
+        Assert.Equal(with.SegmentIds, withRoundTrip.SegmentIds);
+        Assert.Equal(with.SegmentFallbackIds, withRoundTrip.SegmentFallbackIds);
+    }
+
+    [Fact]
+    public void DavNzbFile_LegacyBlobWithoutFallbackField_DeserializesNullFallbacks()
+    {
+        var legacy = new DavNzbFile
+        {
+            Id = Guid.Parse("33333333-3333-3333-3333-333333333333"),
+            SegmentIds = ["seg-1"],
+            SegmentFallbackIds = null,
+        };
+        var bytes = MemoryPackSerializer.Serialize(legacy);
+        var roundTrip = MemoryPackSerializer.Deserialize<DavNzbFile>(bytes)!;
+
+        Assert.Null(roundTrip.SegmentFallbackIds);
+        Assert.Equal(["seg-1"], roundTrip.SegmentIds);
+    }
+
+    /// <summary>
+    /// Returns already-decoded body streams so tests do not require rapidyenc.
+    /// </summary>
+    private sealed class RawBodyNntpClient(
+        IReadOnlyDictionary<string, byte[]> segments) : NntpClient
+    {
+        public int BodyRequestCount { get; private set; }
+        public HashSet<string> RequestedSegmentIds { get; } = new(StringComparer.Ordinal);
+
+        public override Task ConnectAsync(
+            string host, int port, bool useSsl, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public override Task<UsenetResponse> AuthenticateAsync(
+            string user, string pass, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetStatResponse> StatAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetHeadResponse> HeadAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            DecodedBodyAsync(segmentId, null, cancellationToken);
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            BodyRequestCount++;
+            var key = segmentId.ToString();
+            RequestedSegmentIds.Add(key);
+            if (!segments.TryGetValue(key, out var bytes))
+            {
+                onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotFound);
+                return Task.FromException<UsenetDecodedBodyResponse>(
+                    new UsenetArticleNotFoundException(key, "430 No such article"));
+            }
+
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return Task.FromResult(new UsenetDecodedBodyResponse
+            {
+                SegmentId = key,
+                ResponseCode = (int)UsenetResponseType.ArticleRetrievedBodyFollows,
+                ResponseMessage = "222 fake body",
+                Stream = new RawYencStream(bytes),
+            });
+        }
+
+        public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+            IReadOnlyList<SegmentId> segmentIds,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken)
+        {
+            var responses = segmentIds
+                .Select(segmentId => DecodedBodyAsync(segmentId, cancellationToken))
+                .ToArray();
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return Task.FromResult(new UsenetDecodedBodyBatch { Responses = responses });
+        }
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDateResponse> DateAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync(
+            string segmentId, CancellationToken cancellationToken) =>
+            Task.FromResult(new UsenetExclusiveConnection(null));
+
+        public override Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync(
+            IReadOnlyList<SegmentId> segmentIds, CancellationToken cancellationToken) =>
+            Task.FromResult(new UsenetExclusiveConnection(null));
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId,
+            UsenetExclusiveConnection exclusiveConnection,
+            CancellationToken cancellationToken) =>
+            DecodedBodyAsync(segmentId, exclusiveConnection.OnConnectionReadyAgain, cancellationToken);
+
+        public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+            IReadOnlyList<SegmentId> segmentIds,
+            UsenetExclusiveConnection exclusiveConnection,
+            CancellationToken cancellationToken) =>
+            DecodedBodiesAsync(
+                segmentIds, exclusiveConnection.OnConnectionReadyAgain, cancellationToken);
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId,
+            UsenetExclusiveConnection exclusiveConnection,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override void Dispose()
+        {
+        }
+    }
+
+    /// <summary>
+    /// Already-decoded body stream typed as <see cref="YencStream"/> so tests
+    /// do not require the rapidyenc native library.
+    /// </summary>
+    private sealed class RawYencStream(byte[] bytes) : YencStream(new MemoryStream(bytes, writable: false))
+    {
+        private int _offset;
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_offset >= bytes.Length) return 0;
+            var count = Math.Min(buffer.Length, bytes.Length - _offset);
+            bytes.AsSpan(_offset, count).CopyTo(buffer.Span);
+            _offset += count;
+            return await Task.FromResult(count).ConfigureAwait(false);
+        }
+    }
+}

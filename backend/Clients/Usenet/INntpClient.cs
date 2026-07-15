@@ -94,7 +94,8 @@ public interface INntpClient : IDisposable
         int articleBufferSize,
         LongRange[]? segmentByteRanges = null,
         bool usePipelinedBodyRequests = true,
-        string? fileName = null);
+        string? fileName = null,
+        string[][]? segmentFallbacks = null);
 
     Task CheckAllSegmentsAsync(
         IEnumerable<string> segmentIds, int concurrency, IProgress<int>? progress, CancellationToken cancellationToken);

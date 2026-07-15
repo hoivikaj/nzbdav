@@ -181,7 +181,8 @@ public class LazyRarResolver(INntpClient usenetClient, ConfigManager configManag
         long fileSize,
         CancellationToken ct)
     {
-        await using var stream = OpenVolumeStream(pending.SegmentIds, fileSize);
+        await using var stream = OpenVolumeStream(
+            pending.SegmentIds, fileSize, pending.SegmentFallbackIds);
 
         // Find-and-stop so SharpCompress never seeks past the matched header.
         // The seek would force NzbFileStream to fire InterpolationSearch
@@ -205,12 +206,14 @@ public class LazyRarResolver(INntpClient usenetClient, ConfigManager configManag
             SegmentIds = pending.SegmentIds,
             SegmentIdByteRange = LongRange.FromStartAndSize(0, dataStart + dataSize),
             FilePartByteRange = LongRange.FromStartAndSize(dataStart, dataSize),
+            SegmentFallbackIds = pending.SegmentFallbackIds,
         };
     }
 
-    private Stream OpenVolumeStream(string[] segmentIds, long fileSize) =>
+    private Stream OpenVolumeStream(string[] segmentIds, long fileSize, string[][]? segmentFallbacks = null) =>
         VolumeStreamFactory?.Invoke(segmentIds, fileSize)
-        ?? usenetClient.GetFileStream(segmentIds, fileSize, articleBufferSize: 0);
+        ?? usenetClient.GetFileStream(segmentIds, fileSize, articleBufferSize: 0,
+            segmentFallbacks: segmentFallbacks);
 
     private async Task<long> MeasureVolumeSizeAsync(string[] segmentIds, CancellationToken ct)
     {

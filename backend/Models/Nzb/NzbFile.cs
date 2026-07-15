@@ -11,6 +11,7 @@ public class NzbFile
     /// <summary>
     /// Sort by segment number (when all present) and drop duplicates so every
     /// consumer sees one logical segment per ordinal / message-id.
+    /// Duplicate numbers keep alternate MessageIds on the primary as ordered fallbacks.
     /// </summary>
     public void CanonicalizeSegments()
     {
@@ -19,23 +20,43 @@ public class NzbFile
         var allNumbered = Segments.All(s => s.Number is not null);
         if (allNumbered)
         {
+            // Stable OrderBy preserves document order within the same number.
             var ordered = Segments
                 .OrderBy(s => s.Number!.Value)
                 .ToList();
 
             var deduped = new List<NzbSegment>(ordered.Count);
             var duplicateCount = 0;
-            int? lastNumber = null;
+            NzbSegment? primary = null;
+            List<string>? fallbacks = null;
             foreach (var segment in ordered)
             {
-                if (lastNumber == segment.Number)
+                if (primary is not null && primary.Number == segment.Number)
                 {
                     duplicateCount++;
+                    if (!string.Equals(segment.MessageId, primary.MessageId, StringComparison.Ordinal))
+                    {
+                        fallbacks ??= [];
+                        fallbacks.Add(segment.MessageId);
+                    }
+
                     continue;
                 }
 
-                deduped.Add(segment);
-                lastNumber = segment.Number;
+                if (primary is not null)
+                {
+                    primary.FallbackMessageIds = fallbacks is { Count: > 0 } ? fallbacks.ToArray() : [];
+                    deduped.Add(primary);
+                    fallbacks = null;
+                }
+
+                primary = segment;
+            }
+
+            if (primary is not null)
+            {
+                primary.FallbackMessageIds = fallbacks is { Count: > 0 } ? fallbacks.ToArray() : [];
+                deduped.Add(primary);
             }
 
             if (duplicateCount > 0)
@@ -51,6 +72,7 @@ public class NzbFile
         }
 
         // Numbers missing/partial: drop exact duplicate MessageIds only.
+        // Same MessageId has nothing to fall back to — keep current drop behavior.
         var seenIds = new HashSet<string>(StringComparer.Ordinal);
         var kept = new List<NzbSegment>(Segments.Count);
         var droppedIds = 0;
@@ -81,6 +103,9 @@ public class NzbFile
             .Select(x => x.MessageId)
             .ToArray();
     }
+
+    public string[][] GetSegmentFallbackIds() =>
+        Segments.Select(s => s.FallbackMessageIds).ToArray();
 
     public LongRange[]? GetSegmentByteRanges()
     {

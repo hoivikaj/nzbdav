@@ -131,6 +131,7 @@ public class LazyRarProcessor(
             SegmentIds = firstInfo.NzbFile.GetSegmentIds(),
             SegmentIdByteRange = LongRange.FromStartAndSize(0, firstFileSize),
             FilePartByteRange = firstPartByteRange,
+            SegmentFallbackIds = firstInfo.NzbFile.GetSegmentFallbackIds(),
         };
 
         var trailingInfos = sorted.Skip(1).ToList();
@@ -153,6 +154,7 @@ public class LazyRarProcessor(
                 SegmentIds = partInfo.NzbFile.GetSegmentIds(),
                 SegmentIdByteRange = LongRange.FromStartAndSize(0, streamLength),
                 EstimatedDataSize = estimate,
+                SegmentFallbackIds = partInfo.NzbFile.GetSegmentFallbackIds(),
             });
             pendingSum += estimate;
         }

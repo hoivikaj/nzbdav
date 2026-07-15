@@ -242,7 +242,8 @@ public class DavMultipartFileStream : Stream
             _articleBufferSize,
             part.SegmentByteRanges,
             _usePipelinedBodyRequests,
-            _fileName);
+            _fileName,
+            part.SegmentFallbackIds);
         stream.Seek(part.FilePartByteRange.StartInclusive + extraOffset, SeekOrigin.Begin);
         return stream.LimitLength(part.FilePartByteRange.Count - extraOffset);
     }

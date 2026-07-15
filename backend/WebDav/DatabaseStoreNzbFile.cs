@@ -42,7 +42,8 @@ public class DatabaseStoreNzbFile(
             configManager.GetArticleBufferSize(),
             nzbFile.SegmentByteRanges,
             configManager.IsPipelinedBodyRequestsEnabled(),
-            davNzbFile.Path
+            davNzbFile.Path,
+            nzbFile.SegmentFallbackIds
         );
     }
 }

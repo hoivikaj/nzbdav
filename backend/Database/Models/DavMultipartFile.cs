@@ -60,6 +60,9 @@ public partial class DavMultipartFile
 
         [MemoryPackOrder(3)]
         public LongRange[]? SegmentByteRanges { get; set; }
+
+        [MemoryPackOrder(4)]
+        public string[][]? SegmentFallbackIds { get; set; }
     }
 
     // A RAR part whose internal byte range hasn't been parsed yet.
@@ -79,5 +82,8 @@ public partial class DavMultipartFile
 
         [MemoryPackOrder(2)]
         public long EstimatedDataSize { get; set; }
+
+        [MemoryPackOrder(3)]
+        public string[][]? SegmentFallbackIds { get; set; }
     }
 }

@@ -140,7 +140,8 @@ public abstract class NntpClient : INntpClient
             articleBufferSize,
             nzbFile.GetSegmentByteRanges(),
             usePipelinedBodyRequests,
-            ResolveFileName(fileName, nzbFile));
+            ResolveFileName(fileName, nzbFile),
+            nzbFile.GetSegmentFallbackIds());
     }
 
     public virtual NzbFileStream GetFileStream(
@@ -157,7 +158,8 @@ public abstract class NntpClient : INntpClient
             articleBufferSize,
             nzbFile.GetSegmentByteRanges(),
             usePipelinedBodyRequests,
-            ResolveFileName(fileName, nzbFile)
+            ResolveFileName(fileName, nzbFile),
+            nzbFile.GetSegmentFallbackIds()
         );
     }
 
@@ -167,7 +169,8 @@ public abstract class NntpClient : INntpClient
         int articleBufferSize,
         LongRange[]? segmentByteRanges = null,
         bool usePipelinedBodyRequests = true,
-        string? fileName = null)
+        string? fileName = null,
+        string[][]? segmentFallbacks = null)
     {
         return new NzbFileStream(
             segmentIds,
@@ -176,7 +179,8 @@ public abstract class NntpClient : INntpClient
             articleBufferSize,
             segmentByteRanges,
             usePipelinedBodyRequests,
-            fileName);
+            fileName,
+            segmentFallbacks);
     }
 
     private static string? ResolveFileName(string? fileName, NzbFile nzbFile)

@@ -113,6 +113,7 @@ public class NzbDocumentTests
         Assert.Equal(3, file.Segments.Count);
         Assert.Equal(["a@example", "b-first@example", "c@example"], file.GetSegmentIds());
         Assert.Equal([1, 2, 3], file.Segments.Select(s => s.Number!.Value).ToArray());
+        Assert.Equal([[], ["b-second@example"], []], file.GetSegmentFallbackIds());
     }
 
     [Fact]
@@ -146,10 +147,36 @@ public class NzbDocumentTests
             """;
         await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
 
-        var document = await NzbDocument.LoadAsync(stream);
+        var file = Assert.Single((await NzbDocument.LoadAsync(stream)).Files);
 
-        Assert.Equal(["a@example", "b@example", "c@example"],
-            Assert.Single(document.Files).GetSegmentIds());
+        Assert.Equal(["a@example", "b@example", "c@example"], file.GetSegmentIds());
+        // Same MessageId has nothing to fall back to — drop only.
+        Assert.All(file.GetSegmentFallbackIds(), fallbacks => Assert.Empty(fallbacks));
+    }
+
+    [Fact]
+    public async Task LoadAsync_DuplicateNumbers_KeepOrderedFallbacksOnPrimary()
+    {
+        const string xml = """
+            <nzb><file subject="fallbacks"><segments>
+              <segment bytes="10" number="1">a@example</segment>
+              <segment bytes="20" number="2">b-primary@example</segment>
+              <segment bytes="21" number="2">b-alt1@example</segment>
+              <segment bytes="22" number="2">b-alt2@example</segment>
+              <segment bytes="30" number="3">c@example</segment>
+            </segments></file></nzb>
+            """;
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+
+        var document = await NzbDocument.LoadAsync(stream);
+        var file = Assert.Single(document.Files);
+
+        Assert.Equal(["a@example", "b-primary@example", "c@example"], file.GetSegmentIds());
+        Assert.Equal(
+            [[], ["b-alt1@example", "b-alt2@example"], []],
+            file.GetSegmentFallbackIds());
+        Assert.Empty(file.Segments[0].FallbackMessageIds);
+        Assert.Equal(["b-alt1@example", "b-alt2@example"], file.Segments[1].FallbackMessageIds);
     }
 
     [Fact]
