@@ -146,20 +146,41 @@ public class UsenetStreamingClient : WrappingNntpClient
         return connectionPool;
     }
 
-    public static async ValueTask<INntpClient> CreateNewConnection
+    // Hard ceiling for TCP/TLS connect + AUTHINFO. Long enough for slow providers,
+    // short enough that three stuck handshakes cannot pin the pool forever.
+    // Settable for tests so timeout coverage does not wait a full 15s.
+    internal static TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(15);
+
+    public static ValueTask<INntpClient> CreateNewConnection
     (
         UsenetProviderConfig.ConnectionDetails connectionDetails,
         CancellationToken ct
+    ) => CreateNewConnection(connectionDetails, static () => new BaseNntpClient(), ct);
+
+    internal static async ValueTask<INntpClient> CreateNewConnection
+    (
+        UsenetProviderConfig.ConnectionDetails connectionDetails,
+        Func<INntpClient> connectionFactory,
+        CancellationToken ct
     )
     {
-        var connection = new BaseNntpClient();
-        var host = connectionDetails.Host;
-        var port = connectionDetails.Port;
-        var useSsl = connectionDetails.UseSsl;
-        var user = connectionDetails.User;
-        var pass = connectionDetails.Pass;
-        await connection.ConnectAsync(host, port, useSsl, ct).ConfigureAwait(false);
-        await connection.AuthenticateAsync(user, pass, ct).ConfigureAwait(false);
-        return connection;
+        var connection = connectionFactory();
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(ConnectTimeout);
+            await connection.ConnectAsync(
+                connectionDetails.Host, connectionDetails.Port, connectionDetails.UseSsl,
+                timeoutCts.Token).ConfigureAwait(false);
+            await connection.AuthenticateAsync(
+                connectionDetails.User, connectionDetails.Pass,
+                timeoutCts.Token).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
     }
 }
