@@ -6,6 +6,7 @@ using NzbWebDAV.Models;
 using NzbWebDAV.Models.Nzb;
 using NzbWebDAV.Streams;
 using NzbWebDAV.Utils;
+using Serilog;
 using UsenetSharp.Models;
 using UsenetSharp.Streams;
 
@@ -521,20 +522,37 @@ public class ArticleCachingNntpClient(
         GC.SuppressFinalize(this);
     }
 
-    private static async Task DeleteCacheDir(string cacheDir)
+    // Initial retry delay; shortened in tests so capped-failure coverage does not wait seconds.
+    internal static int DeleteCacheDirInitialDelayMs { get; set; } = 1000;
+
+    internal static async Task DeleteCacheDir(string cacheDir)
     {
         var ct = SigtermUtil.GetCancellationToken();
-        var delay = 1000;
-        while (!ct.IsCancellationRequested)
+        var delay = DeleteCacheDirInitialDelayMs;
+        const int maxAttempts = 10; // ~1m40s worst case with the existing backoff ladder
+        for (var attempt = 1; attempt <= maxAttempts && !ct.IsCancellationRequested; attempt++)
         {
             try
             {
                 Directory.Delete(cacheDir, recursive: true);
                 return;
             }
-            catch (Exception)
+            catch (DirectoryNotFoundException)
             {
-                await Task.Delay(delay, ct).ConfigureAwait(false);
+                return; // already gone — success
+            }
+            catch (Exception e)
+            {
+                if (attempt == maxAttempts)
+                {
+                    Log.Warning(e,
+                        "Giving up deleting article cache dir {CacheDir} after {Attempts} attempts",
+                        cacheDir, attempt);
+                    return;
+                }
+
+                try { await Task.Delay(delay, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { return; }
                 delay = Math.Min(delay * 2, 10000);
             }
         }
