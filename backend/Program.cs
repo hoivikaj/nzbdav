@@ -77,9 +77,6 @@ class Program
                 minThreads,
                 maxThreads);
 
-            // Block upgrades to version 0.6.x
-            BlockUpgradesToV06X();
-
             // run database migration / restore, if necessary.
             // Restore must run before opening the live DavDatabaseContext so pending
             // migrations are computed against the restored schema.
@@ -284,41 +281,6 @@ class Program
                 Log.Warning("Ignoring invalid TRUSTED_PROXY_CIDRS entry: {Entry}", part);
             }
         }
-    }
-
-    private static void BlockUpgradesToV06X()
-    {
-        var databaseFileExists = File.Exists(DavDatabaseContext.DatabaseFilePath);
-        IEnumerable<string> appliedMigrations = [];
-        IEnumerable<string> pendingMigrations = [];
-        if (databaseFileExists)
-        {
-            using var databaseContext = new DavDatabaseContext();
-            appliedMigrations = databaseContext.Database.GetAppliedMigrations().ToList();
-            pendingMigrations = databaseContext.Database.GetPendingMigrations().ToList();
-        }
-
-        if (!DatabaseStartupGuards.ShouldBlockUpgradeToV06X(
-                databaseFileExists,
-                appliedMigrations,
-                pendingMigrations,
-                EnvironmentUtil.GetEnvironmentVariable("UPGRADE")))
-        {
-            return;
-        }
-
-        // Otherwise, display the upgrade message, and exit.
-        Log.Fatal(
-            """
-            Version 0.6.0 of nzbdav is NOT backwards compatible.
-            You can upgrade, but you won't be able to downgrade.
-            Make a backup of your entire /config directory prior to upgrading.
-            The only way to downgrade back to a previous version is by restoring this backup.
-            To acknowledge this message and continue upgrading, set the env variable UPGRADE=0.6.0
-            """
-        );
-        Log.CloseAndFlush();
-        Environment.Exit(1);
     }
 
     private static async Task RunDatabaseMigrationsAsync(string[] args)

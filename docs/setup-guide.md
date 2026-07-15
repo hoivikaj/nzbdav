@@ -586,7 +586,7 @@ docker compose up -d nzbdav_rclone
 The `latest` tag follows stable releases. For reproducible deployments, replace `latest` with a specific release tag from the [GitHub releases page](https://github.com/nzbdav/nzbdav/releases).
 
 > [!IMPORTANT]
-> When upgrading an installation older than `0.6.0`, NzbDav deliberately stops before the irreversible database migration. After making a complete `/config` backup, add `UPGRADE: "0.6.0"` to the NzbDav service's `environment`, run the update again, and remove the variable after the upgrade succeeds.
+> Upgrading an installation older than `0.6.0` applies an irreversible database migration — once it runs you cannot downgrade to a pre-`0.6.0` version. Make a complete `/config` backup before updating; restoring that backup is the only way to roll back. The migration applies automatically on startup (no environment variable required) and its progress is shown on the maintenance splash page.
 
 ### View logs
 

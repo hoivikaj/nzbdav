@@ -8,35 +8,6 @@ namespace NzbWebDAV.Tests.Database;
 
 public class DatabaseStartupGuardsTests
 {
-    [Theory]
-    [InlineData(false, false, false, null, false)]
-    [InlineData(true, false, true, null, false)] // empty WAL file: applied=none, pending=yes → fresh install
-    [InlineData(true, true, true, null, true)] // real pre-0.6 DB without acknowledgement
-    [InlineData(true, true, true, "0.6.0", false)] // acknowledged
-    [InlineData(true, true, false, null, false)] // already past the breaking migration
-    public void ShouldBlockUpgradeToV06X_MatchesFreshVsUpgradeSemantics(
-        bool databaseFileExists,
-        bool hasAppliedMigrations,
-        bool hasPendingBreakingMigration,
-        string? upgradeEnv,
-        bool expectedBlock)
-    {
-        var applied = hasAppliedMigrations
-            ? new[] { "20250529081501_InitializeDatabase" }
-            : Array.Empty<string>();
-        var pending = hasPendingBreakingMigration
-            ? new[] { DatabaseStartupGuards.V06BreakingMigration }
-            : Array.Empty<string>();
-
-        Assert.Equal(
-            expectedBlock,
-            DatabaseStartupGuards.ShouldBlockUpgradeToV06X(
-                databaseFileExists,
-                applied,
-                pending,
-                upgradeEnv));
-    }
-
     [Fact]
     public async Task ConfigItemsTableExistsAsync_ReturnsFalse_OnEmptySqliteFile()
     {

@@ -280,7 +280,7 @@ Docker image builds are shared via the reusable workflow. Branch and dependabot 
 - **Proxy paths:** new WebDAV mount points must be added to the proxy allowlists in `frontend/server/app.ts` and compression skip list in `frontend/server.ts`.
 - **Editing CHANGELOG.md:** it is generated — commit messages are the source of truth.
 - **Package release ordering:** do not bump UsenetSharp merely because a release/tag exists; confirm the package publish job completed.
-- **Breaking upgrades:** major incompatible releases may gate startup in `Program.cs` (see `UPGRADE` env var pattern).
+- **Breaking upgrades:** irreversible schema changes ship as ordinary EF migrations that auto-apply on startup and surface through the migration-progress splash; there is no `UPGRADE` env-var interlock. Advise a `/config` backup before upgrading across such a migration.
 - **Test fixtures:** prefer deterministic generated data and `FakeNntpClient`; do not require live Usenet providers in the automated suite.
 - **Streaming changes:** run the focused backend tests and retain manual range, rclone scrubbing, and encrypted-archive playback checks for behavior not covered by automation.
 
