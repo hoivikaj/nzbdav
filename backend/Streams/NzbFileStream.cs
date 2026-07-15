@@ -258,6 +258,17 @@ public class NzbFileStream(
                 await body.CopyToAsync(head, ct).ConfigureAwait(false);
                 head.Position = 0;
             }
+            catch (Exception e) when (!ct.IsCancellationRequested)
+            {
+                // The guess was right (headers matched) but the body read failed,
+                // e.g. a mid-stream NNTP read timeout. Fall back to the slow seek
+                // path, whose MultiSegmentStream retries and zero-fills instead of
+                // surfacing a hard error to the WebDAV client.
+                e.LogWarningKnownOrStack(
+                    "Fast seek failed mid-segment while reading {FileName}. Falling back to segment-index seek.",
+                    string.IsNullOrEmpty(fileName) ? "unknown" : fileName);
+                return null;
+            }
             finally
             {
                 await body.DisposeAsync().ConfigureAwait(false);

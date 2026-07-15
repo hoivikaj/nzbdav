@@ -1,4 +1,7 @@
+using System.Collections.Concurrent;
 using System.Text;
+using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Models;
 using NzbWebDAV.Streams;
 using NzbWebDAV.Tests.Fakes;
@@ -6,6 +9,7 @@ using NzbWebDAV.Tests.TestUtils;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
+using UsenetSharp.Models;
 
 namespace NzbWebDAV.Tests.Streams;
 
@@ -168,10 +172,60 @@ public class NzbFileStreamTests
         }
     }
 
+    // These fast-seek tests use CachedYencStream (pre-parsed headers over decoded
+    // bytes), so they run even where the rapidyenc native library is unavailable.
+    [Fact]
+    public async Task FastSeek_BodyReadTimeout_FallsBackToSlowSeekPath()
+    {
+        var client = CreateFlakyClient(
+            () => new ThrowingReadStream(
+                () => new TimeoutException("Timeout reading from NNTP stream.")));
+        await using var stream = new NzbFileStream(
+            SegmentIds, 15, client, 2, SegmentRanges, usePipelinedBodyRequests: false);
+        stream.Seek(7, SeekOrigin.Begin);
+        var buffer = new byte[3];
+
+        var read = await stream.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false);
+
+        Assert.Equal("hij", Encoding.ASCII.GetString(buffer, 0, read));
+        // Failed fast-seek attempt + successful slow-path fetch.
+        Assert.True(client.BodyRequestCounts["two"] >= 2);
+    }
+
+    [Fact]
+    public async Task FastSeek_BodyReadCancellation_PropagatesCancellation()
+    {
+        using var cts = new CancellationTokenSource();
+        var client = CreateFlakyClient(() => new ThrowingReadStream(() =>
+        {
+            cts.Cancel();
+            return new OperationCanceledException(cts.Token);
+        }));
+        await using var stream = new NzbFileStream(
+            SegmentIds, 15, client, 2, SegmentRanges, usePipelinedBodyRequests: false);
+        stream.Seek(7, SeekOrigin.Begin);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await stream.ReadAtLeastAsync(
+                new byte[3], 3, throwOnEndOfStream: false, cts.Token));
+        // Cancellation must not trigger the slow-path fallback.
+        Assert.Equal(1, client.BodyRequestCounts["two"]);
+    }
+
     private static FakeNntpClient CreateClient()
     {
         return new FakeNntpClient(
             SegmentIds.Zip(SegmentBytes).ToDictionary(pair => pair.First, pair => pair.Second));
+    }
+
+    private static FlakySeekNntpClient CreateFlakyClient(Func<Stream> firstFlakyBody)
+    {
+        return new FlakySeekNntpClient(
+            SegmentIds.Zip(SegmentBytes).ToDictionary(pair => pair.First, pair => pair.Second),
+            SegmentIds.Zip(SegmentRanges).ToDictionary(pair => pair.First, pair => pair.Second),
+            fileSize: 15,
+            flakySegmentId: "two",
+            firstFlakyBody);
     }
 
     private sealed class CollectingSink : ILogEventSink
@@ -179,5 +233,147 @@ public class NzbFileStreamTests
         public List<LogEvent> Events { get; } = [];
 
         public void Emit(LogEvent logEvent) => Events.Add(logEvent);
+    }
+
+    /// <summary>
+    /// Serves segments as <see cref="CachedYencStream"/>s (no yEnc decode). The
+    /// first body fetched for <paramref name="flakySegmentId"/> reads from
+    /// <paramref name="firstFlakyBody"/> instead of the real payload, letting
+    /// tests fail the fast-seek drain mid-body.
+    /// </summary>
+    private sealed class FlakySeekNntpClient(
+        IReadOnlyDictionary<string, byte[]> segments,
+        IReadOnlyDictionary<string, LongRange> ranges,
+        long fileSize,
+        string flakySegmentId,
+        Func<Stream> firstFlakyBody) : NntpClient
+    {
+        private int _flakyBodiesServed;
+
+        public ConcurrentDictionary<string, int> BodyRequestCounts { get; } = new(StringComparer.Ordinal);
+
+        public override Task ConnectAsync(
+            string host, int port, bool useSsl, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public override Task<UsenetResponse> AuthenticateAsync(
+            string user, string pass, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetStatResponse> StatAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetHeadResponse> HeadAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var key = segmentId.ToString();
+            BodyRequestCounts.AddOrUpdate(key, 1, static (_, count) => count + 1);
+
+            var range = ranges[key];
+            var headers = new UsenetYencHeader
+            {
+                FileName = "fake.bin",
+                FileSize = fileSize,
+                LineLength = 128,
+                PartNumber = 1,
+                TotalParts = 1,
+                PartOffset = range.StartInclusive,
+                PartSize = range.Count,
+            };
+            var inner = key == flakySegmentId && Interlocked.Increment(ref _flakyBodiesServed) == 1
+                ? firstFlakyBody()
+                : new MemoryStream(segments[key], writable: false);
+            return Task.FromResult(new UsenetDecodedBodyResponse
+            {
+                SegmentId = key,
+                ResponseCode = (int)UsenetResponseType.ArticleRetrievedBodyFollows,
+                ResponseMessage = "222 cached body",
+                Stream = new CachedYencStream(headers, inner),
+            });
+        }
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken)
+        {
+            var response = DecodedBodyAsync(segmentId, cancellationToken);
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return response;
+        }
+
+        public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+            IReadOnlyList<SegmentId> segmentIds,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken)
+        {
+            var responses = segmentIds
+                .Select(segmentId => DecodedBodyAsync(segmentId, cancellationToken))
+                .ToArray();
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return Task.FromResult(new UsenetDecodedBodyBatch { Responses = responses });
+        }
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDateResponse> DateAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetExclusiveConnection> AcquireExclusiveConnectionAsync(
+            string segmentId, CancellationToken cancellationToken) =>
+            Task.FromResult(new UsenetExclusiveConnection(null));
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId,
+            UsenetExclusiveConnection exclusiveConnection,
+            CancellationToken cancellationToken) =>
+            DecodedBodyAsync(segmentId, exclusiveConnection.OnConnectionReadyAgain, cancellationToken);
+
+        public override void Dispose()
+        {
+        }
+    }
+
+    private sealed class ThrowingReadStream(Func<Exception> exceptionFactory) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw exceptionFactory();
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(exceptionFactory());
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }
