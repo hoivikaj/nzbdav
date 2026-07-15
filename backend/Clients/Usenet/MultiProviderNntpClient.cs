@@ -611,10 +611,13 @@ public class MultiProviderNntpClient(
                     }
                     result = WrapStreamForByteCounting(result, provider.MetricsKey);
                 }
-                else
+                else if (result is UsenetDecodedBodyResponse or UsenetDecodedArticleResponse)
                 {
+                    // BODY/ARTICLE response with an unexpected (non-success, non-430) response type.
                     RecordFetch(provider.MetricsKey, SegmentFetch.FetchStatus.Missing, stopwatch.ElapsedMilliseconds, attemptIndex);
                 }
+                // STAT/HEAD/DATE successes: intentionally no SegmentFetch row (not a segment transfer;
+                // matches StatsPipelinedAsync which records nothing).
 
                 return result;
             }

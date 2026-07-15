@@ -138,6 +138,58 @@ public class MultiProviderNntpClientTests
     }
 
     [Fact]
+    public async Task StatAsync_Success_DoesNotRecordSegmentFetch()
+    {
+        var writer = new MetricsWriter();
+        var connection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        using var client = new MultiProviderNntpClient(
+            [CreateProvider(connection)], metricsWriter: writer);
+
+        var response = await client.StatAsync("segment", CancellationToken.None);
+        Assert.True(response.ArticleExists);
+        Assert.Equal(0, writer.Stats.QueuedFetches);
+    }
+
+    [Fact]
+    public async Task StatAsync_DefinitiveMissing_RecordsMissingFetch()
+    {
+        var writer = new MetricsWriter();
+        var connection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 430,
+            SingularResponseCode = (int)UsenetResponseType.NoArticleWithThatMessageId,
+        };
+        using var client = new MultiProviderNntpClient(
+            [CreateProvider(connection)], metricsWriter: writer);
+
+        var response = await client.StatAsync("segment", CancellationToken.None);
+        Assert.False(response.ArticleExists);
+        Assert.Equal(1, writer.Stats.QueuedFetches);
+    }
+
+    [Fact]
+    public async Task DecodedBodyAsync_UnexpectedResponseType_RecordsMissingFetch()
+    {
+        var writer = new MetricsWriter();
+        var connection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 400,
+            SingularResponseCode = 400,
+        };
+        using var client = new MultiProviderNntpClient(
+            [CreateProvider(connection)], metricsWriter: writer);
+
+        var response = await client.DecodedBodyAsync(
+            "segment", onConnectionReadyAgain: null, CancellationToken.None);
+        Assert.False(response.Success);
+        Assert.Equal(1, writer.Stats.QueuedFetches);
+    }
+
+    [Fact]
     public async Task PipelinedBody_PrimaryMiss_FailsOverToBackup()
     {
         var primary = new ScriptedNntpClient
