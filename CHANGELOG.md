@@ -1,5 +1,72 @@
 # Changelog
 
+## [0.7.19](https://github.com/nzbdav/nzbdav/compare/v0.7.18...v0.7.19) (2026-07-15)
+
+
+### Features
+
+* **api:** retention pruning for on-disk nzb backups ([ecf064a](https://github.com/nzbdav/nzbdav/commit/ecf064a409672acb173066c4ff5a8f23005135c4))
+* **health:** auto-remove files after repeated streaming failures ([5f6c2a3](https://github.com/nzbdav/nzbdav/commit/5f6c2a31c125f611d0507dc5029a3847496f0fb3))
+* **health:** auto-remove files after repeated streaming failures ([23f9479](https://github.com/nzbdav/nzbdav/commit/23f9479059cdf8f3b05c38080bbaac9145225705))
+* **health:** deletion audit log for DavItem removals ([b5efa7d](https://github.com/nzbdav/nzbdav/commit/b5efa7d0bbf15cf12268cd55c6645c44dcb81049))
+* **health:** structured audit log for all dav item deletions ([470f99d](https://github.com/nzbdav/nzbdav/commit/470f99defe8bfa84bf2b28123af4648999cdaadf))
+* **nntp:** configurable idle connection timeout ([efb6fca](https://github.com/nzbdav/nzbdav/commit/efb6fcaddd1db40816f141e38d24809a2e2f25fa))
+* **nntp:** idle timeout and range prefetch cap ([#59](https://github.com/nzbdav/nzbdav/issues/59)) ([8155e54](https://github.com/nzbdav/nzbdav/commit/8155e5402ee7a2663a330a835ba3a95974c9fe8e))
+* **queue:** blocklist unpack decoy files by default ([c563a4e](https://github.com/nzbdav/nzbdav/commit/c563a4e4150a3cdcc26a326cb72890358ed58db8))
+* **queue:** prefer PAR2 UniFileN unicode filenames when present ([8d43c8f](https://github.com/nzbdav/nzbdav/commit/8d43c8fd3f8d770494c585d7c92273afd75d0351))
+* **queue:** prefer PAR2 UniFileN unicode filenames when present ([a475d1e](https://github.com/nzbdav/nzbdav/commit/a475d1eccb58f355ed087116fc01209efcd94b17))
+* **queue:** recreate-strm-files maintenance task ([6930113](https://github.com/nzbdav/nzbdav/commit/69301134629ed459d562bb34aa8bec6ad4302d00))
+* **queue:** recreate-strm-files maintenance task ([d0e1763](https://github.com/nzbdav/nzbdav/commit/d0e176336765d86e1187fefec04b7b9e47ee3b5f))
+* **queue:** setting to fail jobs when non-video files have missing articles ([a735293](https://github.com/nzbdav/nzbdav/commit/a73529317172bf073465e5621b26963d0aad96fe))
+* **queue:** setting to fail jobs when non-video files have missing articles ([ddceddb](https://github.com/nzbdav/nzbdav/commit/ddceddb921099915e485c5e58b5ade5794c5236a))
+* **queue:** try duplicate nzb segment message-ids as ordered fallbacks ([dc264b7](https://github.com/nzbdav/nzbdav/commit/dc264b786dbc711b5d2b6382528ab2fe49804dd5))
+* **queue:** try duplicate nzb segment message-ids as ordered fallbacks ([a55d85c](https://github.com/nzbdav/nzbdav/commit/a55d85c5130498e8c5a75fe6af0d8ed7faabb813))
+* **webdav:** maintenance task to rename windows-invalid dav paths ([7a01d8c](https://github.com/nzbdav/nzbdav/commit/7a01d8c79c435ccf63ae5cf58305527a84354a0f))
+* **webdav:** maintenance task to rename windows-invalid dav paths ([a7e839d](https://github.com/nzbdav/nzbdav/commit/a7e839dd88fab4b6091f078df6a8ca9f444a23aa))
+* **webdav:** per-segment streaming timeout with fast failover ([7ba0682](https://github.com/nzbdav/nzbdav/commit/7ba0682e6094548f7fe4184044d0a312ce7d9376))
+* **webdav:** per-segment streaming timeout with fast failover ([82d5b99](https://github.com/nzbdav/nzbdav/commit/82d5b997848e6ca704d83e37b8140a7ebd3466e0))
+
+
+### Bug Fixes
+
+* **api:** correct whitespace formatting in NzbBackupRetentionService ([d418429](https://github.com/nzbdav/nzbdav/commit/d418429fd1216e76bf3c2bf6766da46520c4cab5))
+* **api:** skip unpack decoy videos in profiles play selection ([125c46c](https://github.com/nzbdav/nzbdav/commit/125c46ca11e82b0cb13e26119ee1f8278b12c126))
+* **api:** skip unpack decoy videos in profiles play selection ([ff7cf12](https://github.com/nzbdav/nzbdav/commit/ff7cf12149830b5450a73c5d5fd2f709876709bc))
+* **auth:** invalidate webdav sessions when credentials change ([051c47e](https://github.com/nzbdav/nzbdav/commit/051c47e8c4fcffef9656adccf29e36240a98c085))
+* **auth:** invalidate webdav sessions when credentials change ([3437fd6](https://github.com/nzbdav/nzbdav/commit/3437fd6d066dce649987bfff32d6d502c30e7e10))
+* **db:** mark SegmentFallbackIds NotMapped for EF ([1920293](https://github.com/nzbdav/nzbdav/commit/19202932b1127102742f2063c0dd79fb1e152381))
+* **db:** NZB blob name cleanup and backup retention ([#83](https://github.com/nzbdav/nzbdav/issues/83)) ([0c1c26e](https://github.com/nzbdav/nzbdav/commit/0c1c26ef76ce39bcbdd2c923992304161d06727a))
+* **db:** remove orphaned nzb name rows when blobs are cleaned up ([b2b281c](https://github.com/nzbdav/nzbdav/commit/b2b281ca502350ed1a98ed588e7b36b838513f00))
+* **health:** align StreamingFailureTracker method names with callers ([77e3e67](https://github.com/nzbdav/nzbdav/commit/77e3e67618814cd16765db651401b7804b11d143))
+* **health:** complete streaming failure tracker wiring ([15e8f61](https://github.com/nzbdav/nzbdav/commit/15e8f61935286396cb788c81879956a48ddc5468))
+* **health:** hide deleted providers from overview stats ([a56c5ad](https://github.com/nzbdav/nzbdav/commit/a56c5ad9fc6895d8a082fa5c47741d29d65e2c65))
+* **health:** hide deleted providers from overview stats ([166a832](https://github.com/nzbdav/nzbdav/commit/166a8327db20c136780f7b759274eadc15ee1073))
+* **health:** remove duplicate dav-cleanup audit log block ([e8197ed](https://github.com/nzbdav/nzbdav/commit/e8197edc88c266b85995b742d5cf49de76f39311))
+* **nntp:** add connect/auth timeout and dispose failed handshakes ([2b0020b](https://github.com/nzbdav/nzbdav/commit/2b0020bb70f9ff4cf9ad8b88b4d6d6da8227a610))
+* **nntp:** add connect/auth timeout and dispose failed handshakes ([7f613b7](https://github.com/nzbdav/nzbdav/commit/7f613b706f69f40046a4d9241793df48b09a02a1))
+* **nntp:** count exhausted streaming timeouts toward the breaker ([c139846](https://github.com/nzbdav/nzbdav/commit/c13984690a243bbea8c0587f42fb58cb6123a132))
+* **nntp:** count exhausted streaming timeouts toward the breaker ([667dd5a](https://github.com/nzbdav/nzbdav/commit/667dd5a0e2f40fc7ba0f8a199e851deb63899d1a))
+* **nntp:** gate individual stat/head requests through prioritized semaphore ([394a1d5](https://github.com/nzbdav/nzbdav/commit/394a1d59b563153eec80cfe5c72a274d8319897a))
+* **nntp:** gate individual STAT/HEAD through prioritized semaphore ([fd5e04a](https://github.com/nzbdav/nzbdav/commit/fd5e04aa86cfbeb033b3e2517c20ee6be031ddba))
+* **queue:** accept split-rar sets with colliding header volume numbers ([705d7c2](https://github.com/nzbdav/nzbdav/commit/705d7c29e43002feeaae07cf62520c71ddecaf22))
+* **queue:** accept split-RAR sets with colliding header volume numbers ([35666aa](https://github.com/nzbdav/nzbdav/commit/35666aa5570d671fd4084ad0335a218ae0d191dc))
+* **queue:** create strm files for all video items of a job ([7ac0492](https://github.com/nzbdav/nzbdav/commit/7ac04925f44ff026c263abd169c3d05e4fd91428))
+* **queue:** create STRM files for all video items of a job ([2a0c60f](https://github.com/nzbdav/nzbdav/commit/2a0c60f5374d52406b3606d63a4a2588aaabfb52))
+* **queue:** decode utf-8 par2 filenames correctly for cjk releases ([53c502f](https://github.com/nzbdav/nzbdav/commit/53c502fccb185c87abe98163cb40e84a9588c138))
+* **queue:** decode UTF-8 PAR2 filenames for CJK releases ([9ad9fbe](https://github.com/nzbdav/nzbdav/commit/9ad9fbe141f252ebbbb53de14dfb6bfde70d71fb))
+* **queue:** dedupe and order NZB segments by number at parse time ([ff90c9d](https://github.com/nzbdav/nzbdav/commit/ff90c9d8a99460bfb8f42a1644a9089b535f2261))
+* **queue:** dedupe and order nzb segments by segment number at parse time ([b9b960b](https://github.com/nzbdav/nzbdav/commit/b9b960b60b0169370524a0668979936061af58b1))
+* **sab:** avoid per-slot provider snapshots for queued items ([ca761ee](https://github.com/nzbdav/nzbdav/commit/ca761eee92452bab0e2b56c6ce7fd62c64eda4eb))
+* **sab:** avoid per-slot provider snapshots for queued items in mode=queue ([78b9276](https://github.com/nzbdav/nzbdav/commit/78b9276cc64068032b2bff5b9039497dfd9b3dd0))
+* **sab:** avoid per-slot provider snapshots for queued items in mode=queue ([1118465](https://github.com/nzbdav/nzbdav/commit/111846537bc33d5d0888d2a00cae134e65ad8270))
+* **ui:** stack queue provider usage one per line ([6b5d297](https://github.com/nzbdav/nzbdav/commit/6b5d297ac5c0a4546a6dd93c183fbd28dd8c52eb))
+* **ui:** stack queue provider usage one per line ([bc1d3ee](https://github.com/nzbdav/nzbdav/commit/bc1d3eefc4e2f0a11d2166de1ccd11b876515cfd))
+* **webdav:** cap segment prefetch at http range end ([e67cb37](https://github.com/nzbdav/nzbdav/commit/e67cb37d2da3fc3d9c5ba507af4d486fd1a8bafe))
+* **webdav:** fall back to slow seek when fast-seek body read fails ([e8a0202](https://github.com/nzbdav/nzbdav/commit/e8a0202d68bee375f50fe757633bc771d311a446))
+* **webdav:** fall back to slow seek when fast-seek body read fails ([3a2a910](https://github.com/nzbdav/nzbdav/commit/3a2a910eb16d56f01c339acb34c843e2853ef5fa))
+* **webdav:** sanitize dav path components for windows-invalid names ([27161ba](https://github.com/nzbdav/nzbdav/commit/27161baa981846f3e2fb630101b2c0aaf5a933b3))
+* **webdav:** sanitize Dav path components for Windows-invalid names ([1d2beaa](https://github.com/nzbdav/nzbdav/commit/1d2beaae1d51e67b25136c4a99df16ad76ed8a09))
+
 ## [0.7.18](https://github.com/nzbdav/nzbdav/compare/v0.7.17...v0.7.18) (2026-07-14)
 
 
