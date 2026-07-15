@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.21](https://github.com/nzbdav/nzbdav/compare/v0.7.20...v0.7.21) (2026-07-15)
+
+
+### Features
+
+* **ui:** show provider circuit breaker status on overview ([73366e9](https://github.com/nzbdav/nzbdav/commit/73366e935d9e2ddec807506178e2f81299433a4a))
+* **ui:** show provider circuit breaker status on overview ([b430a3b](https://github.com/nzbdav/nzbdav/commit/b430a3bd07c3624951f33cee1e96fc8e5f5dde06)), closes [#162](https://github.com/nzbdav/nzbdav/issues/162)
+
+
+### Bug Fixes
+
+* **auth:** raise password verification cache size for Basic Auth retry bursts ([d5d0e4d](https://github.com/nzbdav/nzbdav/commit/d5d0e4d7b0423fb0791d367181421992bf6f8700))
+* **auth:** raise password verification cache size for Basic Auth retry bursts ([8a6fc1c](https://github.com/nzbdav/nzbdav/commit/8a6fc1ca4641e6083ee2a3ecd2f9bcc230f399e9)), closes [#162](https://github.com/nzbdav/nzbdav/issues/162)
+* drain WithConcurrencyAsync running tasks on early exit ([a9c276b](https://github.com/nzbdav/nzbdav/commit/a9c276bd8d371288996979db07e2177c1dbec06d))
+* drain WithConcurrencyAsync running tasks on early exit ([319c656](https://github.com/nzbdav/nzbdav/commit/319c656c5b0362e0de4c76d8619b724195ff70e6))
+* **usenet:** fix boot-loop timeout for stats data migrations for incoming nzbdavex users ([e0eef52](https://github.com/nzbdav/nzbdav/commit/e0eef52039b821a6b41345db2cdade1379811788))
+* **usenet:** move legacy metrics remap off the blocking startup path ([f0101c7](https://github.com/nzbdav/nzbdav/commit/f0101c7fafa76d3b789b4f75a1db2c05c317e071))
+
 ## [0.7.20](https://github.com/nzbdav/nzbdav/compare/v0.7.19...v0.7.20) (2026-07-15)
 
 
