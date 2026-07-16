@@ -663,6 +663,7 @@ export type ProviderRow = {
     avgDurationMs: number,
     errorRate: number,
     spark: number[],
+    errorSpark?: number[],
     circuitState?: ProviderCircuitState,
     cooldownRemainingSeconds?: number | null,
     lastFailureReason?: string | null,

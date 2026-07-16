@@ -45,6 +45,35 @@ public class GetOverviewStatsProviderFilterTests
     }
 
     [Fact]
+    public void BuildProvidersFromMinutes_BucketsErrorSparkAlongsideActivitySpark()
+    {
+        var windowStart = 1_700_000_000_000L; // aligned to minute
+        var minute0 = windowStart;
+        var minute1 = windowStart + 60_000;
+        var minutes = new[]
+        {
+            (minute0, ConfiguredKey, 10L, 1000L, 2L, 0L, 100L),
+            (minute1, ConfiguredKey, 5L, 500L, 1L, 0L, 50L),
+        };
+
+        var rows = GetOverviewStatsController.BuildProvidersFromMinutes(
+            minutes,
+            windowStart,
+            GetOverviewStatsRequest.OverviewWindow.Last1Hour,
+            Labels);
+
+        Assert.Single(rows);
+        Assert.Equal(3, rows[0].Errors);
+        Assert.Equal(60, rows[0].Spark.Count);
+        Assert.Equal(60, rows[0].ErrorSpark.Count);
+        Assert.Equal(10, rows[0].Spark[0]);
+        Assert.Equal(2, rows[0].ErrorSpark[0]);
+        Assert.Equal(5, rows[0].Spark[1]);
+        Assert.Equal(1, rows[0].ErrorSpark[1]);
+        Assert.Equal(0, rows[0].ErrorSpark[2]);
+    }
+
+    [Fact]
     public void BuildFailover_OmitsDeletedProvidersFromListsButKeepsAggregateTotals()
     {
         var at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();

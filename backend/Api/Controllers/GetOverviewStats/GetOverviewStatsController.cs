@@ -690,7 +690,11 @@ public class GetOverviewStatsController(
             acc.SumDurationMs += m.SumDurationMs;
             acc.Bytes += m.BytesFetched;
             var idx = (int)((m.Minute - sparkStart) / sparkSize);
-            if (idx >= 0 && idx < sparkBuckets) acc.Spark[idx] += m.Articles;
+            if (idx >= 0 && idx < sparkBuckets)
+            {
+                acc.Spark[idx] += m.Articles;
+                acc.ErrorSpark[idx] += m.Errors;
+            }
             byProvider[m.Provider] = acc;
         }
 
@@ -707,6 +711,7 @@ public class GetOverviewStatsController(
                 AvgDurationMs = kv.Value.Articles > 0 ? (double)kv.Value.SumDurationMs / kv.Value.Articles : 0,
                 ErrorRate = kv.Value.Articles > 0 ? (double)kv.Value.Errors / kv.Value.Articles : 0,
                 Spark = kv.Value.Spark.ToList(),
+                ErrorSpark = kv.Value.ErrorSpark.ToList(),
             })
             .OrderByDescending(r => r.Articles)
             .ToList();
@@ -736,7 +741,11 @@ public class GetOverviewStatsController(
             acc.SumDurationMs += (long)h.SumDurationMs;
             acc.Bytes += (long)h.BytesFetched;
             var idx = (int)(((long)h.Hour - sparkStart) / sparkSize);
-            if (idx >= 0 && idx < sparkBuckets) acc.Spark[idx] += (long)h.Articles;
+            if (idx >= 0 && idx < sparkBuckets)
+            {
+                acc.Spark[idx] += (long)h.Articles;
+                acc.ErrorSpark[idx] += (long)h.Errors;
+            }
             byProvider[host] = acc;
         }
 
@@ -753,6 +762,7 @@ public class GetOverviewStatsController(
                 AvgDurationMs = kv.Value.Articles > 0 ? (double)kv.Value.SumDurationMs / kv.Value.Articles : 0,
                 ErrorRate = kv.Value.Articles > 0 ? (double)kv.Value.Errors / kv.Value.Articles : 0,
                 Spark = kv.Value.Spark.ToList(),
+                ErrorSpark = kv.Value.ErrorSpark.ToList(),
             })
             .OrderByDescending(r => r.Articles)
             .ToList();
@@ -762,7 +772,12 @@ public class GetOverviewStatsController(
     {
         public long Articles, Errors, Retries, SumDurationMs, Bytes;
         public readonly long[] Spark;
-        public ProviderAccumulator(int n) { Spark = new long[n]; }
+        public readonly long[] ErrorSpark;
+        public ProviderAccumulator(int n)
+        {
+            Spark = new long[n];
+            ErrorSpark = new long[n];
+        }
     }
 
     private static async Task<GetOverviewStatsResponse.HeatmapBlock> BuildHeatmapAsync(

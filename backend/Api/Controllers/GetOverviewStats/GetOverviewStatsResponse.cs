@@ -68,6 +68,8 @@ public class GetOverviewStatsResponse
         public double AvgDurationMs { get; init; }
         public double ErrorRate { get; init; }
         public List<long> Spark { get; init; } = new();
+        /// <summary>Hard fetch failures per spark bucket (same sizing as <see cref="Spark"/>).</summary>
+        public List<long> ErrorSpark { get; init; } = new();
         public string CircuitState { get; init; } = "closed";
         public int? CooldownRemainingSeconds { get; init; }
         public string? LastFailureReason { get; init; }

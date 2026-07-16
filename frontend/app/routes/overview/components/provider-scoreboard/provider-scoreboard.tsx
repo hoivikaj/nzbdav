@@ -31,7 +31,7 @@ export function ProviderScoreboard({ providers, window }: ProviderScoreboardProp
                                     <th>Articles</th>
                                     <th>Read</th>
                                     <th>Share</th>
-                                    <th>Errors</th>
+                                    <th className="w-[120px]">Errors</th>
                                     <th>Retries</th>
                                     <th>Avg ms</th>
                                 </tr>
@@ -58,20 +58,25 @@ export function ProviderScoreboard({ providers, window }: ProviderScoreboardProp
                                                 </div>
                                             </td>
                                             <td>
-                                                <Sparkline values={p.spark} />
+                                                <Sparkline values={p.spark} tone="success" />
                                             </td>
                                             <td className="font-mono tabular-nums">{formatNumber(p.articles)}</td>
                                             <td className="font-mono tabular-nums">{formatBytes(p.bytesFetched)}</td>
                                             <td>
                                                 <ShareBar share={share} />
                                             </td>
-                                            <td className={`font-mono tabular-nums ${p.errorRate > 0.05 ? "text-error" : ""}`}>
-                                                {formatNumber(p.errors)}
-                                                {p.errorRate > 0 && (
-                                                    <span className="text-xs text-base-content/50">
-                                                        {" "}({formatPercent(p.errorRate * 100, 1)})
-                                                    </span>
-                                                )}
+                                            <td>
+                                                <div className="flex flex-col gap-0.5">
+                                                    <Sparkline values={p.errorSpark ?? []} tone="error" />
+                                                    <div className={`font-mono text-[11px] tabular-nums ${p.errorRate > 0.05 ? "text-error" : "text-base-content/60"}`}>
+                                                        {formatNumber(p.errors)}
+                                                        {p.errorRate > 0 && (
+                                                            <span className="text-base-content/50">
+                                                                {" "}({formatPercent(p.errorRate * 100, 1)})
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </td>
                                             <td className="font-mono tabular-nums">{formatNumber(p.retries)}</td>
                                             <td className="font-mono tabular-nums">{p.avgDurationMs.toFixed(0)}</td>
@@ -142,7 +147,7 @@ function ShareBar({ share }: { share: number }) {
     );
 }
 
-function Sparkline({ values }: { values: number[] }) {
+function Sparkline({ values, tone = "success" }: { values: number[], tone?: "success" | "error" }) {
     if (values.length === 0) return <div className="h-[22px] w-[110px] rounded-sm bg-base-content/[0.04]" />;
     const w = 110;
     const h = 22;
@@ -153,10 +158,14 @@ function Sparkline({ values }: { values: number[] }) {
         .map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${y(v).toFixed(1)}`)
         .join(" ");
     const area = `${path} L${((values.length - 1) * step).toFixed(1)},${h} L0,${h} Z`;
+    const stroke = tone === "error" ? "var(--color-error)" : "var(--color-success)";
+    const fill = tone === "error"
+        ? "color-mix(in srgb, var(--color-error) 16%, transparent)"
+        : "color-mix(in srgb, var(--color-success) 16%, transparent)";
     return (
         <svg viewBox={`0 0 ${w} ${h}`} className="block h-[22px] w-[110px]" preserveAspectRatio="none">
-            <path d={area} fill="color-mix(in srgb, var(--color-success) 16%, transparent)" />
-            <path d={path} fill="none" stroke="var(--color-success)" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+            <path d={area} fill={fill} />
+            <path d={path} fill="none" stroke={stroke} strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
         </svg>
     );
 }

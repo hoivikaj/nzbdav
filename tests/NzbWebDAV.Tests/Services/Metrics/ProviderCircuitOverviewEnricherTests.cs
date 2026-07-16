@@ -21,6 +21,7 @@ public class ProviderCircuitOverviewEnricherTests
                 Nickname = "Primary",
                 Articles = 10,
                 Spark = [1, 2],
+                ErrorSpark = [0, 1],
             },
         };
         var snapshots = new List<ProviderCircuitRuntimeSnapshot>
@@ -43,6 +44,7 @@ public class ProviderCircuitOverviewEnricherTests
         Assert.Equal("open", primary.CircuitState);
         Assert.Equal(42, primary.CooldownRemainingSeconds);
         Assert.Equal(10, primary.Articles);
+        Assert.Equal([0L, 1L], primary.ErrorSpark);
 
         var backup = enriched.Single(p => p.Provider == KeyB);
         Assert.Equal("closed", backup.CircuitState);
