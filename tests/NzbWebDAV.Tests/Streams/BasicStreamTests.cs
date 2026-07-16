@@ -19,6 +19,60 @@ public class BasicStreamTests
     }
 
     [Fact]
+    public async Task PaddedLengthStream_FillsPrematureEofToConfiguredLength()
+    {
+        await using var stream = new PaddedLengthStream(
+            new MemoryStream(Encoding.ASCII.GetBytes("ab")), 5, "part-1", "test.bin");
+
+        using var destination = new MemoryStream();
+        await stream.CopyToAsync(destination);
+
+        Assert.Equal(new byte[] { (byte)'a', (byte)'b', 0, 0, 0 }, destination.ToArray());
+        Assert.Equal(5, stream.Position);
+        Assert.Equal(0, await stream.ReadAsync(new byte[1]));
+    }
+
+    [Theory]
+    [InlineData("", 0)]
+    [InlineData("", 3)]
+    [InlineData("abc", 3)]
+    public async Task PaddedLengthStream_HandlesEmptyAndExactLengthInputs(
+        string content, int declaredLength)
+    {
+        await using var stream = new PaddedLengthStream(
+            new MemoryStream(Encoding.ASCII.GetBytes(content)),
+            declaredLength,
+            "part-1",
+            "test.bin");
+
+        using var destination = new MemoryStream();
+        await stream.CopyToAsync(destination);
+
+        var expected = new byte[declaredLength];
+        Encoding.ASCII.GetBytes(content).CopyTo(expected, 0);
+        Assert.Equal(expected, destination.ToArray());
+    }
+
+    [Fact]
+    public async Task CombinedStream_PaddedShortPartPreservesFollowingPartOffset()
+    {
+        var streams = new[]
+        {
+            Task.FromResult<Stream>(new PaddedLengthStream(
+                new MemoryStream(Encoding.ASCII.GetBytes("ab")), 4, "part-1", "test.bin")),
+            Task.FromResult<Stream>(new MemoryStream(Encoding.ASCII.GetBytes("cd")))
+        };
+        await using var stream = new CombinedStream(streams);
+
+        using var destination = new MemoryStream();
+        await stream.CopyToAsync(destination);
+
+        Assert.Equal(new byte[] { (byte)'a', (byte)'b', 0, 0, (byte)'c', (byte)'d' },
+            destination.ToArray());
+        Assert.Equal(6, stream.Position);
+    }
+
+    [Fact]
     public async Task CombinedStream_ConcatenatesEmptyAndNonEmptyStreams()
     {
         var streams = new[]

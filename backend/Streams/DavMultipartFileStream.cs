@@ -245,7 +245,10 @@ public class DavMultipartFileStream : Stream
             _fileName,
             part.SegmentFallbackIds);
         stream.Seek(part.FilePartByteRange.StartInclusive + extraOffset, SeekOrigin.Begin);
-        return stream.LimitLength(part.FilePartByteRange.Count - extraOffset);
+        var expectedLength = part.FilePartByteRange.Count - extraOffset;
+        var partId = part.SegmentIds.FirstOrDefault()
+                     ?? $"range:{part.FilePartByteRange.StartInclusive}-{part.FilePartByteRange.EndExclusive}";
+        return new PaddedLengthStream(stream, expectedLength, partId, _fileName);
     }
 
     private async Task<Stream> ResolveAndOpenAsync(int targetIndex, CancellationToken ct)

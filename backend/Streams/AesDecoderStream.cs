@@ -25,6 +25,8 @@ namespace NzbWebDAV.Streams
 
         private const int BlockSize = 16;
         private const int BufferSize = 256 * 1024;
+        internal const string TruncatedCiphertextMessagePrefix =
+            "Unexpected end of ciphertext stream";
 
         public AesDecoderStream(Stream input, AesParams aesParams)
         {
@@ -208,7 +210,9 @@ namespace NzbWebDAV.Streams
                 if (read == 0)
                 {
                     throw new EndOfStreamException(
-                        "Unexpected end of ciphertext stream (not a multiple of block size).");
+                        $"{TruncatedCiphertextMessagePrefix} after decoding {_mWritten} of {_mLimit} bytes: " +
+                        $"read {cipherRead} ciphertext bytes in the current batch, leaving a partial block of " +
+                        $"{cipherRead & (BlockSize - 1)} bytes.");
                 }
 
                 cipherRead += read;

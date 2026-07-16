@@ -56,6 +56,26 @@ public class AesDecoderStreamTests
             () => new AesDecoderStream(new MemoryStream(new byte[15]), parameters));
     }
 
+    [Fact]
+    public async Task ReadAsync_ReportsPositionWhenCiphertextEndsMidBlock()
+    {
+        var parameters = new AesParams
+        {
+            Key = new byte[32],
+            Iv = new byte[16],
+            DecodedSize = 16
+        };
+        await using var stream = new AesDecoderStream(
+            new DeclaredLengthStream(new byte[15], 16), parameters);
+
+        var exception = await Assert.ThrowsAsync<EndOfStreamException>(
+            async () => await stream.ReadExactlyAsync(new byte[16]));
+
+        Assert.Contains("after decoding 0 of 16 bytes", exception.Message);
+        Assert.Contains("read 15 ciphertext bytes", exception.Message);
+        Assert.Contains("partial block of 15 bytes", exception.Message);
+    }
+
     private static (byte[] Ciphertext, AesParams Parameters) Encrypt(byte[] plaintext)
     {
         var key = Enumerable.Range(0, 32).Select(index => (byte)index).ToArray();
@@ -75,5 +95,48 @@ public class AesDecoderStreamTests
             Iv = iv,
             DecodedSize = plaintext.Length
         });
+    }
+
+    private sealed class DeclaredLengthStream(byte[] content, long declaredLength) : Stream
+    {
+        private readonly MemoryStream _inner = new(content, writable: false);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => declaredLength;
+
+        public override long Position
+        {
+            get => _inner.Position;
+            set => _inner.Position = value;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            _inner.Read(buffer, offset, count);
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            _inner.ReadAsync(buffer, cancellationToken);
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            _inner.Seek(offset, origin);
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _inner.Dispose();
+            base.Dispose(disposing);
+        }
     }
 }

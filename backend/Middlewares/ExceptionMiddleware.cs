@@ -7,6 +7,7 @@ using NzbWebDAV.Database.Models;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
 using NzbWebDAV.Services;
+using NzbWebDAV.Streams;
 using NzbWebDAV.Utils;
 using Serilog;
 
@@ -200,6 +201,12 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
                 }
             });
 
+            if (IsTruncatedCiphertextException(e) &&
+                context.Items["DavItem"] is DavItem truncatedItem)
+            {
+                ScheduleRepair(truncatedItem.Id);
+            }
+
             AbortStartedResponse(context);
         }
     }
@@ -338,6 +345,15 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
         // match queue-side helpers — including bare InvalidFormatException.
         for (var current = e; current != null; current = current.InnerException)
         {
+            if (current is EndOfStreamException &&
+                current.Message.StartsWith(
+                    AesDecoderStream.TruncatedCiphertextMessagePrefix,
+                    StringComparison.Ordinal))
+            {
+                message = $"Encrypted file data ended prematurely. {current.Message}";
+                return true;
+            }
+
             if (current.IsRetryableDownloadException() || current.IsNonRetryableDownloadException())
             {
                 message = current.Message;
@@ -346,6 +362,22 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
         }
 
         message = string.Empty;
+        return false;
+    }
+
+    private static bool IsTruncatedCiphertextException(Exception e)
+    {
+        for (var current = e; current != null; current = current.InnerException)
+        {
+            if (current is EndOfStreamException &&
+                current.Message.StartsWith(
+                    AesDecoderStream.TruncatedCiphertextMessagePrefix,
+                    StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
         return false;
     }
 
