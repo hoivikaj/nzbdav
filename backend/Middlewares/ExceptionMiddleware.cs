@@ -67,6 +67,8 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
 
             if (context.Items["DavItem"] is DavItem davItem)
                 ScheduleRepair(davItem.Id);
+
+            AbortStartedResponse(context);
         }
         catch (SeekPositionNotFoundException)
         {
@@ -93,6 +95,8 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
                         filePath,
                         seekPosition);
             });
+
+            AbortStartedResponse(context);
         }
         catch (CouldNotLoginToUsenetException e)
         {
@@ -121,6 +125,8 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
             {
                 Log.Error("File {FilePath} provider authentication failed: {ErrorMessage}", filePath, errorDetail);
             }
+
+            AbortStartedResponse(context);
         }
         catch (CouldNotConnectToUsenetException e)
         {
@@ -132,6 +138,7 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
 
             var filePath = GetRequestFilePath(context);
             Log.Error("File {FilePath} could not connect to usenet provider: {ErrorMessage}", filePath, e.Message);
+            AbortStartedResponse(context);
         }
         catch (Exception e) when (IsDavItemRequest(context))
         {
@@ -192,7 +199,15 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
                         userAgent);
                 }
             });
+
+            AbortStartedResponse(context);
         }
+    }
+
+    private static void AbortStartedResponse(HttpContext context)
+    {
+        if (context.Response.HasStarted)
+            context.Abort();
     }
 
     private void ScheduleRepair(Guid davItemId)
