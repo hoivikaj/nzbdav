@@ -74,6 +74,7 @@ describe("mergeOverviewStats", () => {
                 errorRate: 0.08,
                 spark: [1, 2],
                 errorSpark: [0, 1],
+                retrySpark: [2, 0],
             }],
             [{
                 provider: "11111111-1111-1111-1111-111111111111",
@@ -89,6 +90,7 @@ describe("mergeOverviewStats", () => {
 
         expect(providers[0]?.articles).toBe(12);
         expect(providers[0]?.errorSpark).toEqual([0, 1]);
+        expect(providers[0]?.retrySpark).toEqual([2, 0]);
         expect(providers[0]?.circuitState).toBe("open");
         expect(providers[0]?.cooldownRemainingSeconds).toBe(30);
     });

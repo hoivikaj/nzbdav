@@ -694,6 +694,7 @@ public class GetOverviewStatsController(
             {
                 acc.Spark[idx] += m.Articles;
                 acc.ErrorSpark[idx] += m.Errors;
+                acc.RetrySpark[idx] += m.Retries;
             }
             byProvider[m.Provider] = acc;
         }
@@ -712,6 +713,7 @@ public class GetOverviewStatsController(
                 ErrorRate = kv.Value.Articles > 0 ? (double)kv.Value.Errors / kv.Value.Articles : 0,
                 Spark = kv.Value.Spark.ToList(),
                 ErrorSpark = kv.Value.ErrorSpark.ToList(),
+                RetrySpark = kv.Value.RetrySpark.ToList(),
             })
             .OrderByDescending(r => r.Articles)
             .ToList();
@@ -745,6 +747,7 @@ public class GetOverviewStatsController(
             {
                 acc.Spark[idx] += (long)h.Articles;
                 acc.ErrorSpark[idx] += (long)h.Errors;
+                acc.RetrySpark[idx] += (long)h.Retries;
             }
             byProvider[host] = acc;
         }
@@ -763,6 +766,7 @@ public class GetOverviewStatsController(
                 ErrorRate = kv.Value.Articles > 0 ? (double)kv.Value.Errors / kv.Value.Articles : 0,
                 Spark = kv.Value.Spark.ToList(),
                 ErrorSpark = kv.Value.ErrorSpark.ToList(),
+                RetrySpark = kv.Value.RetrySpark.ToList(),
             })
             .OrderByDescending(r => r.Articles)
             .ToList();
@@ -773,10 +777,12 @@ public class GetOverviewStatsController(
         public long Articles, Errors, Retries, SumDurationMs, Bytes;
         public readonly long[] Spark;
         public readonly long[] ErrorSpark;
+        public readonly long[] RetrySpark;
         public ProviderAccumulator(int n)
         {
             Spark = new long[n];
             ErrorSpark = new long[n];
+            RetrySpark = new long[n];
         }
     }
 

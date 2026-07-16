@@ -45,15 +45,15 @@ public class GetOverviewStatsProviderFilterTests
     }
 
     [Fact]
-    public void BuildProvidersFromMinutes_BucketsErrorSparkAlongsideActivitySpark()
+    public void BuildProvidersFromMinutes_BucketsErrorAndRetrySparksAlongsideActivitySpark()
     {
         var windowStart = 1_700_000_000_000L; // aligned to minute
         var minute0 = windowStart;
         var minute1 = windowStart + 60_000;
         var minutes = new[]
         {
-            (minute0, ConfiguredKey, 10L, 1000L, 2L, 0L, 100L),
-            (minute1, ConfiguredKey, 5L, 500L, 1L, 0L, 50L),
+            (minute0, ConfiguredKey, 10L, 1000L, 2L, 4L, 100L),
+            (minute1, ConfiguredKey, 5L, 500L, 1L, 3L, 50L),
         };
 
         var rows = GetOverviewStatsController.BuildProvidersFromMinutes(
@@ -64,13 +64,18 @@ public class GetOverviewStatsProviderFilterTests
 
         Assert.Single(rows);
         Assert.Equal(3, rows[0].Errors);
+        Assert.Equal(7, rows[0].Retries);
         Assert.Equal(60, rows[0].Spark.Count);
         Assert.Equal(60, rows[0].ErrorSpark.Count);
+        Assert.Equal(60, rows[0].RetrySpark.Count);
         Assert.Equal(10, rows[0].Spark[0]);
         Assert.Equal(2, rows[0].ErrorSpark[0]);
+        Assert.Equal(4, rows[0].RetrySpark[0]);
         Assert.Equal(5, rows[0].Spark[1]);
         Assert.Equal(1, rows[0].ErrorSpark[1]);
+        Assert.Equal(3, rows[0].RetrySpark[1]);
         Assert.Equal(0, rows[0].ErrorSpark[2]);
+        Assert.Equal(0, rows[0].RetrySpark[2]);
     }
 
     [Fact]

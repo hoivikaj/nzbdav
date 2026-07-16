@@ -32,7 +32,7 @@ export function ProviderScoreboard({ providers, window }: ProviderScoreboardProp
                                     <th>Read</th>
                                     <th>Share</th>
                                     <th className="w-[120px]">Errors</th>
-                                    <th>Retries</th>
+                                    <th className="w-[120px]">Retries</th>
                                     <th>Avg ms</th>
                                 </tr>
                             </thead>
@@ -78,7 +78,14 @@ export function ProviderScoreboard({ providers, window }: ProviderScoreboardProp
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="font-mono tabular-nums">{formatNumber(p.retries)}</td>
+                                            <td>
+                                                <div className="flex flex-col gap-0.5">
+                                                    <Sparkline values={p.retrySpark ?? []} tone="warning" />
+                                                    <div className={`font-mono text-[11px] tabular-nums ${p.retries > 0 ? "text-warning" : "text-base-content/60"}`}>
+                                                        {formatNumber(p.retries)}
+                                                    </div>
+                                                </div>
+                                            </td>
                                             <td className="font-mono tabular-nums">{p.avgDurationMs.toFixed(0)}</td>
                                         </tr>
                                     );
@@ -147,7 +154,7 @@ function ShareBar({ share }: { share: number }) {
     );
 }
 
-function Sparkline({ values, tone = "success" }: { values: number[], tone?: "success" | "error" }) {
+function Sparkline({ values, tone = "success" }: { values: number[], tone?: "success" | "error" | "warning" }) {
     if (values.length === 0) return <div className="h-[22px] w-[110px] rounded-sm bg-base-content/[0.04]" />;
     const w = 110;
     const h = 22;
@@ -158,14 +165,16 @@ function Sparkline({ values, tone = "success" }: { values: number[], tone?: "suc
         .map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${y(v).toFixed(1)}`)
         .join(" ");
     const area = `${path} L${((values.length - 1) * step).toFixed(1)},${h} L0,${h} Z`;
-    const stroke = tone === "error" ? "var(--color-error)" : "var(--color-success)";
-    const fill = tone === "error"
-        ? "color-mix(in srgb, var(--color-error) 16%, transparent)"
-        : "color-mix(in srgb, var(--color-success) 16%, transparent)";
+    const colorVar = tone === "error"
+        ? "var(--color-error)"
+        : tone === "warning"
+            ? "var(--color-warning)"
+            : "var(--color-success)";
+    const fill = `color-mix(in srgb, ${colorVar} 16%, transparent)`;
     return (
         <svg viewBox={`0 0 ${w} ${h}`} className="block h-[22px] w-[110px]" preserveAspectRatio="none">
             <path d={area} fill={fill} />
-            <path d={path} fill="none" stroke={stroke} strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+            <path d={path} fill="none" stroke={colorVar} strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
         </svg>
     );
 }

@@ -141,6 +141,7 @@ export function mergeProviderCircuitBreakers(
                 errorRate: 0,
                 spark: [],
                 errorSpark: [],
+                retrySpark: [],
             }),
             circuitState: breaker.circuitState,
             cooldownRemainingSeconds: breaker.cooldownRemainingSeconds,

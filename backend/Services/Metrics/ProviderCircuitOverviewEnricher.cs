@@ -30,6 +30,7 @@ internal static class ProviderCircuitOverviewEnricher
                     ErrorRate = existing.ErrorRate,
                     Spark = existing.Spark,
                     ErrorSpark = existing.ErrorSpark,
+                    RetrySpark = existing.RetrySpark,
                     CircuitState = fields.CircuitState,
                     CooldownRemainingSeconds = fields.CooldownRemainingSeconds,
                     LastFailureReason = fields.LastFailureReason,
