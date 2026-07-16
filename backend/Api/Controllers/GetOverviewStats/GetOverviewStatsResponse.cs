@@ -9,6 +9,8 @@ public class GetOverviewStatsResponse
 
     public LiveTiles Tiles { get; init; } = new();
     public List<ThroughputPoint> Throughput { get; init; } = new();
+    /// <summary>Chart bucket width in ms for normalizing throughput totals into rates.</summary>
+    public long ThroughputBucketSizeMs { get; init; }
     public long TotalArticles { get; init; }
     public long TotalMisses { get; init; }
     public long TotalErrors { get; init; }
@@ -51,6 +53,8 @@ public class GetOverviewStatsResponse
         public long Misses { get; init; }
         public long Errors { get; init; }
         public long BytesServed { get; init; }
+        /// <summary>Bytes downloaded from Usenet providers in this bucket.</summary>
+        public long BytesFetched { get; init; }
     }
 
     public class ProviderRow

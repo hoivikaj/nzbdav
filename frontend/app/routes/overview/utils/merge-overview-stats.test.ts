@@ -24,7 +24,7 @@ describe("mergeOverviewStats", () => {
                 totalArticles: 99,
                 totalMisses: 40,
                 totalErrors: 2,
-                throughput: [{ bucket: 1, articles: 5, misses: 2, errors: 0, bytesServed: 10 }],
+                throughput: [{ bucket: 1, articles: 5, misses: 2, errors: 0, bytesServed: 10, bytesFetched: 20 }],
                 tiles: { activeReads: 2, articlesPerMinute: 10, errorsPerMinute: 0, bytesServedPerMinute: 1000 },
             }),
         );
@@ -43,7 +43,7 @@ describe("mergeOverviewStats", () => {
             EMPTY_OVERVIEW_STATS,
             partial({
                 includedSections: ["window"],
-                throughput: [{ bucket: 1, articles: 5, misses: 1, errors: 0, bytesServed: 10 }],
+                throughput: [{ bucket: 1, articles: 5, misses: 1, errors: 0, bytesServed: 10, bytesFetched: 20 }],
             }),
         );
 

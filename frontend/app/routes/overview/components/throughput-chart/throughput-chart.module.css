@@ -55,6 +55,12 @@
     flex-shrink: 0;
 }
 
+.yAxisRight {
+    width: 52px;
+    align-items: flex-start;
+    color: #c084fc;
+}
+
 .chartArea {
     flex: 1;
     position: relative;
@@ -78,6 +84,13 @@
 
 .lineArticles {
     stroke: var(--success);
+    stroke-width: 1.5;
+    fill: none;
+    vector-effect: non-scaling-stroke;
+}
+
+.lineNetwork {
+    stroke: #c084fc;
     stroke-width: 1.5;
     fill: none;
     vector-effect: non-scaling-stroke;
@@ -131,6 +144,14 @@
     background: var(--danger-muted);
 }
 
+.hoverDotNetwork {
+    background: #c084fc;
+}
+
+.tooltipNetwork {
+    color: #c084fc;
+}
+
 .xAxis {
     position: relative;
     height: 16px;
@@ -140,6 +161,10 @@
     font-size: 10px;
     font-variant-numeric: tabular-nums;
     user-select: none;
+}
+
+.xAxisWithRight {
+    margin-right: 62px;
 }
 
 .xTick {
@@ -183,6 +208,7 @@
 }
 
 .swatchArticles { background: var(--success); }
+.swatchNetwork { background: #c084fc; }
 .swatchErrors { background: var(--danger-muted); }
 
 .empty {

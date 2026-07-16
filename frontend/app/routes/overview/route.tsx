@@ -204,6 +204,7 @@ export default function Overview(_props: Route.ComponentProps) {
                     totalMisses={stats.totalMisses}
                     totalErrors={stats.totalErrors}
                     totalBytesServed={stats.sessions.totalBytesServed}
+                    bucketSizeMs={stats.throughputBucketSizeMs}
                     window={window}
                 />
             )

@@ -18,6 +18,7 @@ export const EMPTY_OVERVIEW_STATS: OverviewStatsResponse = {
         bytesServedPerMinute: 0,
     },
     throughput: [],
+    throughputBucketSizeMs: 60_000,
     totalArticles: 0,
     totalMisses: 0,
     totalErrors: 0,
@@ -90,6 +91,7 @@ export function mergeOverviewStats(
         next.window = partial.window;
         next.tiles = partial.tiles;
         next.throughput = partial.throughput;
+        next.throughputBucketSizeMs = partial.throughputBucketSizeMs;
         next.totalArticles = partial.totalArticles;
         next.totalMisses = partial.totalMisses;
         next.totalErrors = partial.totalErrors;

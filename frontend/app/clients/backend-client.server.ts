@@ -546,6 +546,7 @@ export type OverviewStatsResponse = {
         bytesServedPerMinute: number,
     },
     throughput: ThroughputPoint[],
+    throughputBucketSizeMs: number,
     totalArticles: number,
     totalMisses: number,
     totalErrors: number,
@@ -647,6 +648,7 @@ export type ThroughputPoint = {
     misses: number,
     errors: number,
     bytesServed: number,
+    bytesFetched: number,
 }
 
 export type ProviderCircuitState = "closed" | "open" | "halfOpen";
