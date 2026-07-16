@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.7.22](https://github.com/nzbdav/nzbdav/compare/v0.7.21...v0.7.22) (2026-07-16)
+
+
+### Features
+
+* **api:** add opt-in stream trace buffer with dump endpoints ([2994423](https://github.com/nzbdav/nzbdav/commit/2994423199a8b937615d8a618f278824953a1f66))
+* **api:** opt-in playback stream tracing for debugging seek and zero-fill issues ([2a8d1a0](https://github.com/nzbdav/nzbdav/commit/2a8d1a04e1fe62c0f2fa2ec05014b4cb7990aa37))
+* **docs:** add Zensical site config and GitHub Pages workflow ([a1b7c07](https://github.com/nzbdav/nzbdav/commit/a1b7c07f55049754f5755319035046058cfafb29))
+* **docs:** publish project documentation with Zensical on GitHub Pages ([81f28c5](https://github.com/nzbdav/nzbdav/commit/81f28c55b4402d64f2f1460c56f2125db49e6dc2))
+* **nntp:** emit segment, failover, seek, and zero-fill trace events ([31ab618](https://github.com/nzbdav/nzbdav/commit/31ab618056db10d734f0a8554feee0217c6b4411))
+* **ui:** modernize health schedule table and overview chrome ([d26ebf4](https://github.com/nzbdav/nzbdav/commit/d26ebf4e358b3b3dbc66aaf7198cd1d8a485c1c8))
+* **ui:** modernize the health schedule table ([397cdfe](https://github.com/nzbdav/nzbdav/commit/397cdfe6c27dafd20c7960e18106dd1ba1237f06))
+* **ui:** restore Overview activity chart hover tooltip and sparse errors ([04b1ae8](https://github.com/nzbdav/nzbdav/commit/04b1ae896d6cdd4e8ea88f2145891c0abf97f2d0))
+* **ui:** show copyable session id on live reads panel ([5807c4d](https://github.com/nzbdav/nzbdav/commit/5807c4d059059b6c2f3aae799dab2f4632a3fa13))
+* **ui:** show error trends per provider on the overview scoreboard ([69fd8be](https://github.com/nzbdav/nzbdav/commit/69fd8be57dfc156e8c6feb7e643ba07e604b66ed))
+* **ui:** show per-provider error sparkline on overview ([b789d08](https://github.com/nzbdav/nzbdav/commit/b789d08e8b76c82aae15c708bf3183391fa95bc0))
+* **ui:** show per-provider retry sparkline on overview ([15f88cd](https://github.com/nzbdav/nzbdav/commit/15f88cd6ab57452574cde9e05076d3a81d443da3))
+* **ui:** show provider download speed on the activity chart ([78980bc](https://github.com/nzbdav/nzbdav/commit/78980bcc69e0dba50b4b84f4b0274ad4627ae138))
+* **ui:** show provider download throughput on the activity chart ([9c148f5](https://github.com/nzbdav/nzbdav/commit/9c148f5a64b74bc5786ccb8e7fa076e0bdb93175))
+* **ui:** show retry trends per provider on the overview scoreboard ([a37708e](https://github.com/nzbdav/nzbdav/commit/a37708ea0418ebd82dd665dd4507ae4a5b4c874a))
+* **webdav:** trace range lifecycle and enrich terminal read sessions ([86a60c7](https://github.com/nzbdav/nzbdav/commit/86a60c7b2c827395656dd097cbe7b51b07ff342d))
+
+
+### Bug Fixes
+
+* **api:** backup download no longer fails with a browser network error ([d4efd8a](https://github.com/nzbdav/nzbdav/commit/d4efd8ac7cd11a9910365c4f73ba60b5ff47b645))
+* **api:** stream backup downloads without Kestrel sync-I/O abort ([116fa75](https://github.com/nzbdav/nzbdav/commit/116fa75fc9e74bb07b2bfc78068c7cc3db9c1f31))
+* **config:** reject control characters in Usenet provider Host/User/Pass ([5dab024](https://github.com/nzbdav/nzbdav/commit/5dab024db93e67f7eedd2aa7ffb01859a18009b4)), closes [#392](https://github.com/nzbdav/nzbdav/issues/392)
+* **db:** database upgrade no longer stalls on the Metrics database step ([011f43f](https://github.com/nzbdav/nzbdav/commit/011f43f96dca8ad4800117bca7df9b24472c494b))
+* **db:** prevent metrics migration startup stalls ([b0a038f](https://github.com/nzbdav/nzbdav/commit/b0a038f78af02a5a6ab5f8e49ee75f878e1cb68f))
+* **nntp:** fail non-yEnc size probes with a clear NonRetryable error ([5b1be7a](https://github.com/nzbdav/nzbdav/commit/5b1be7a87cad8d42a78a895a4cbec7e5e12157f3)), closes [#395](https://github.com/nzbdav/nzbdav/issues/395)
+* **nntp:** harden STAT classification, auth, and provider validation from protocol audit ([96277d5](https://github.com/nzbdav/nzbdav/commit/96277d5badf9ec57c409b75f59af0f1e2974cf0b))
+* **nntp:** seeking during playback no longer falsely trips the provider circuit breaker ([eb06cdd](https://github.com/nzbdav/nzbdav/commit/eb06cddabec36ea61a07c6234bd8368017ff9123))
+* **nntp:** skip AUTHINFO when provider credentials are empty ([497d4a9](https://github.com/nzbdav/nzbdav/commit/497d4a984b4686c2fa2a75824a2fcb91c596b402)), closes [#391](https://github.com/nzbdav/nzbdav/issues/391)
+* **nntp:** skip circuit breaker on seek-abort NotRetrieved ([be652c1](https://github.com/nzbdav/nzbdav/commit/be652c17a63feb317b05360932606e3eb0610b1d))
+* **nntp:** treat connection-level STAT codes as retryable, not article verdicts ([66aded6](https://github.com/nzbdav/nzbdav/commit/66aded6b5aca976ab07717bd2aecec1502d73b2c)), closes [#390](https://github.com/nzbdav/nzbdav/issues/390)
+* **nntp:** warn when provider credentials are used without TLS ([1ac5005](https://github.com/nzbdav/nzbdav/commit/1ac500516d29a524a743db70142189bd1b4753eb)), closes [#394](https://github.com/nzbdav/nzbdav/issues/394)
+* **queue:** honor PAR2 async enumerator cancellation ([b1fd594](https://github.com/nzbdav/nzbdav/commit/b1fd5940bb8fa52f04145647b05aea4f25ee3e2d))
+* **queue:** stop PAR2 scans when enumeration is cancelled ([d2e7a20](https://github.com/nzbdav/nzbdav/commit/d2e7a20d66f0688fffe5fecce4112dfd4ac0863c))
+* **ui:** detect updates for main-&lt;sha&gt; builds via version-embedded SHA ([96291bd](https://github.com/nzbdav/nzbdav/commit/96291bd7ab7447ad8518b92c5676b36d939dcced))
+* **ui:** detect updates for main-&lt;sha&gt; builds via version-embedded SHA ([0a52085](https://github.com/nzbdav/nzbdav/commit/0a5208591678e68a20593dfddba4eab5dba99435))
+* **ui:** fold download rate into the activity articles legend ([def8004](https://github.com/nzbdav/nzbdav/commit/def8004dcd2284ea59d2115fd1e4b809ac1b7484))
+* **ui:** give Overview live stats an elevated border and surface ([f65ba62](https://github.com/nzbdav/nzbdav/commit/f65ba62f4c4b6483f4da7de48f0a459784abe126))
+* **ui:** Overview live-stat row is visible against the page background ([1ea11fc](https://github.com/nzbdav/nzbdav/commit/1ea11fc7baa0e26dad8a91cdadde97c34978a991))
+* **ui:** restore Overview heatmap week mode class for typecheck ([e0d41e7](https://github.com/nzbdav/nzbdav/commit/e0d41e7f44bfa1891d54459c5fe3f4e9fc0f1930))
+* **ui:** show download speed on the activity articles legend ([1e536a4](https://github.com/nzbdav/nzbdav/commit/1e536a41af1c94213d6fc30f38c4a482327e11c2))
+* **webdav:** abort incomplete streaming responses ([67b4272](https://github.com/nzbdav/nzbdav/commit/67b4272ec00348a4e3af475ea599a3d8e0dc27fd))
+* **webdav:** remove spurious Content-Length mismatch errors when playback hits missing articles ([4c57ef1](https://github.com/nzbdav/nzbdav/commit/4c57ef1d4b6260ff37de70065a481f5dc35d2c4c))
+* **webdav:** stop broken files from flooding logs and Usenet traffic ([7331053](https://github.com/nzbdav/nzbdav/commit/73310530879d24454bde8bf7331897f2bb01b100))
+* **webdav:** stop repeated zero-fill fetch storms ([b90ac0f](https://github.com/nzbdav/nzbdav/commit/b90ac0f84463e8bfe8cbfa26d05c5f514f7dea75))
+
 ## [0.7.21](https://github.com/nzbdav/nzbdav/compare/v0.7.20...v0.7.21) (2026-07-15)
 
 
