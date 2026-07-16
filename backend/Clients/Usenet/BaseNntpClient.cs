@@ -16,7 +16,17 @@ namespace NzbWebDAV.Clients.Usenet;
 /// </summary>
 public class BaseNntpClient : NntpClient
 {
-    private readonly UsenetClient _client = new();
+    private readonly IUsenetClient _client;
+
+    public BaseNntpClient() : this(new UsenetClient())
+    {
+    }
+
+    /// <summary>Test seam for injecting a scripted underlying client.</summary>
+    internal BaseNntpClient(IUsenetClient client)
+    {
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+    }
 
     public override async Task ConnectAsync(string host, int port, bool useSsl, CancellationToken cancellationToken)
     {
@@ -55,9 +65,22 @@ public class BaseNntpClient : NntpClient
         }
     }
 
-    public override Task<UsenetStatResponse> StatAsync(SegmentId segmentId, CancellationToken cancellationToken)
+    public override async Task<UsenetStatResponse> StatAsync(SegmentId segmentId, CancellationToken cancellationToken)
     {
-        return _client.StatAsync(PrepareSegmentId(segmentId), cancellationToken);
+        segmentId = PrepareSegmentId(segmentId);
+        var response = await _client.StatAsync(segmentId, cancellationToken).ConfigureAwait(false);
+
+        // 223 (exists) and definitive-missing (430 / provider 451) are valid STAT
+        // outcomes and are conveyed via the response object — callers check
+        // ResponseType / IsDefinitiveMissing. Connection/session-level codes
+        // (buffered 400 goodbye, 480 auth, 5xx) must not be treated as article verdicts.
+        if (response.ResponseType == UsenetResponseType.ArticleExists ||
+            UsenetArticleAvailability.IsDefinitiveMissing(response))
+        {
+            return response;
+        }
+
+        throw CreateConnectionLevelException(segmentId, response);
     }
 
     public override async Task<UsenetHeadResponse> HeadAsync(SegmentId segmentId, CancellationToken cancellationToken)
@@ -174,12 +197,25 @@ public class BaseNntpClient : NntpClient
     {
         return UsenetArticleAvailability.IsDefinitiveMissing(response)
             ? new UsenetArticleNotFoundException(segmentId, response.ResponseMessage)
-            : new UsenetUnexpectedResponseException(segmentId, response.ResponseMessage);
+            : CreateConnectionLevelException(segmentId, response);
+    }
+
+    private static Exception CreateConnectionLevelException(SegmentId segmentId, UsenetResponse response)
+    {
+        if (response.ResponseCode == 480)
+        {
+            return new UsenetUnexpectedResponseException(
+                segmentId,
+                "Provider requires authentication but no credentials are configured");
+        }
+
+        return new UsenetUnexpectedResponseException(segmentId, response.ResponseMessage);
     }
 
     public override void Dispose()
     {
-        _client.Dispose();
+        if (_client is IDisposable disposable)
+            disposable.Dispose();
         GC.SuppressFinalize(this);
     }
 }

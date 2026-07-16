@@ -4,6 +4,7 @@ import { Button } from "~/components/ui/button";
 import { Icon, SettingsPage } from "~/components/ui";
 import { subscribeWebsocketTopics, useWebsocketTopic } from "~/utils/shared-websocket";
 import { isMaskedSecret } from "~/utils/config-mask";
+import { shouldWarnCleartextCredentials } from "./cleartext-credentials";
 import {
     DndContext,
     type DragEndEvent,
@@ -1193,6 +1194,14 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
                                     Use SSL
                                 </label>
                             </div>
+                            {shouldWarnCleartextCredentials(useSsl, user) && (
+                                <div
+                                    role="alert"
+                                    className="mt-2 rounded border border-amber-600/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+                                >
+                                    Credentials are sent unencrypted without SSL. Prefer port 563 with SSL enabled.
+                                </div>
+                            )}
                         </div>
 
                         <div className={`${styles["form-group"]} ${styles["full-width"]}`}>

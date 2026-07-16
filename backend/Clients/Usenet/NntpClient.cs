@@ -113,7 +113,8 @@ public abstract class NntpClient : INntpClient
         var decodedBodyResponse = await DecodedBodyAsync(segmentId, ct).ConfigureAwait(false);
         await using var stream = decodedBodyResponse.Stream!;
         var headers = await stream.GetYencHeadersAsync(ct).ConfigureAwait(false);
-        return headers!;
+        return headers ?? throw new NonRetryableDownloadException(
+            $"Article <{segmentId}> is not yEnc-encoded; only yEnc binaries are supported.");
     }
 
     public virtual async Task<long> GetFileSizeAsync(NzbFile file, CancellationToken ct)
@@ -121,7 +122,7 @@ public abstract class NntpClient : INntpClient
         if (file.Segments.Count == 0) return 0;
         var headers = await GetYencHeadersAsync(file.Segments[^1].MessageId, ct).ConfigureAwait(false);
         file.Segments[^1].ByteRange = LongRange.FromStartAndSize(headers.PartOffset, headers.PartSize);
-        return headers!.PartOffset + headers!.PartSize;
+        return headers.PartOffset + headers.PartSize;
     }
 
     public virtual async Task<NzbFileStream> GetFileStream(
@@ -406,7 +407,7 @@ public abstract class NntpClient : INntpClient
     internal static bool IsValidSegmentId(string? id)
     {
         var value = NormalizeSegmentId(id);
-        if (value.Length is < 3 or > 497) return false;
+        if (value.Length is < 3 or > 495) return false;
         if (value[0] == '@' || value[^1] == '@' || !value.Contains('@')) return false;
         if (value.Contains('<') || value.Contains('>')) return false;
         foreach (var character in value)

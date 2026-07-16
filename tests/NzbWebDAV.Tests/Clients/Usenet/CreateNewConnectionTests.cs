@@ -61,7 +61,56 @@ public class CreateNewConnectionTests
 
         Assert.Same(fake, connection);
         Assert.Equal(0, fake.DisposeCount);
+        Assert.Equal(1, fake.AuthenticateCount);
+        Assert.Equal("u", fake.LastAuthUser);
+        Assert.Equal("p", fake.LastAuthPass);
         connection.Dispose();
+    }
+
+    [Fact]
+    public async Task CreateNewConnection_SkipsAuthenticateWhenCredentialsEmpty()
+    {
+        var fake = new HandshakeNntpClient();
+        var details = MakeDetails();
+        details.User = "";
+        details.Pass = "";
+
+        var connection = await UsenetStreamingClient.CreateNewConnection(
+            details, () => fake, CancellationToken.None);
+
+        Assert.Same(fake, connection);
+        Assert.True(fake.Connected);
+        Assert.Equal(0, fake.AuthenticateCount);
+        connection.Dispose();
+    }
+
+    [Fact]
+    public async Task CreateNewConnection_AuthenticatesWhenOnlyPasswordSet()
+    {
+        var fake = new HandshakeNntpClient();
+        var details = MakeDetails();
+        details.User = "";
+        details.Pass = "secret";
+
+        await UsenetStreamingClient.CreateNewConnection(details, () => fake, CancellationToken.None);
+
+        Assert.Equal(1, fake.AuthenticateCount);
+        Assert.Equal("", fake.LastAuthUser);
+        Assert.Equal("secret", fake.LastAuthPass);
+    }
+
+    [Fact]
+    public async Task CreateNewConnection_RejectsControlCharactersInCredentials()
+    {
+        var fake = new HandshakeNntpClient();
+        var details = MakeDetails();
+        details.User = "user\r\nQUIT";
+
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await UsenetStreamingClient.CreateNewConnection(details, () => fake, CancellationToken.None));
+
+        Assert.False(fake.Connected);
+        Assert.Equal(0, fake.DisposeCount);
     }
 
     private static UsenetProviderConfig.ConnectionDetails MakeDetails() =>
@@ -82,6 +131,9 @@ public class CreateNewConnectionTests
         public Exception? AuthenticateException { get; init; }
         public bool Connected { get; private set; }
         public int DisposeCount { get; private set; }
+        public int AuthenticateCount { get; private set; }
+        public string? LastAuthUser { get; private set; }
+        public string? LastAuthPass { get; private set; }
 
         public override async Task ConnectAsync(
             string host, int port, bool useSsl, CancellationToken cancellationToken)
@@ -100,6 +152,9 @@ public class CreateNewConnectionTests
             string user, string pass, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            AuthenticateCount++;
+            LastAuthUser = user;
+            LastAuthPass = pass;
             if (AuthenticateException is not null)
                 throw AuthenticateException;
             return Task.FromResult(new UsenetResponse

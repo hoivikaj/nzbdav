@@ -138,6 +138,33 @@ public class MultiProviderNntpClientTests
     }
 
     [Fact]
+    public async Task StatAsync_UnexpectedResponse_FailsOverToBackup()
+    {
+        var primary = new ScriptedNntpClient
+        {
+            BatchResponseCode = 400,
+            SingularException = segmentId =>
+                new UsenetUnexpectedResponseException(segmentId, "400 idle timeout"),
+        };
+        var backup = new ScriptedNntpClient
+        {
+            BatchResponseCode = 223,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(primary, host: "a.example"),
+            CreateProvider(backup, host: "b.example"),
+        ]);
+
+        var response = await client.StatAsync("segment", CancellationToken.None);
+
+        Assert.True(response.ArticleExists);
+        Assert.True(primary.SingularRequests >= 1);
+        Assert.True(backup.SingularRequests >= 1);
+    }
+
+    [Fact]
     public async Task StatAsync_Success_DoesNotRecordSegmentFetch()
     {
         var writer = new MetricsWriter();

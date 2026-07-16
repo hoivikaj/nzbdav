@@ -147,6 +147,16 @@ public class UsenetStreamingClient : WrappingNntpClient
             maxConnections = 1;
         }
 
+        if (ShouldWarnCleartextCredentials(connectionDetails.UseSsl, connectionDetails.User))
+        {
+            var label = string.IsNullOrWhiteSpace(connectionDetails.Nickname)
+                ? connectionDetails.Host
+                : connectionDetails.Nickname;
+            Log.Warning(
+                "Provider '{Provider}' uses a cleartext connection (no TLS) with credentials; the password is sent unencrypted. Prefer port 563 with SSL.",
+                label);
+        }
+
         var connectionPool = CreateNewConnectionPool(
             maxConnections: maxConnections,
             connectionFactory: ct => CreateNewConnection(connectionDetails, ct),
@@ -196,6 +206,9 @@ public class UsenetStreamingClient : WrappingNntpClient
     // Settable for tests so timeout coverage does not wait a full 15s.
     internal static TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(15);
 
+    internal static bool ShouldWarnCleartextCredentials(bool useSsl, string? user) =>
+        !useSsl && !string.IsNullOrEmpty(user);
+
     public static ValueTask<INntpClient> CreateNewConnection
     (
         UsenetProviderConfig.ConnectionDetails connectionDetails,
@@ -209,6 +222,15 @@ public class UsenetStreamingClient : WrappingNntpClient
         CancellationToken ct
     )
     {
+        if (ContainsControlChars(connectionDetails.Host) ||
+            ContainsControlChars(connectionDetails.User) ||
+            ContainsControlChars(connectionDetails.Pass) ||
+            connectionDetails.Host.Contains(' '))
+        {
+            throw new ArgumentException(
+                "Provider host/username/password must not contain whitespace or control characters.");
+        }
+
         var connection = connectionFactory();
         try
         {
@@ -217,9 +239,13 @@ public class UsenetStreamingClient : WrappingNntpClient
             await connection.ConnectAsync(
                 connectionDetails.Host, connectionDetails.Port, connectionDetails.UseSsl,
                 timeoutCts.Token).ConfigureAwait(false);
-            await connection.AuthenticateAsync(
-                connectionDetails.User, connectionDetails.Pass,
-                timeoutCts.Token).ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(connectionDetails.User) ||
+                !string.IsNullOrEmpty(connectionDetails.Pass))
+            {
+                await connection.AuthenticateAsync(
+                    connectionDetails.User, connectionDetails.Pass,
+                    timeoutCts.Token).ConfigureAwait(false);
+            }
             return connection;
         }
         catch
@@ -227,5 +253,8 @@ public class UsenetStreamingClient : WrappingNntpClient
             connection.Dispose();
             throw;
         }
+
+        static bool ContainsControlChars(string? s) =>
+            !string.IsNullOrEmpty(s) && s.Any(c => c < 0x20 || c == 0x7F);
     }
 }

@@ -60,6 +60,19 @@ public class NntpClientPipelinedMappingTests
     }
 
     [Fact]
+    public void IsValidSegmentId_RejectsBareIdsLongerThan495Octets()
+    {
+        // With client-added angle brackets the wire argument must stay ≤ 497 octets.
+        var tooLong = new string('a', 492) + "@x.y"; // 496 octets
+        Assert.Equal(496, tooLong.Length);
+        Assert.False(NntpClient.IsValidSegmentId(tooLong));
+
+        var maxOk = new string('a', 491) + "@x.y"; // 495 octets
+        Assert.Equal(495, maxOk.Length);
+        Assert.True(NntpClient.IsValidSegmentId(maxOk));
+    }
+
+    [Fact]
     public void HasSegmentIdMismatch_IgnoresSyntheticMessagesWithoutWireId()
     {
         Assert.False(NntpClient.HasSegmentIdMismatch(

@@ -305,6 +305,14 @@ public class ConfigManager
                 var label = string.IsNullOrWhiteSpace(p.Nickname) ? p.Host : p.Nickname;
                 if (string.IsNullOrWhiteSpace(p.Host))
                     throw new ArgumentException($"Provider #{i + 1}: host must not be empty.");
+                if (ContainsControlChars(p.Host) || p.Host.Contains(' '))
+                    throw new ArgumentException($"Provider '{label}': host contains whitespace or control characters.");
+                if (ContainsControlChars(p.User))
+                    throw new ArgumentException($"Provider '{label}': username contains control characters.");
+                if (ContainsControlChars(p.Pass))
+                    throw new ArgumentException($"Provider '{label}': password contains control characters.");
+                if ((p.User?.Length ?? 0) > 400 || (p.Pass?.Length ?? 0) > 400)
+                    throw new ArgumentException($"Provider '{label}': username/password exceeds 400 characters.");
                 if (p.Port is < 1 or > 65535)
                     throw new ArgumentException($"Provider '{label}': port must be between 1 and 65535, but was {p.Port}.");
                 if (p.MaxConnections < 1)
@@ -312,6 +320,9 @@ public class ConfigManager
                 if (p.ByteLimit is < 0)
                     throw new ArgumentException($"Provider '{label}': byte limit must not be negative.");
             }
+
+            static bool ContainsControlChars(string? s) =>
+                !string.IsNullOrEmpty(s) && s.Any(c => c < 0x20 || c == 0x7F);
         }
     }
 
