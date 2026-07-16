@@ -24,3 +24,9 @@ BenchmarkDotNet.Artifacts/
 
 .DS_Store
 /swap/
+
+#################
+# Documentation #
+#################
+
+/site/

@@ -1,0 +1,173 @@
+# Contributing
+
+## Set up your system
+
+The project consists of two sub projects: frontend and backend
+Both share some necessary environment variables.
+
+**Ensure that frontend and backend share the same environment configuration!**
+
+Environment variables:
+
+```bash
+export CONFIG_PATH=/where/to/create/database/
+export FRONTEND_BACKEND_API_KEY=$(head -c 32 /dev/urandom | hexdump -ve '1/1 "%.2x"')
+export BACKEND_URL=http://localhost:5000
+```
+
+The backend thread-pool limits can optionally be overridden with
+`THREADPOOL_MIN_THREADS` and `THREADPOOL_MAX_THREADS`. When unset, they retain
+the production defaults of `max(2 × processor count, 50)` minimum threads and
+`max(50 × processor count, 1000)` maximum threads.
+
+You need some packages in order to run the project:
+
+- dotnet-sdk
+- aspnet-runtime
+- nodejs
+- npm
+
+Example installation for Arch based systems:
+
+```bash
+sudo pacman -S dotnet-sdk aspnet-runtime nodejs npm
+```
+
+## Preferred local workflow
+
+Use the helper scripts so the frontend and backend share env automatically:
+
+```bash
+# Terminal 1 — backend (builds, migrates, writes frontend/.env)
+./scripts/run-backend.sh
+
+# Terminal 2 — frontend (`predev` runs scripts/sync-dev-env.sh)
+cd frontend && npm install && npm run dev
+```
+
+`npm run dev` silently runs `scripts/sync-dev-env.sh` via the `predev` hook; if the API key drifts, restart the backend with `scripts/run-backend.sh`. The manual `dotnet publish` / env-var flow below remains supported.
+
+`scripts/run-backend.sh` defaults `LOG_LEVEL=Debug` (and `LOG_BUFFER_SIZE=2000`, `STREAM_TRACE_EVENTS=20000`) when unset so local playback debugging is verbose. Docker/production leave these unset and keep Information-level logging.
+
+Stream tracing is **opt-in**: it only runs when `STREAM_TRACE_EVENTS` is set to a positive value (the run script does this for local dev). When unset or `0` — the Docker/production default — no trace events are recorded and the trace APIs report `enabled: false`.
+
+yEnc-decoding tests are skipped on platforms where the rapidyenc native library is unavailable (currently macOS arm64); they run in Linux CI.
+
+## Real-provider playback testing
+
+Use the two-process workflow above with a real Usenet provider (credentials stay in SQLite under `CONFIG_PATH`; never commit them).
+
+1. Start backend + frontend (`./scripts/run-backend.sh`, then `cd frontend && npm run dev`).
+2. Open `http://localhost:5173` → create the admin account if needed.
+3. **Settings → Usenet** — add your provider (host, port, SSL, credentials, connections). Use Test connection / Benchmark if desired.
+4. **Settings → WebDAV** — set a WebDAV username/password (required for rclone and most players).
+5. Drop an `.nzb` on the Queue page and wait for it to mount.
+6. Play via Explore / `/view/...`, or point rclone/VLC at the **frontend** proxy (`http://localhost:5173`), not the backend port directly.
+
+Ports: UI `5173` → proxies WebDAV + `/api` → backend `5000`.
+
+### Dumping a stream trace
+
+While a file is playing, Overview → **Right now** shows a truncated session id (click to copy). After seeking/scrubbing:
+
+```bash
+# Latest active/recent session (or pass an explicit session id)
+./scripts/dump-stream-trace.sh
+./scripts/dump-stream-trace.sh <session-id>
+```
+
+Writes JSON under `swap/` (gitignored), including the correlated range/seek/segment/zero-fill timeline and a recent logs snapshot. Drop that file into chat for analysis. Traces are in-memory only — dump before restarting the backend.
+
+## Build / run backend
+
+The `NzbDav.UsenetSharp` dependency is published on NuGet.org and restores without
+additional credentials.
+
+```bash
+cd backend
+
+# Build (release)
+dotnet publish -c Release -o ./publish
+
+# Create database
+mkdir -p $CONFIG_PATH
+./publish/NzbWebDAV --db-migration
+
+# Run backend
+./publish/NzbWebDAV
+```
+
+## Build / serve frontend
+
+Requires **Node.js 24+** (see `engines` in `frontend/package.json`).
+
+`package.json` includes an `overrides` entry that pins `http-proxy-middleware` to the `http-proxy-node16` fork for Node compatibility. Remove it only after verifying proxy behavior against upstream `http-proxy`.
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Run / serve frontend with hot module replacement
+npm run dev
+```
+
+## Build Docker image
+
+### Using Docker CLI
+
+```bash
+docker build .
+```
+
+You can also tag the release, which can be used with `docker compose`:
+
+```bash
+docker build -t example/nzbdav:test_build .
+```
+
+Run the container:
+
+```bash
+docker run --rm -it \
+  -v /path/to/nzbdav/config:/config \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -p 3333:3000 \
+  example/nzbdav:test_build
+```
+
+### Using Docker Compose
+
+```yaml
+services:
+  nzbdav:
+    build: .
+    ports:
+      - 3333:3000
+    volumes:
+      - /path/to/nzbdav/config:/config
+      - /path/to/nzbdav/data:/data
+    environment:
+      - PUID=1000
+      - PGID=1000
+```
+
+Build and run container:
+
+```bash
+docker compose up
+```
+
+## Contributing
+
+Before creating a PR:
+
+```bash
+cd frontend
+npm run lint
+npm run typecheck
+npm run build
+npm test
+```

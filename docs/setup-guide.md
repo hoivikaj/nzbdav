@@ -5,13 +5,13 @@ An opinionated, step-by-step walkthrough for setting up NzbDav for maximum perfo
 ## Table of contents
 
 1. [How the "infinite library" works](#how-the-infinite-library-works)
-2. [Phase 1 — Prerequisites](#phase-1--prerequisites)
-3. [Phase 2 — Initial deployment](#phase-2--initial-deployment)
-4. [Phase 3 — Rclone sidecar (symlink imports only)](#phase-3--rclone-sidecar-symlink-imports-only)
-5. [Phase 4 — Integrations](#phase-4--integrations)
-6. [Phase 5 — Usenet streaming in Stremio (via AIOStreams)](#phase-5--usenet-streaming-in-stremio-via-aiostreams)
-7. [Phase 6 — Search profiles and adapters](#phase-6--search-profiles-and-adapters)
-8. [Phase 7 — Operations](#phase-7--operations)
+2. [Phase 1 — Prerequisites](#phase-1-prerequisites)
+3. [Phase 2 — Initial deployment](#phase-2-initial-deployment)
+4. [Phase 3 — Rclone sidecar (symlink imports only)](#phase-3-rclone-sidecar-symlink-imports-only)
+5. [Phase 4 — Integrations](#phase-4-integrations)
+6. [Phase 5 — Usenet streaming in Stremio (via AIOStreams)](#phase-5-usenet-streaming-in-stremio-via-aiostreams)
+7. [Phase 6 — Search profiles and adapters](#phase-6-search-profiles-and-adapters)
+8. [Phase 7 — Operations](#phase-7-operations)
 9. [Why did my files disappear?](#why-did-my-files-disappear)
 
 ## How the "infinite library" works
@@ -28,8 +28,10 @@ Before configuring anything, it helps to understand the flow.
 4. **Radarr/Sonarr** imports the symlinks or STRM files into your media library (e.g. `/mnt/media/movies`).
 5. Your media server follows the symlink or STRM URL → NzbDav → Usenet provider.
 
-> [!NOTE]
-> NzbDav avoids storing full media files. The symlink workflow can still use a bounded local Rclone VFS cache to smooth seeking and high-bitrate playback.
+!!! note "Note"
+
+    NzbDav avoids storing full media files. The symlink workflow can still use a bounded local Rclone VFS cache to smooth seeking and high-bitrate playback.
+
 
 ### Path B: The on-demand flow (Stremio)
 
@@ -118,15 +120,19 @@ docker compose up -d
 
 The image runs two processes: the frontend and public proxy on port `3000`, and the backend on internal port `8080`. Clients should use port `3000`; the compose healthcheck follows the login/onboarding flow so it verifies that the frontend can also reach the backend.
 
-> [!IMPORTANT]
-> Port `3000` serves plain HTTP. If NzbDav will be reachable outside your trusted network, put it behind an HTTPS reverse proxy and do not expose the container port directly to the internet. WebDAV uses Basic authentication, so remote access without TLS exposes credentials. When the proxy runs on the Docker host, bind the port to localhost with `127.0.0.1:3000:3000`.
->
-> For adapter/Newznab absolute links and STRM URLs, set an explicit **Base URL** under Settings (preferred). Without it, public scheme/host come only from trusted forwarded headers: the frontend strips client `X-Forwarded-*` and rewrites canonical values for the backend (which trusts loopback by default). TLS-terminating reverse proxies should set `TRUST_PROXY=1` on the container so Express honors the proxy’s forwarded headers when rewriting, **or** set Base URL explicitly — otherwise generated links may stay `http://`. Split-container topologies can widen backend trust with `TRUSTED_PROXY_CIDRS` (comma-separated IPs or CIDRs).
->
-> Frontend session cookies: set `SECURE_COOKIES=true` when the UI is only served over HTTPS. Optionally set `SESSION_KEY` to a long random secret (otherwise a stable key is persisted under `CONFIG_PATH/session.key` so restarts do not log everyone out). Optionally set `SESSION_MAX_AGE` in seconds (default one year).
+!!! warning "Important"
 
-> [!NOTE]
-> Small, memory-constrained deployments can override the backend thread-pool limits with `THREADPOOL_MIN_THREADS` and `THREADPOOL_MAX_THREADS` in the container environment. When unset, NzbDav retains the existing defaults: `max(2 × processor count, 50)` minimum threads and `max(50 × processor count, 1000)` maximum threads. Lowering the minimum may reduce reserved stack memory but can also reduce streaming responsiveness under load; restart the container after changing either value.
+    Port `3000` serves plain HTTP. If NzbDav will be reachable outside your trusted network, put it behind an HTTPS reverse proxy and do not expose the container port directly to the internet. WebDAV uses Basic authentication, so remote access without TLS exposes credentials. When the proxy runs on the Docker host, bind the port to localhost with `127.0.0.1:3000:3000`.
+
+    For adapter/Newznab absolute links and STRM URLs, set an explicit **Base URL** under Settings (preferred). Without it, public scheme/host come only from trusted forwarded headers: the frontend strips client `X-Forwarded-*` and rewrites canonical values for the backend (which trusts loopback by default). TLS-terminating reverse proxies should set `TRUST_PROXY=1` on the container so Express honors the proxy’s forwarded headers when rewriting, **or** set Base URL explicitly — otherwise generated links may stay `http://`. Split-container topologies can widen backend trust with `TRUSTED_PROXY_CIDRS` (comma-separated IPs or CIDRs).
+
+    Frontend session cookies: set `SECURE_COOKIES=true` when the UI is only served over HTTPS. Optionally set `SESSION_KEY` to a long random secret (otherwise a stable key is persisted under `CONFIG_PATH/session.key` so restarts do not log everyone out). Optionally set `SESSION_MAX_AGE` in seconds (default one year).
+
+
+!!! note "Note"
+
+    Small, memory-constrained deployments can override the backend thread-pool limits with `THREADPOOL_MIN_THREADS` and `THREADPOOL_MAX_THREADS` in the container environment. When unset, NzbDav retains the existing defaults: `max(2 × processor count, 50)` minimum threads and `max(50 × processor count, 1000)` maximum threads. Lowering the minimum may reduce reserved stack memory but can also reduce streaming responsiveness under load; restart the container after changing either value.
+
 
 ### 2. Core configuration
 
@@ -164,15 +170,17 @@ Go to `Settings` → `SABnzbd` → `Import Strategy`:
 
 | Strategy | Best for | Configuration |
 |----------|----------|---------------|
-| **Symlinks — Plex** | Plex, or any setup that needs real filesystem entries | Continue to [Phase 3](#phase-3--rclone-sidecar-symlink-imports-only) and set **Rclone Mount Directory** to `/mnt/remote/nzbdav`. |
+| **Symlinks — Plex** | Plex, or any setup that needs real filesystem entries | Continue to [Phase 3](#phase-3-rclone-sidecar-symlink-imports-only) and set **Rclone Mount Directory** to `/mnt/remote/nzbdav`. |
 | **STRM Files — Emby/Jellyfin** | Emby/Jellyfin setups that can play `.strm` URLs | Skip Phase 3. Set **Completed Downloads Dir** to a path shared with Radarr/Sonarr, such as `/mnt/completed-downloads`, and set **Base URL** to an NzbDav URL reachable by your media server. |
 
 The example compose file maps host `/mnt` to container `/mnt`, so `/mnt/completed-downloads` and your media library are visible to NzbDav. Map the same host paths into Radarr/Sonarr and your media server at the same container paths.
 
 ### 4. Speed tuning (optional)
 
-> [!NOTE]
-> **Max Download Connections** defaults to the lower of `15` or your total pooled provider connections. This may be enough to saturate a 1Gbps connection, but the result depends on your provider, CPU, and network. Only tune it if you are experiencing speed issues.
+!!! note "Note"
+
+    **Max Download Connections** defaults to the lower of `15` or your total pooled provider connections. This may be enough to saturate a 1Gbps connection, but the result depends on your provider, CPU, and network. Only tune it if you are experiencing speed issues.
+
 
 You can find the optimal **Max Download Connections** for your network (`Settings` → `WebDAV` → `Max Download Connections`) using the steps below:
 
@@ -333,8 +341,10 @@ ls -la /mnt/remote/nzbdav
 
 The official Rclone image does not use `PUID`/`PGID` environment variables. The `--uid` and `--gid` mount flags control the ownership presented to applications reading the mount.
 
-> [!TIP]
-> These flags are optimized for streaming. Resist the urge to add more: `unnecessary flags = potential pitfalls`. For background on buffer sizing, see this [Rclone forum discussion](https://forum.rclone.org/t/whats-the-suitable-value-to-set-for-buffer-size-with-vfs-read-ahead/39971/4).
+!!! tip "Tip"
+
+    These flags are optimized for streaming. Resist the urge to add more: `unnecessary flags = potential pitfalls`. For background on buffer sizing, see this [Rclone forum discussion](https://forum.rclone.org/t/whats-the-suitable-value-to-set-for-buffer-size-with-vfs-read-ahead/39971/4).
+
 
 ### Optional: Rclone RC notifications
 
@@ -585,8 +595,10 @@ docker compose up -d nzbdav_rclone
 
 The `latest` tag follows stable releases. For reproducible deployments, replace `latest` with a specific release tag from the [GitHub releases page](https://github.com/nzbdav/nzbdav/releases).
 
-> [!IMPORTANT]
-> Upgrading an installation older than `0.6.0` applies an irreversible database migration — once it runs you cannot downgrade to a pre-`0.6.0` version. Make a complete `/config` backup before updating; restoring that backup is the only way to roll back. The migration applies automatically on startup (no environment variable required) and its progress is shown on the maintenance splash page.
+!!! warning "Important"
+
+    Upgrading an installation older than `0.6.0` applies an irreversible database migration — once it runs you cannot downgrade to a pre-`0.6.0` version. Make a complete `/config` backup before updating; restoring that backup is the only way to roll back. The migration applies automatically on startup (no environment variable required) and its progress is shown on the maintenance splash page.
+
 
 ### View logs
 

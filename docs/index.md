@@ -1,7 +1,9 @@
-> [!IMPORTANT]
-> This fork is designed to be a drop in replacement/upgrade from `nzbdav-dev/nzbdav v0.6.4`.
->
-> Early adopters are reporting **2x network throughput** capability and a **400% reduction in seek time**.
+!!! warning "Important"
+
+    This fork is designed to be a drop in replacement/upgrade from `nzbdav-dev/nzbdav v0.6.4`.
+
+    Early adopters are reporting **2x network throughput** capability and a **400% reduction in seek time**.
+
 
 <p align="center">
   <img width="1101" height="238" alt="NzbDav" src="https://github.com/user-attachments/assets/b14165f4-24ff-4abe-8af6-3ca852e781d4" />
@@ -30,7 +32,7 @@ It also exposes a **SABnzbd-compatible API**, so Sonarr, Radarr, and similar too
 
 This project is a maintained fork of [nzbdav-dev/nzbdav](https://github.com/nzbdav-dev/nzbdav). We took ownership of the full Usenet streaming stack — nzbdav, UsenetSharp, RapidYencSharp, rapidyenc, and SharpCompress — so playback, connection, and decoding fixes could land in the right layer instead of waiting on a single upstream dependency chain.
 
-Read the full story in the [release announcement](https://nzbdav.github.io/nzbdav/release-announcement/).
+Read the full story in the [release announcement](release-announcement.md).
 
 ## Special thanks
 
@@ -135,18 +137,18 @@ services:
 
 Then open `http://localhost:3000`, create your admin account, and head to the **Settings** page to configure your Usenet provider:
 
-> [!IMPORTANT]
-> Port `3000` serves plain HTTP. If NzbDav will be reachable outside your trusted network, put it behind an HTTPS reverse proxy and do not expose the container port directly to the internet. WebDAV uses Basic authentication, so TLS is essential for remote access. When the proxy runs on the Docker host, bind the port to localhost with `127.0.0.1:3000:3000`.
+!!! warning "Important"
+
+    Port `3000` serves plain HTTP. If NzbDav will be reachable outside your trusted network, put it behind an HTTPS reverse proxy and do not expose the container port directly to the internet. WebDAV uses Basic authentication, so TLS is essential for remote access. When the proxy runs on the Docker host, bind the port to localhost with `127.0.0.1:3000:3000`.
+
 
 You'll also want to set a username and password for the WebDAV server itself.
 
 ## Documentation
 
-Full documentation is published at [nzbdav.github.io/nzbdav](https://nzbdav.github.io/nzbdav/).
+The [0.7.x release announcement](release-announcement.md) summarizes the coordinated stack releases (nzbdav, UsenetSharp, RapidYencSharp, rapidyenc), .NET 10 migration, network performance work, and our audit of upstream issues and PRs.
 
-The [0.7.x release announcement](https://nzbdav.github.io/nzbdav/release-announcement/) summarizes the coordinated stack releases (nzbdav, UsenetSharp, RapidYencSharp, rapidyenc), .NET 10 migration, network performance work, and our audit of upstream issues and PRs.
-
-The [comprehensive setup guide](https://nzbdav.github.io/nzbdav/setup-guide/) covers everything needed for a full production deployment:
+The [comprehensive setup guide](setup-guide.md) covers everything needed for a full production deployment:
 
 * **Docker Compose** — persistent deployment, container health checks, and updates
 * **Import strategies** — Rclone symlinks for Plex or STRM files for Emby/Jellyfin
@@ -154,15 +156,17 @@ The [comprehensive setup guide](https://nzbdav.github.io/nzbdav/setup-guide/) co
 * **Integrations** — automating Radarr/Sonarr queue management and repairs
 * **Stremio** — streaming Usenet on demand via AIOStreams
 * **Search profiles** — token-scoped Newznab, Addon, and JSON adapter setup
-* **Watchtower** — proactive wanted-list resolution and readiness controls in the [Watchtower guide](https://nzbdav.github.io/nzbdav/watchtower/)
+* **Watchtower** — proactive wanted-list resolution and readiness controls in the [Watchtower guide](watchtower.md)
 
 ## Development
 
-The project consists of a .NET backend (WebDAV, Usenet streaming, SAB API) and a React Router frontend (admin UI). See [CONTRIBUTING.md](CONTRIBUTING.md) for local development setup and [CHANGELOG.md](CHANGELOG.md) for release history. Source for the published docs lives in [`docs/`](docs/).
+The project consists of a .NET backend (WebDAV, Usenet streaming, SAB API) and a React Router frontend (admin UI). See [CONTRIBUTING.md](contributing.md) for local development setup and [CHANGELOG.md](https://github.com/nzbdav/nzbdav/blob/main/CHANGELOG.md) for release history.
 
 ## License
 
-NzbDav is released under the [MIT License](LICENSE).
+NzbDav is released under the [MIT License](https://github.com/nzbdav/nzbdav/blob/main/LICENSE).
 
-> [!NOTE]
-> NzbDav is intended for use with legally obtained content only. The project maintainers do not condone piracy and will not provide support for users suspected of engaging in copyright infringement.
+!!! note "Note"
+
+    NzbDav is intended for use with legally obtained content only. The project maintainers do not condone piracy and will not provide support for users suspected of engaging in copyright infringement.
+

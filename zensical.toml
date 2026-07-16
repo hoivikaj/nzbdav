@@ -1,0 +1,76 @@
+[project]
+site_name = "NzbDav"
+site_description = "Mount NZBs as a virtual filesystem and stream directly from Usenet"
+site_url = "https://nzbdav.github.io/nzbdav/"
+docs_dir = "docs"
+site_dir = "site"
+repo_url = "https://github.com/nzbdav/nzbdav"
+repo_name = "nzbdav/nzbdav"
+edit_uri = "edit/main/docs/"
+copyright = "NzbDav is released under the MIT License"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Setup guide" = "setup-guide.md" },
+  { "Watchtower" = "watchtower.md" },
+  { "NNTP pipelining" = "nntp-pipelining.md" },
+  { "Contributing" = "contributing.md" },
+  { "Release announcement" = "release-announcement.md" },
+]
+
+[project.theme]
+features = [
+  "content.action.edit",
+  "content.action.view",
+  "content.code.copy",
+  "navigation.expand",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle = { icon = "material/brightness-auto", name = "Switch to light mode" }
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "indigo"
+accent = "indigo"
+toggle = { icon = "material/brightness-7", name = "Switch to dark mode" }
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "indigo"
+accent = "indigo"
+toggle = { icon = "material/brightness-4", name = "Switch to system preference" }
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
+
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.md_in_html]
+[project.markdown_extensions.tables]
+[project.markdown_extensions.toc]
+permalink = true
+
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.snippets]
+[project.markdown_extensions.pymdownx.superfences]
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+
+[project.validation]
+invalid_links = true
+invalid_link_anchors = true

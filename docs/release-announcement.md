@@ -210,7 +210,7 @@ Each audit item documents the upstream reference, fork state, likely cause, and 
 ## Upgrade notes
 
 - **Docker:** repull `nzbdav/nzbdav:0.7.2` (or your configured tag). Persist `/config` as before.
-- **Breaking (0.7.0):** new persistence schemas and operational configuration for the 0.7 line—review [CHANGELOG.md](../CHANGELOG.md) before upgrading production instances.
+- **Breaking (0.7.0):** new persistence schemas and operational configuration for the 0.7 line—review [CHANGELOG.md](https://github.com/nzbdav/nzbdav/blob/main/CHANGELOG.md) before upgrading production instances.
 - **UsenetSharp 2.x:** requires **.NET 10**; bundled in official Docker images.
 - **Pipelining:** validate against your providers with Settings → Usenet → **NNTP Pipelining** and the provider benchmark before relying on it for large queue imports.
 
@@ -218,7 +218,7 @@ Each audit item documents the upstream reference, fork state, likely cause, and 
 
 ## Further reading
 
-- [CHANGELOG.md](../CHANGELOG.md) — full version history
+- [CHANGELOG.md](https://github.com/nzbdav/nzbdav/blob/main/CHANGELOG.md) — full version history
 - [nntp-pipelining.md](./nntp-pipelining.md) — pipelining settings and client chain
 - [watchtower.md](./watchtower.md) — proactive discovery (0.7.0+)
 - [setup-guide.md](./setup-guide.md) — deployment and integrations
