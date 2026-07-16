@@ -286,6 +286,7 @@ public abstract class NntpClient : INntpClient
                 Found = body.Found,
                 Stream = body.Stream,
                 ArticleHeaders = null,
+                DefinitivelyMissing = body.DefinitivelyMissing,
             };
         }
     }
@@ -349,6 +350,7 @@ public abstract class NntpClient : INntpClient
                 SegmentId = segmentId,
                 Found = false,
                 Stream = null,
+                DefinitivelyMissing = true,
             };
         }
     }

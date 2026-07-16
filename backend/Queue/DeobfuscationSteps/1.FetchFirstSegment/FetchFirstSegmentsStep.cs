@@ -82,6 +82,15 @@ public static class FetchFirstSegmentsStep
                         .ConfigureAwait(false);
                     progress?.Report(++completed);
                 }
+                else if (article.DefinitivelyMissing)
+                {
+                    // The batch failover already tried every provider; a rescue pass would
+                    // just repeat the same misses. Record and move on.
+                    Log.Warning("First segment for `{FileName}` missing across all providers",
+                        files[i].GetSubjectFileName());
+                    results[i] = BuildMissingFirstSegment(files[i]);
+                    progress?.Report(++completed);
+                }
                 else if (article.Stream != null)
                 {
                     try { await article.Stream.DisposeAsync().ConfigureAwait(false); }
