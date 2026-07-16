@@ -1,4 +1,5 @@
-﻿using System.Threading.Channels;
+﻿using System.Runtime.ExceptionServices;
+using System.Threading.Channels;
 using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Clients.Usenet.Contexts;
 using NzbWebDAV.Clients.Usenet.Models;
@@ -15,6 +16,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
 {
     private const int BodyPipelineBatchSize = 4;
     private const int MaxBodyRetries = 2;
+    private const int MaxConsecutiveZeroFills = 3;
 
     private readonly Memory<string> _segmentIds;
     private readonly string[][]? _segmentFallbacks;
@@ -22,11 +24,12 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
     private readonly long _expectedSegmentSize;
     private readonly bool _failFastOnFirstSegment;
     private readonly string _fileName;
-    private readonly Channel<Task<Stream>> _streamTasks;
+    private readonly Channel<Task<SegmentDownloadResult>> _streamTasks;
     private readonly int _bodyPipelineBatchSize;
     private readonly ContextualCancellationTokenSource _cts;
     private readonly long? _readBudget;
     private Stream? _stream;
+    private int _consecutiveZeroFills;
     private bool _disposed;
 
     public static Stream Create(
@@ -104,7 +107,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         _fileName = string.IsNullOrEmpty(fileName) ? "unknown" : fileName;
         _readBudget = readBudget ?? NzbWebDAV.WebDav.Requests.RangeContext.GetReadBudget();
         _bodyPipelineBatchSize = Math.Min(BodyPipelineBatchSize, articleBufferSize);
-        _streamTasks = Channel.CreateBounded<Task<Stream>>(articleBufferSize);
+        _streamTasks = Channel.CreateBounded<Task<SegmentDownloadResult>>(articleBufferSize);
         _cts = ContextualCancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _ = DownloadSegments(usePipelinedBodyRequests, _cts.Token);
     }
@@ -226,7 +229,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         return segmentsEnqueued * _expectedSegmentSize >= _readBudget.Value + _expectedSegmentSize;
     }
 
-    private async Task<Stream> DownloadSegment(
+    private async Task<SegmentDownloadResult> DownloadSegment(
         string segmentId,
         int segmentIndex,
         UsenetExclusiveConnection exclusiveConnection,
@@ -246,14 +249,15 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
                         .DecodedBodyAsync(segmentId, cancellationToken)
                         .ConfigureAwait(false);
 
-                return await DrainSegmentAsync(bodyResponse.Stream!, cancellationToken).ConfigureAwait(false);
+                var stream = await DrainSegmentAsync(bodyResponse.Stream!, cancellationToken).ConfigureAwait(false);
+                return SegmentDownloadResult.Success(stream);
             }
             catch (UsenetArticleNotFoundException e)
             {
                 var fallback = await TryFallbackSegmentsAsync(segmentIndex, cancellationToken)
                     .ConfigureAwait(false);
                 if (fallback is not null)
-                    return fallback;
+                    return SegmentDownloadResult.Success(fallback);
 
                 if (_failFastOnFirstSegment && isFirstSegment)
                 {
@@ -266,7 +270,8 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
 
                 return ZeroFillSegment(
                     "Article {SegmentId} missing on all providers while reading {FileName}. Zero-filling {Bytes} bytes to keep playback alive.",
-                    e.SegmentId);
+                    e.SegmentId,
+                    e);
             }
             catch (Exception e) when (!cancellationToken.IsCancellationRequested)
             {
@@ -297,7 +302,7 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         }
     }
 
-    private async Task<Stream> DownloadBatchSegment(
+    private async Task<SegmentDownloadResult> DownloadBatchSegment(
         Task<UsenetDecodedBodyResponse> responseTask,
         string segmentId,
         int segmentIndex,
@@ -307,19 +312,21 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         try
         {
             var response = await responseTask.ConfigureAwait(false);
-            return await DrainSegmentAsync(response.Stream!, cancellationToken).ConfigureAwait(false);
+            var stream = await DrainSegmentAsync(response.Stream!, cancellationToken).ConfigureAwait(false);
+            return SegmentDownloadResult.Success(stream);
         }
         catch (UsenetArticleNotFoundException e)
         {
             var fallback = await TryFallbackSegmentsAsync(segmentIndex, cancellationToken)
                 .ConfigureAwait(false);
             if (fallback is not null)
-                return fallback;
+                return SegmentDownloadResult.Success(fallback);
 
             if (_failFastOnFirstSegment && isFirstSegment) throw;
             return ZeroFillSegment(
                 "Article {SegmentId} missing on all providers while reading {FileName}. Zero-filling {Bytes} bytes to keep playback alive.",
-                e.SegmentId);
+                e.SegmentId,
+                e);
         }
         catch (Exception e) when (!cancellationToken.IsCancellationRequested)
         {
@@ -373,11 +380,12 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         return _segmentFallbacks[segmentIndex] ?? [];
     }
 
-    private static async Task DisposeStreamAsync(Task<Stream> streamTask)
+    private static async Task DisposeStreamAsync(Task<SegmentDownloadResult> streamTask)
     {
         try
         {
-            await using var stream = await streamTask.ConfigureAwait(false);
+            var result = await streamTask.ConfigureAwait(false);
+            await using var stream = result.Stream;
         }
         catch
         {
@@ -385,16 +393,18 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
         }
     }
 
-    private Stream ZeroFillSegment(string messageTemplate, string segmentId, Exception? exception = null)
+    private SegmentDownloadResult ZeroFillSegment(
+        string messageTemplate,
+        string segmentId,
+        Exception exception)
     {
         var fill = _expectedSegmentSize > 0 ? _expectedSegmentSize : 1;
-        if (exception == null)
-            Log.Warning(messageTemplate, segmentId, _fileName, fill);
-        else
-            exception.LogWarningKnownOrStack(messageTemplate, segmentId, _fileName, fill);
-        if (MultiProviderNntpClient.CurrentReadSessionId is { } sessionId)
-            StreamTrace.TryZeroFill(sessionId, segmentId, fill);
-        return new MemoryStream(new byte[fill], writable: false);
+        return SegmentDownloadResult.ZeroFill(
+            new MemoryStream(new byte[fill], writable: false),
+            messageTemplate,
+            segmentId,
+            fill,
+            exception);
     }
 
     private async Task<Stream> DrainSegmentAsync(Stream source, CancellationToken cancellationToken)
@@ -426,7 +436,8 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
             {
                 if (!await _streamTasks.Reader.WaitToReadAsync(cancellationToken)) return 0;
                 if (!_streamTasks.Reader.TryRead(out var streamTask)) return 0;
-                _stream = await streamTask;
+                var result = await streamTask;
+                _stream = AcceptSegment(result);
             }
 
             // read from the stream
@@ -437,6 +448,33 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
             await _stream.DisposeAsync();
             _stream = null;
         }
+    }
+
+    private Stream AcceptSegment(SegmentDownloadResult result)
+    {
+        if (!result.IsZeroFill)
+        {
+            _consecutiveZeroFills = 0;
+            return result.Stream;
+        }
+
+        _consecutiveZeroFills++;
+        ZeroFillLogLimiter.Write(
+            result.MessageTemplate!,
+            result.SegmentId!,
+            _fileName,
+            result.Bytes,
+            result.Failure);
+        if (MultiProviderNntpClient.CurrentReadSessionId is { } sessionId)
+            StreamTrace.TryZeroFill(sessionId, result.SegmentId!, result.Bytes);
+
+        if (_consecutiveZeroFills < MaxConsecutiveZeroFills)
+            return result.Stream;
+
+        result.Stream.Dispose();
+        _cts.Cancel();
+        ExceptionDispatchInfo.Capture(result.Failure!).Throw();
+        throw new InvalidOperationException("Unreachable after rethrowing a zero-fill failure.");
     }
 
     private void ThrowIfDisposed()
@@ -459,5 +497,25 @@ public class MultiSegmentStream : FastReadOnlyNonSeekableStream
             _ = DisposeStreamAsync(streamTask);
 
         base.Dispose();
+    }
+
+    private sealed record SegmentDownloadResult(
+        Stream Stream,
+        string? MessageTemplate = null,
+        string? SegmentId = null,
+        long Bytes = 0,
+        Exception? Failure = null)
+    {
+        public bool IsZeroFill => Failure is not null;
+
+        public static SegmentDownloadResult Success(Stream stream) => new(stream);
+
+        public static SegmentDownloadResult ZeroFill(
+            Stream stream,
+            string messageTemplate,
+            string segmentId,
+            long bytes,
+            Exception failure) =>
+            new(stream, messageTemplate, segmentId, bytes, failure);
     }
 }

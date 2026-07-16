@@ -172,6 +172,74 @@ public class NzbFileStreamTests
         }
     }
 
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(4, true)]
+    public async Task MissingArticles_ZeroFillWarningsAreCoalescedByFile(
+        int articleBufferSize,
+        bool usePipelinedBodyRequests)
+    {
+        var fileName = $"/content/show/coalesced-episode-{articleBufferSize}.mkv";
+        var sink = new CollectingSink();
+        var previous = Log.Logger;
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Warning()
+            .WriteTo.Sink(sink)
+            .CreateLogger();
+
+        try
+        {
+            var client = new FakeNntpClient(new Dictionary<string, byte[]>());
+            await using var stream = MultiSegmentStream.Create(
+                new[] { "missing-one", "missing-two" }.AsMemory(),
+                client,
+                articleBufferSize: articleBufferSize,
+                expectedSegmentSize: 5,
+                failFastOnFirstSegment: false,
+                usePipelinedBodyRequests: usePipelinedBodyRequests,
+                cancellationToken: CancellationToken.None,
+                fileName: fileName);
+
+            var buffer = new byte[5];
+            Assert.Equal(5, await stream.ReadAsync(buffer));
+            Assert.Equal(5, await stream.ReadAsync(buffer));
+
+            var zeroFillWarnings = sink.Events.Count(e =>
+                e.Level == LogEventLevel.Warning &&
+                e.RenderMessage().Contains(fileName, StringComparison.Ordinal) &&
+                e.RenderMessage().Contains("Zero-filling", StringComparison.Ordinal));
+            Assert.Equal(1, zeroFillWarnings);
+        }
+        finally
+        {
+            Log.Logger = previous;
+        }
+    }
+
+    [Fact]
+    public async Task MissingArticles_ThirdConsecutiveZeroFillFailsStream()
+    {
+        var client = new FakeNntpClient(new Dictionary<string, byte[]>());
+        await using var stream = MultiSegmentStream.Create(
+            new[] { "missing-one", "missing-two", "missing-three", "missing-four" }.AsMemory(),
+            client,
+            articleBufferSize: 0,
+            expectedSegmentSize: 5,
+            failFastOnFirstSegment: false,
+            usePipelinedBodyRequests: false,
+            cancellationToken: CancellationToken.None,
+            fileName: "/content/show/dead-episode.mkv");
+
+        var buffer = new byte[5];
+        Assert.Equal(5, await stream.ReadAsync(buffer));
+        Assert.Equal(5, await stream.ReadAsync(buffer));
+        await Assert.ThrowsAsync<NzbWebDAV.Exceptions.UsenetArticleNotFoundException>(
+            async () => await stream.ReadAtLeastAsync(
+                buffer, buffer.Length, throwOnEndOfStream: false));
+
+        Assert.Equal(3, client.BodyRequestCount);
+    }
+
     // These fast-seek tests use CachedYencStream (pre-parsed headers over decoded
     // bytes), so they run even where the rapidyenc native library is unavailable.
     [Fact]

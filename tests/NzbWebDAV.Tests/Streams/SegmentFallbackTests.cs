@@ -74,6 +74,70 @@ public class SegmentFallbackTests
         Assert.Equal(2, client.BodyRequestCount);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MultiSegmentStream_ConsecutiveMissingArticlesStopPrefetch(
+        bool usePipelinedBodyRequests)
+    {
+        var segmentIds = Enumerable.Range(0, 20)
+            .Select(index => $"missing-{index}")
+            .ToArray();
+        var client = new RawBodyNntpClient(new Dictionary<string, byte[]>());
+
+        await using var stream = MultiSegmentStream.Create(
+            segmentIds.AsMemory(),
+            client,
+            articleBufferSize: 4,
+            expectedSegmentSize: 5,
+            failFastOnFirstSegment: false,
+            usePipelinedBodyRequests: usePipelinedBodyRequests,
+            cancellationToken: CancellationToken.None,
+            fileName: $"dead-prefetch-{usePipelinedBodyRequests}.bin");
+
+        await Assert.ThrowsAsync<UsenetArticleNotFoundException>(
+            async () => await stream.CopyToAsync(new MemoryStream()));
+        await Task.Delay(50);
+
+        Assert.True(
+            client.BodyRequestCount < segmentIds.Length,
+            $"Expected prefetch cancellation before all {segmentIds.Length} articles, got {client.BodyRequestCount} requests.");
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(4, true)]
+    public async Task MultiSegmentStream_SuccessResetsConsecutiveZeroFillCount(
+        int articleBufferSize,
+        bool usePipelinedBodyRequests)
+    {
+        var client = new RawBodyNntpClient(new Dictionary<string, byte[]>
+        {
+            ["good"] = Encoding.ASCII.GetBytes("abcde"),
+        });
+        await using var stream = MultiSegmentStream.Create(
+            new[] { "missing-one", "good", "missing-two", "missing-three", "missing-four" }.AsMemory(),
+            client,
+            articleBufferSize: articleBufferSize,
+            expectedSegmentSize: 5,
+            failFastOnFirstSegment: false,
+            usePipelinedBodyRequests: usePipelinedBodyRequests,
+            cancellationToken: CancellationToken.None,
+            fileName: $"reset-zero-fill-streak-{articleBufferSize}.bin");
+
+        var buffer = new byte[5];
+        Assert.Equal(5, await stream.ReadAsync(buffer));
+        Assert.Equal(5, await stream.ReadAsync(buffer));
+        Assert.Equal("abcde", Encoding.ASCII.GetString(buffer));
+        Assert.Equal(5, await stream.ReadAsync(buffer));
+        Assert.Equal(5, await stream.ReadAsync(buffer));
+        await Assert.ThrowsAsync<UsenetArticleNotFoundException>(
+            async () => await stream.ReadAtLeastAsync(
+                buffer, buffer.Length, throwOnEndOfStream: false));
+
+        Assert.Equal(5, client.BodyRequestCount);
+    }
+
     [Fact]
     public void DavNzbFile_MemoryPackRoundTrip_WithAndWithoutFallbacks()
     {

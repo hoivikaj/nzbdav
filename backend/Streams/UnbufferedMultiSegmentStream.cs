@@ -1,12 +1,14 @@
 using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Exceptions;
-using Serilog;
+using NzbWebDAV.Services.StreamTrace;
 using UsenetSharp.Streams;
 
 namespace NzbWebDAV.Streams;
 
 public class UnbufferedMultiSegmentStream : FastReadOnlyNonSeekableStream
 {
+    private const int MaxConsecutiveZeroFills = 3;
+
     private readonly Memory<string> _segmentIds;
     private readonly string[][]? _segmentFallbacks;
     private readonly INntpClient _usenetClient;
@@ -14,6 +16,7 @@ public class UnbufferedMultiSegmentStream : FastReadOnlyNonSeekableStream
     private readonly string _fileName;
     private Stream? _stream;
     private int _currentIndex;
+    private int _consecutiveZeroFills;
     private bool _disposed;
 
 
@@ -49,6 +52,7 @@ public class UnbufferedMultiSegmentStream : FastReadOnlyNonSeekableStream
                 {
                     var body = await _usenetClient.DecodedBodyAsync(segmentId, cancellationToken);
                     _stream = body.Stream!;
+                    _consecutiveZeroFills = 0;
                 }
                 catch (UsenetArticleNotFoundException e)
                 {
@@ -57,13 +61,23 @@ public class UnbufferedMultiSegmentStream : FastReadOnlyNonSeekableStream
                     if (fallback is not null)
                     {
                         _stream = fallback;
+                        _consecutiveZeroFills = 0;
                     }
                     else
                     {
                         var fill = _expectedSegmentSize > 0 ? _expectedSegmentSize : 1;
-                        Log.Warning(
+                        _consecutiveZeroFills++;
+                        ZeroFillLogLimiter.Write(
                             "Article {SegmentId} missing on all providers while reading {FileName}. Zero-filling {Bytes} bytes to keep playback alive.",
-                            e.SegmentId, _fileName, fill);
+                            e.SegmentId,
+                            _fileName,
+                            fill,
+                            e);
+                        if (MultiProviderNntpClient.CurrentReadSessionId is { } sessionId)
+                            StreamTrace.TryZeroFill(sessionId, e.SegmentId, fill);
+                        if (_consecutiveZeroFills >= MaxConsecutiveZeroFills)
+                            throw;
+
                         _stream = new MemoryStream(new byte[fill], writable: false);
                     }
                 }
