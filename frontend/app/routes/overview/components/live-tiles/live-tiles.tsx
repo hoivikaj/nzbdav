@@ -13,7 +13,7 @@ export function LiveTiles({ tiles }: LiveTilesProps) {
     const bytesPerSec = tiles.bytesServedPerMinute / 60;
     const articlesPerSec = tiles.articlesPerMinute / 60;
     return (
-        <div className="stats stats-vertical w-full shadow lg:stats-horizontal">
+        <div className="stats stats-vertical w-full border border-base-content/10 bg-base-200 shadow lg:stats-horizontal">
             <Tile
                 label="Active reads"
                 value={tiles.activeReads.toString()}
