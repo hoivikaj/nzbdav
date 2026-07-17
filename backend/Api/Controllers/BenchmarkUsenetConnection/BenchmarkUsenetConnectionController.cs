@@ -125,7 +125,8 @@ public class BenchmarkUsenetConnectionController(
 
         result.ContentionWarnings.Add(
             $"{string.Join(" and ", bits)} during the test — those connections can't be paused, " +
-            "so speeds may read low. Re-run when fully idle for the cleanest result.");
+            "so the reported MB/s is what we saw while other traffic was active, not your idle line rate. " +
+            "Re-run when fully idle for the cleanest result.");
 
         // Concurrent traffic caps how much the numbers can be trusted.
         result.Confidence = downloadBefore || downloadAfter

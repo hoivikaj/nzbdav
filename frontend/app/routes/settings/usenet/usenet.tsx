@@ -45,6 +45,7 @@ type BenchmarkResult = {
     pipelining?: BenchmarkPipelining | null;
     dataUsedBytes: number;
     dataBudgetBytes?: number;
+    elapsedSeconds?: number;
     confidence?: "high" | "medium" | "low";
     contentionWarnings?: string[];
     verificationRun?: boolean;
@@ -165,6 +166,16 @@ function formatBytes(bytes: number): string {
     let v = bytes;
     while (v >= 1000 && i < units.length - 1) { v /= 1000; i++; }
     return v >= 100 ? `${v.toFixed(0)} ${units[i]}` : `${v.toFixed(1)} ${units[i]}`;
+}
+
+/** Wall-clock duration for speed-test results (e.g. 72 → "1m 12s"). */
+function formatElapsed(seconds: number | undefined): string | null {
+    if (seconds == null || !isFinite(seconds) || seconds <= 0) return null;
+    const s = Math.round(seconds);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return rem === 0 ? `${m}m` : `${m}m ${rem}s`;
 }
 
 type ConnectionCounts = {
@@ -1382,8 +1393,9 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
 
     const recommended = result?.recommendedConnections ?? null;
     const livePoints = isBenchmarking ? (progress?.sweep ?? []) : (result?.sweep ?? []);
-    const bestSpeed = result?.throughputTested && result.sweep.length > 0
-        ? Math.max(...result.sweep.map(p => p.megaBytesPerSec))
+    const recommendedSpeed = recommended != null && result?.sweep
+        ? (result.sweep.find(p => p.connections === recommended)?.megaBytesPerSec
+            ?? (result.sweep.length > 0 ? Math.max(...result.sweep.map(p => p.megaBytesPerSec)) : null))
         : null;
     const pipe = result?.pipelining ?? null;
     const pipeBest = pipe && pipe.tested.length > 0 ? Math.max(...pipe.tested.map(t => t.megaBytesPerSec)) : (pipe?.baselineMegaBytesPerSec ?? 0);
@@ -1392,6 +1404,7 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
     const phaseIndex = progress
         ? Math.max(0, BENCH_PHASES.findIndex(p => p.id === progress.phase))
         : -1;
+    const elapsedLabel = formatElapsed(result?.elapsedSeconds);
 
     return (
         <div className="mt-4 rounded-lg border border-base-content/10 bg-base-200/40 p-4">
@@ -1401,7 +1414,7 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                     <HelpText className="mt-0">
                         {pipeliningOnly
                             ? "Keeps your Max Connections and just measures the best NNTP pipelining depth at that count."
-                            : "Runs a real speed & latency test, then recommends the best connection count and pipelining settings."}
+                            : "Runs a real speed & latency test, then recommends the best connection count and pipelining settings. Speeds are megabytes/sec (MB/s), same as SABnzbd — not megabits (Mb/s). 1 Gb/s ≈ 125 MB/s max."}
                     </HelpText>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
@@ -1570,6 +1583,9 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                                     <div className="stat py-3">
                                         <div className="stat-title text-[10px] uppercase tracking-wide">Data used</div>
                                         <div className="stat-value text-sm font-mono">{formatBytes(result.dataUsedBytes)}</div>
+                                        <div className="stat-desc">
+                                            whole run{elapsedLabel ? ` · ${elapsedLabel}` : ""}
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="mt-3 text-sm leading-relaxed text-base-content/80">
@@ -1598,7 +1614,8 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                                 <div className="stat-title text-[10px] uppercase tracking-wide">Recommended</div>
                                 <div className="stat-value text-xl font-mono">{recommended}</div>
                                 <div className="stat-desc font-mono tabular-nums">
-                                    connection{recommended === 1 ? "" : "s"}{bestSpeed != null ? ` · ≈ ${bestSpeed.toFixed(1)} MB/s` : ""}
+                                    connection{recommended === 1 ? "" : "s"}
+                                    {recommendedSpeed != null ? ` · ≈ ${recommendedSpeed.toFixed(1)} MB/s steady` : ""}
                                 </div>
                             </div>
                             <div className="stat min-w-0 py-3">
@@ -1631,12 +1648,23 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                             <div className="stat min-w-0 py-3">
                                 <div className="stat-title text-[10px] uppercase tracking-wide">Data used</div>
                                 <div className="stat-value text-sm font-mono">{formatBytes(result.dataUsedBytes)}</div>
+                                <div className="stat-desc">
+                                    whole run{elapsedLabel ? ` · ${elapsedLabel}` : ""}
+                                </div>
                             </div>
                         </div>
                     ) : (
                         <div className="mt-3.5 text-sm leading-relaxed text-base-content/80">
                             Latency measured{result.latency ? ` — ${result.latency.avgMs} ms avg` : ""}. Download something first to get a connection recommendation.
                         </div>
+                    )}
+
+                    {!result.pipeliningOnly && result.throughputTested && recommended != null && !result.verificationRun && (
+                        <p className="mt-3 text-xs leading-relaxed text-base-content/60">
+                            We ramp connections, measure a few seconds at each step (warmup excluded), then pick the
+                            smallest count near peak speed. Most of the run is below that rate, so data used is much
+                            less than peak MB/s × elapsed time.
+                        </p>
                     )}
 
                     {!result.pipeliningOnly && pipe && (
@@ -1708,8 +1736,10 @@ function SweepChart({ points, recommended }: { points: BenchmarkSweepPoint[]; re
                     );
                 })}
             </div>
-            <div className="mt-2 flex justify-between gap-2.5">
-                <span className="text-[11px] text-base-content/45">MB/s by connection count</span>
+            <div className="mt-2 flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-2.5">
+                <span className="text-[11px] text-base-content/45">
+                    Steady MB/s in a short window at each connection count (warmup excluded)
+                </span>
                 {recommended != null && <span className="text-[11px] text-base-content/45">recommended: {recommended}</span>}
             </div>
         </div>
@@ -1748,8 +1778,10 @@ function DepthChart({ pipe }: { pipe: BenchmarkPipelining }) {
                     );
                 })}
             </div>
-            <div className="mt-2 flex justify-between gap-2.5">
-                <span className="text-[11px] text-base-content/45">MB/s by pipeline depth</span>
+            <div className="mt-2 flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-2.5">
+                <span className="text-[11px] text-base-content/45">
+                    Steady MB/s in a short window at each pipeline depth (warmup excluded)
+                </span>
                 <span className="text-[11px] text-base-content/45">
                     {pipe.recommendEnabled ? `best: depth ${pipe.recommendedDepth}` : "best: off"}
                 </span>

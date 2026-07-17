@@ -122,6 +122,9 @@ public sealed class BenchmarkResult
     public BenchmarkPipelining? Pipelining { get; set; }
     public long DataUsedBytes { get; set; }
 
+    /// <summary>Wall-clock duration of the full run, for UI context next to data used.</summary>
+    public double ElapsedSeconds { get; set; }
+
     /// <summary>Effective data budget for this run (profile default or user override).</summary>
     public long DataBudgetBytes { get; set; }
 

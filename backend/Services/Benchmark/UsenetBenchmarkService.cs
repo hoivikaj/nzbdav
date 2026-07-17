@@ -66,12 +66,14 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
         var profile = BenchmarkProfile.For(intensity);
         var budget = Math.Max(50_000_000, dataBudgetBytes ?? profile.HardTotalBytes);
         var result = new BenchmarkResult { PipeliningOnly = pipeliningOnly, DataBudgetBytes = budget };
+        var runClock = Stopwatch.StartNew();
         long Remaining() => Math.Max(0, budget - result.DataUsedBytes);
         // Hold back enough for baseline + each pipelining depth so a full auto-tune
         // still produces a depth recommendation instead of burning the whole budget
         // on the connection sweep.
         long SweepRemaining(double megaBytesPerSec) =>
             Math.Max(0, Remaining() - PipeliningReserveBytes(profile, megaBytesPerSec, budget));
+        void StampElapsed() => result.ElapsedSeconds = Math.Round(runClock.Elapsed.TotalSeconds, 1);
 
         using var ladder = new BenchmarkConnectionLadder(provider);
 
@@ -90,6 +92,7 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
             result.Warnings.Add(
                 "No downloaded articles were available to measure speed, so only latency was tested. " +
                 "Download something first, then re-run to get a connection recommendation.");
+            StampElapsed();
             Report("done", "Done — latency only.", 100, result, null, includeResult: true);
             return result;
         }
@@ -295,6 +298,7 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
                 "Downloading something recent refreshes the test pool.");
 
         result.Confidence = ComputeConfidence(result);
+        StampElapsed();
         Report("done", "Done.", 100, result, null, includeResult: true);
         return result;
     }
