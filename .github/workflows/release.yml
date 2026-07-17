@@ -102,3 +102,25 @@ jobs:
       checkout_ref: ${{ needs.resolve-version.outputs.ref }}
     secrets:
       registry_token: ${{ secrets.GITHUB_TOKEN }}
+
+  tag-dev:
+    if: github.event_name == 'push' && needs.release-please.outputs.release_created == 'true'
+    needs:
+      - release-please
+      - deploy
+    uses: ./.github/workflows/move-dev-tag.yml
+    permissions:
+      contents: write
+    with:
+      ref: ${{ needs.release-please.outputs.sha }}
+
+  tag-dev-manual:
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    needs:
+      - resolve-version
+      - deploy-manual
+    uses: ./.github/workflows/move-dev-tag.yml
+    permissions:
+      contents: write
+    with:
+      ref: ${{ needs.resolve-version.outputs.ref }}

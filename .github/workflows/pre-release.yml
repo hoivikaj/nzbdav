@@ -18,3 +18,11 @@ jobs:
       nzbdav_version: pre-${{ github.run_number }}
     secrets:
       registry_token: ${{ secrets.GITHUB_TOKEN }}
+
+  tag-dev:
+    needs: build
+    uses: ./.github/workflows/move-dev-tag.yml
+    permissions:
+      contents: write
+    with:
+      ref: ${{ github.sha }}

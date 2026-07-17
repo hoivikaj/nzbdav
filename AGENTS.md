@@ -277,11 +277,12 @@ Skip this handoff if there are no local changes and nothing to push or PR. Do no
 | `ci.yml` | PRs and pushes to `main` | Frontend lint/typecheck/build/tests + backend build/tests |
 | `docs.yml` | PRs and pushes to `main` | Zensical docs build (`zensical build --clean --strict`); deploys to GitHub Pages on `main` |
 | `codeql.yml` | PRs, pushes to `main`, and weekly schedule | CodeQL security analysis for C#, TypeScript, and GitHub Actions |
-| `pre-release.yml` | Manual `workflow_dispatch` | Publishes `ghcr.io/.../nzbdav:dev` |
-| `release.yml` | Push to `main` | release-please versioning; publishes release and `dev` Docker tags when a release is created |
-| `release.yml` | Manual `workflow_dispatch` | Republishes release and `dev` Docker tags to GHCR for an existing version |
+| `pre-release.yml` | Manual `workflow_dispatch` | Publishes `ghcr.io/.../nzbdav:dev` and moves the git `dev` tag to that commit |
+| `release.yml` | Push to `main` | release-please versioning; publishes release and `dev` Docker tags when a release is created; moves git `dev` tag |
+| `release.yml` | Manual `workflow_dispatch` | Republishes release and `dev` Docker tags to GHCR for an existing version; moves git `dev` tag |
 | `dependency-submission.yml` | GitHub Release `published` (plus manual `workflow_dispatch`) | Dependency graph submission (NuGet + npm) |
 | `docker-build-push.yml` | Reusable (called by pre-release/release) | Multi-arch Docker build with GHA cache |
+| `move-dev-tag.yml` | Reusable (called by pre-release/release) | Force-moves the movable git `dev` tag to a given commit |
 
 Docker image builds are shared via the reusable workflow. Branch and dependabot image pipelines were removed — PRs are validated by `ci.yml` instead of publishing throwaway images.
 
@@ -289,9 +290,9 @@ Docker image builds are shared via the reusable workflow. Branch and dependabot 
 
 - Merging to `main` triggers **release-please** (`.github/workflows/release.yml`) which maintains `CHANGELOG.md` + `version.txt` and creates GitHub releases.
 - `feat` → minor bump; `fix` → patch bump (pre-1.0 rules in `.release-please-config.json`). Other conventional types (`perf`, `chore`, `docs`, `ci`, `test`, `refactor`, `style`, `revert`, `build`) appear in changelog sections but do not bump the version by themselves.
-- When release-please creates a release on merge to `main`, the same workflow run builds and pushes Docker images to `ghcr.io` (`latest`, `dev`, exact `vMAJOR.MINOR.PATCH`, and rolling `vMAJOR` / `vMAJOR.MINOR` tags).
-- To republish images for an existing release (e.g. after fixing CI), run **Release** workflow manually with the `version` input (e.g. `0.6.5`).
-- Between releases, update the pre-release Docker image (`:dev`) on demand via **Actions → Pre-release → Run workflow**; the next release moves `:dev` to that release.
+- When release-please creates a release on merge to `main`, the same workflow run builds and pushes Docker images to `ghcr.io` (`latest`, `dev`, exact `vMAJOR.MINOR.PATCH`, and rolling `vMAJOR` / `vMAJOR.MINOR` tags) and moves the git `dev` tag to that release commit.
+- To republish images for an existing release (e.g. after fixing CI), run **Release** workflow manually with the `version` input (e.g. `0.6.5`); this also moves the git `dev` tag to that version.
+- Between releases, update the pre-release Docker image (`:dev`) and git `dev` tag on demand via **Actions → Pre-release → Run workflow**.
 - Dependency graph submission runs when a GitHub Release is published (and can be re-run manually via `workflow_dispatch`). Keep GitHub **Automatic dependency submission** disabled to avoid duplicates.
 
 ## Coding guidelines

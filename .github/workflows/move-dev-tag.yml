@@ -1,0 +1,33 @@
+name: Move dev tag
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit SHA or git ref to point the movable dev tag at
+        required: true
+        type: string
+
+jobs:
+  tag-dev:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Recreate dev tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          SHA=$(gh api "repos/${{ github.repository }}/commits/${REF}" --jq .sha)
+          if gh api "repos/${{ github.repository }}/git/ref/tags/dev" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/${{ github.repository }}/git/refs/tags/dev" \
+              -f sha="$SHA" \
+              -F force=true
+          else
+            gh api --method POST "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/tags/dev" \
+              -f sha="$SHA"
+          fi
+          echo "Moved refs/tags/dev -> $SHA (from ${REF})"
