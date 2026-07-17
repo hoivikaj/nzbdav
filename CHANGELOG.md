@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.24](https://github.com/nzbdav/nzbdav/compare/v0.7.23...v0.7.24) (2026-07-17)
+
+
+### Bug Fixes
+
+* **deps:** bump the github-actions group across 1 directory with 2 updates ([5290539](https://github.com/nzbdav/nzbdav/commit/5290539c65da4ab9c30abd23653d10f8cac90afd))
+* **deps:** bump the github-actions group across 1 directory with 2 updates ([c3bf15d](https://github.com/nzbdav/nzbdav/commit/c3bf15d18ead06776becd31aef0a3c17fc29d578))
+* **queue:** abort first-segment checks early when an important file is missing ([63404fa](https://github.com/nzbdav/nzbdav/commit/63404fa71a64c750bd04d6a92ad57039d52174fa))
+* **queue:** fail dead NZBs as soon as the first missing RAR is confirmed ([4288fc1](https://github.com/nzbdav/nzbdav/commit/4288fc16e70f359de2bc5d0579a0ef31c8d28a7e))
+* **sab:** replace existing queue item on addfile name collision ([b3ab0fb](https://github.com/nzbdav/nzbdav/commit/b3ab0fb835de17c03c36c6b7a6d6bcc4ff837749))
+* **sab:** Sonarr re-adds no longer fail when the previous NZB is still in the queue ([1e98dde](https://github.com/nzbdav/nzbdav/commit/1e98dde58c6e8ea94275c50ad7119ee165d75ee6))
+
+
+### CI/CD Pipeline
+
+* keep the git `dev` tag in sync with the `dev` container image ([c26c774](https://github.com/nzbdav/nzbdav/commit/c26c774f315ac343801afd870216398a05138960))
+* move git dev tag with pre-release and release image publishes ([5a51cef](https://github.com/nzbdav/nzbdav/commit/5a51cef879f5ddc54837c8795db2267a01de59a8))
+
 ## [0.7.23](https://github.com/nzbdav/nzbdav/compare/v0.7.22...v0.7.23) (2026-07-17)
 
 
