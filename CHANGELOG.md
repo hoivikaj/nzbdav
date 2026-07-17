@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.7.23](https://github.com/nzbdav/nzbdav/compare/v0.7.22...v0.7.23) (2026-07-17)
+
+
+### Bug Fixes
+
+* **deps:** bump zensical from 0.0.47 to 0.0.50 in the docs-python group ([f4dc57f](https://github.com/nzbdav/nzbdav/commit/f4dc57f2ea98c70adec8727981d2a0c3bcc16841))
+* **deps:** bump zensical from 0.0.47 to 0.0.50 in the docs-python group ([c75ef53](https://github.com/nzbdav/nzbdav/commit/c75ef53e17ac46054dd18efd8f82c2aedab78592))
+* **nntp:** fail DMCA'd NZBs faster when NNTP pipelining is enabled ([d081b0c](https://github.com/nzbdav/nzbdav/commit/d081b0cd202fa1449c6a90450222709e2f9532d8))
+* **nntp:** skip rescue re-verification for definitively missing pipelined articles ([0e18d7d](https://github.com/nzbdav/nzbdav/commit/0e18d7d7f45a308cbf91adf94248e036dd37f16b))
+* **queue:** keep Remove Orphaned Files elapsed timer visible ([51ff5d5](https://github.com/nzbdav/nzbdav/commit/51ff5d53e8cd012b9228da006a82c2693696d5a6))
+* **queue:** keep Remove Orphaned Files progress updating during quiet phases ([8cc4fa7](https://github.com/nzbdav/nzbdav/commit/8cc4fa7cc8dfcb75207280a8409593e5842bef70))
+* **queue:** queue no longer waits a full minute before retrying after provider errors ([3c3c7cf](https://github.com/nzbdav/nzbdav/commit/3c3c7cf655731a360a96dfe39416e31478a0501a))
+* **queue:** remember missing first segments so retries and re-grabs fail fast ([1b11756](https://github.com/nzbdav/nzbdav/commit/1b11756fab2ddb80df2ebd96e65107c8a3679314))
+* **queue:** Remove Orphaned Files elapsed timer no longer flashes ([3387d78](https://github.com/nzbdav/nzbdav/commit/3387d785c3366df6628b55277dd85e03618c0b0a))
+* **queue:** Remove Orphaned Files no longer looks frozen mid-scan ([0ec15f7](https://github.com/nzbdav/nzbdav/commit/0ec15f7a72261f102938f184ca5c01a7fd9499b6))
+* **queue:** Remove Orphaned Files no longer scans the linked-id table per row ([eec6ea8](https://github.com/nzbdav/nzbdav/commit/eec6ea87ea507b21f4e65ef968e8b587247746d3))
+* **queue:** restore Remove Orphaned Files linked-id index seeks ([92ee261](https://github.com/nzbdav/nzbdav/commit/92ee2610080342ffc18299b75b690dea50e57707))
+* **queue:** wake queue when a retry pause expires instead of sleeping a full minute ([6edcf31](https://github.com/nzbdav/nzbdav/commit/6edcf31a51308dd625fcb1d303bd46575d8fdc75))
+* **usenet:** produce stable speed test recommendations ([55d7b1c](https://github.com/nzbdav/nzbdav/commit/55d7b1c7b4877bf4e415c1368b347494c2742fa8))
+* **usenet:** stabilize speed test recommendations ([65ef8a8](https://github.com/nzbdav/nzbdav/commit/65ef8a8801383b59a33d04a34921c71e273a2bb2))
+* **webdav:** keep encrypted archive playback running when parts end early ([b007036](https://github.com/nzbdav/nzbdav/commit/b00703648f82359b018bfbe9e41668828b9204c5))
+* **webdav:** preserve offsets when encrypted parts end early ([be17df5](https://github.com/nzbdav/nzbdav/commit/be17df5b0f227714f49b25eabb910ee42dd93b5e))
+
+
+### Chores
+
+* **ci:** update dev image tag on releases ([d5267ba](https://github.com/nzbdav/nzbdav/commit/d5267bad48be31582e8f1772b1892dc3d54e55e4))
+* **docs:** expand release-please changelog sections and commit types ([ae52ea2](https://github.com/nzbdav/nzbdav/commit/ae52ea203be09de007469503f90546c5c19e80d9))
+* **docs:** expand release-please changelog sections and commit types ([66edecc](https://github.com/nzbdav/nzbdav/commit/66edecc80fd84e3267745256c213cebf2d78a632))
+* update release-please config ([eb945a5](https://github.com/nzbdav/nzbdav/commit/eb945a5bad2153beabb911e8941da97681da1bef))
+
+
+### UX
+
+* **ui:** modernize maintenance, backup, and usenet settings pages ([d64f15d](https://github.com/nzbdav/nzbdav/commit/d64f15dd2b405d3c0469b85fa75afe9bc8da7844))
+
 ## [0.7.22](https://github.com/nzbdav/nzbdav/compare/v0.7.21...v0.7.22) (2026-07-16)
 
 
