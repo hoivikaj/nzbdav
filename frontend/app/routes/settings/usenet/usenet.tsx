@@ -1,6 +1,5 @@
-import chartStyles from "./bench-chart.module.css";
 import { type Dispatch, type SetStateAction, type ReactNode, type CSSProperties, useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { Alert, Badge, Button, HelpText, Icon, Input, Label, Modal, Select, SettingsIntro, SettingsPage } from "~/components/ui";
+import { Alert, Badge, Button, HelpText, Icon, Input, Label, Modal, Select, SettingsIntro, SettingsPage, Tooltip } from "~/components/ui";
 import { Checkbox } from "~/components/ui/form";
 import { subscribeWebsocketTopics, useWebsocketTopic } from "~/utils/shared-websocket";
 import { isMaskedSecret } from "~/utils/config-mask";
@@ -1315,6 +1314,14 @@ type BenchmarkPanelProps = {
     onApply: () => void;
 };
 
+const BENCH_PHASES = [
+    { id: "latency", label: "Latency" },
+    { id: "corpus", label: "Corpus" },
+    { id: "sweep", label: "Sweep" },
+    { id: "pipelining", label: "Pipelining" },
+    { id: "done", label: "Done" },
+] as const;
+
 function BenchmarkPanel(props: BenchmarkPanelProps) {
     const {
         canBenchmark, isBenchmarking, intensity, setIntensity,
@@ -1334,6 +1341,9 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
     const pipeBest = pipe && pipe.tested.length > 0 ? Math.max(...pipe.tested.map(t => t.mbPerSec)) : (pipe?.baselineMbPerSec ?? 0);
     const pipeGainPct = pipe && pipe.baselineMbPerSec > 0 ? Math.round((pipeBest / pipe.baselineMbPerSec - 1) * 100) : 0;
     const canApply = !!result && result.throughputTested && (recommended != null || (result.pipeliningOnly && !!pipe));
+    const phaseIndex = progress
+        ? Math.max(0, BENCH_PHASES.findIndex(p => p.id === progress.phase))
+        : -1;
 
     return (
         <div className="mt-4 rounded-lg border border-base-content/10 bg-base-200/40 p-4">
@@ -1347,23 +1357,25 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                     </HelpText>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex flex-wrap gap-2" role="group" aria-label="Test intensity">
-                        <Button
-                            variant={intensity === "quick" ? "primary" : "secondary"}
+                    <div className="join" role="group" aria-label="Test intensity">
+                        <button
+                            type="button"
+                            className={`btn btn-sm join-item ${intensity === "quick" ? "btn-primary" : "btn-ghost"}`}
                             onClick={() => setIntensity("quick")}
                             disabled={isBenchmarking}
                             aria-pressed={intensity === "quick"}
                         >
                             Quick
-                        </Button>
-                        <Button
-                            variant={intensity === "thorough" ? "primary" : "secondary"}
+                        </button>
+                        <button
+                            type="button"
+                            className={`btn btn-sm join-item ${intensity === "thorough" ? "btn-primary" : "btn-ghost"}`}
                             onClick={() => setIntensity("thorough")}
                             disabled={isBenchmarking}
                             aria-pressed={intensity === "thorough"}
                         >
                             Thorough
-                        </Button>
+                        </button>
                     </div>
                     <Select
                         value={dataBudget}
@@ -1378,8 +1390,11 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                         <option value="1000">1 GB</option>
                         <option value="2000">2 GB</option>
                         <option value="5000">5 GB</option>
+                        <option value="10000">10 GB</option>
+                        <option value="20000">20 GB</option>
                     </Select>
                     <Button variant="primary" onClick={onRun} disabled={!canBenchmark || isBenchmarking}>
+                        {isBenchmarking && <span className="loading loading-spinner loading-xs" />}
                         {isBenchmarking ? "Testing…" : (pipeliningOnly ? "Test pipelining" : "Run speed test")}
                     </Button>
                     {isBenchmarking && (
@@ -1388,9 +1403,11 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                 </div>
             </div>
 
-            <label htmlFor="bench-pipe-only" className="mt-3 flex items-center gap-2">
-                <Checkbox
+            <label htmlFor="bench-pipe-only" className="label mt-3 cursor-pointer justify-start gap-2">
+                <input
                     id="bench-pipe-only"
+                    type="checkbox"
+                    className="toggle toggle-sm"
                     checked={pipeliningOnly}
                     disabled={isBenchmarking}
                     onChange={(e) => setPipeliningOnly(e.target.checked)}
@@ -1403,26 +1420,40 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                     ? "Won't change your connection count — it tests pipelining depth at the Max Connections you've set. Run it idle for the cleanest read."
                     : (intensity === "quick"
                         ? "Quick sizes each step to your line speed, up to the data budget (default 500 MB) — light on metered / block accounts."
-                        : "Thorough runs longer measurement windows for steadier numbers, up to the data budget (default 2 GB).")}
+                        : "Thorough runs longer measurement windows for steadier numbers, up to the data budget (default 2 GB). Gigabit-class lines often need 10–20 GB for a full sweep.")}
             </HelpText>
 
             {error && (
-                <Alert variant="danger" className="mt-3 text-xs">{error}</Alert>
+                <Alert variant="danger" className="alert-soft mt-3 text-xs">{error}</Alert>
             )}
 
             {isBenchmarking && progress && (
-                <div className="mt-3.5">
-                    <div className="mb-1.5 flex justify-between gap-2.5 text-xs text-base-content/80">
-                        <span>{progress.status}</span>
-                        <span>
-                            {formatBytes(progress.dataUsedBytes)}
-                            {progress.dataBudgetBytes ? ` / ${formatBytes(progress.dataBudgetBytes)}` : ""} used
-                        </span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-base-300">
-                        <div
-                            className="h-full rounded-full bg-base-content transition-[width] duration-200"
-                            style={{ width: `${Math.max(2, Math.min(100, progress.percent))}%` }}
+                <div className="mt-3.5 flex flex-col gap-3">
+                    <ul className="steps steps-horizontal w-full text-xs">
+                        {BENCH_PHASES.map((phase, i) => (
+                            <li
+                                key={phase.id}
+                                className={`step ${i <= phaseIndex ? "step-primary" : ""}`}
+                            >
+                                {phase.label}
+                            </li>
+                        ))}
+                    </ul>
+                    <div>
+                        <div className="mb-1.5 flex justify-between gap-2.5 text-xs text-base-content/80">
+                            <span className="inline-flex items-center gap-1.5">
+                                <span className="loading loading-spinner loading-xs" />
+                                {progress.status}
+                            </span>
+                            <span className="font-mono tabular-nums">
+                                {formatBytes(progress.dataUsedBytes)}
+                                {progress.dataBudgetBytes ? ` / ${formatBytes(progress.dataBudgetBytes)}` : ""} used
+                            </span>
+                        </div>
+                        <progress
+                            className="progress progress-primary w-full"
+                            value={Math.max(2, Math.min(100, progress.percent))}
+                            max={100}
                         />
                     </div>
                 </div>
@@ -1435,29 +1466,30 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
             {result && !isBenchmarking && (
                 <>
                     {result.contentionWarnings?.map((warning) => (
-                        <Alert key={warning} variant="warning" className="mt-3 text-xs">
+                        <Alert key={warning} variant="warning" className="alert-soft mt-3 text-xs">
                             {warning}
                         </Alert>
                     ))}
 
                     {result.confidence && (
                         <div className="mt-3">
-                            <span
-                                className={`badge badge-sm badge-outline font-medium ${
-                                    result.confidence === "high"
-                                        ? "border-success/30 text-success"
+                            <Tooltip content="How steady the measurements were (bucket-to-bucket throughput variation, article-pool reuse, and concurrent activity).">
+                                <Badge
+                                    className={`badge-sm badge-soft font-medium ${
+                                        result.confidence === "high"
+                                            ? "badge-success"
+                                            : result.confidence === "medium"
+                                                ? "badge-warning"
+                                                : "badge-error"
+                                    }`}
+                                >
+                                    {result.confidence === "high"
+                                        ? "High confidence"
                                         : result.confidence === "medium"
-                                            ? "border-warning/30 text-warning"
-                                            : "border-error/30 text-error"
-                                }`}
-                                title="How steady the measurements were (bucket-to-bucket throughput variation, article-pool reuse, and concurrent activity)."
-                            >
-                                {result.confidence === "high"
-                                    ? "High confidence"
-                                    : result.confidence === "medium"
-                                        ? "Medium confidence"
-                                        : "Low confidence"}
-                            </span>
+                                            ? "Medium confidence"
+                                            : "Low confidence"}
+                                </Badge>
+                            </Tooltip>
                         </div>
                     )}
 
@@ -1465,31 +1497,31 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                         pipe ? (
                             <>
                                 <DepthChart pipe={pipe} />
-                                <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(116px,1fr))] gap-2">
-                                    <div className="flex flex-col gap-0.5 rounded-md border border-base-content/10 bg-base-300 px-2.5 py-2">
-                                        <span className="text-[10px] font-medium uppercase tracking-wide text-base-content/50">Pipelining</span>
-                                        <span className="text-xl font-bold tabular-nums text-base-content">
+                                <div className="stats stats-vertical mt-4 w-full border border-base-content/10 bg-base-300 sm:stats-horizontal">
+                                    <div className="stat py-3">
+                                        <div className="stat-title text-[10px] uppercase tracking-wide">Pipelining</div>
+                                        <div className="stat-value text-xl font-mono">
                                             {pipe.recommendEnabled ? `Depth ${pipe.recommendedDepth}` : "Off"}
-                                        </span>
-                                        <span className="text-[11px] tabular-nums text-base-content/80">
+                                        </div>
+                                        <div className="stat-desc font-mono tabular-nums">
                                             {pipe.recommendEnabled ? `≈ +${pipeGainPct}% vs off` : "no real gain"}
-                                        </span>
+                                        </div>
                                     </div>
                                     {result.latency && (
-                                        <div className="flex flex-col gap-0.5 rounded-md border border-base-content/10 bg-base-300 px-2.5 py-2">
-                                            <span className="text-[10px] font-medium uppercase tracking-wide text-base-content/50">Latency</span>
-                                            <span className="text-sm font-semibold tabular-nums text-base-content">{result.latency.avgMs} ms</span>
-                                            <span className="text-[11px] tabular-nums text-base-content/80">{result.latency.minMs} ms min</span>
+                                        <div className="stat py-3">
+                                            <div className="stat-title text-[10px] uppercase tracking-wide">Latency</div>
+                                            <div className="stat-value text-sm font-mono">{result.latency.avgMs} ms</div>
+                                            <div className="stat-desc font-mono tabular-nums">{result.latency.minMs} ms min</div>
                                         </div>
                                     )}
-                                    <div className="flex flex-col gap-0.5 rounded-md border border-base-content/10 bg-base-300 px-2.5 py-2">
-                                        <span className="text-[10px] font-medium uppercase tracking-wide text-base-content/50">Tested at</span>
-                                        <span className="text-sm font-semibold tabular-nums text-base-content">{pipe.testedAtConnections}</span>
-                                        <span className="text-[11px] tabular-nums text-base-content/80">connections</span>
+                                    <div className="stat py-3">
+                                        <div className="stat-title text-[10px] uppercase tracking-wide">Tested at</div>
+                                        <div className="stat-value text-sm font-mono">{pipe.testedAtConnections}</div>
+                                        <div className="stat-desc">connections</div>
                                     </div>
-                                    <div className="flex flex-col gap-0.5 rounded-md border border-base-content/10 bg-base-300 px-2.5 py-2">
-                                        <span className="text-[10px] font-medium uppercase tracking-wide text-base-content/50">Data used</span>
-                                        <span className="text-sm font-semibold tabular-nums text-base-content">{formatBytes(result.dataUsedBytes)}</span>
+                                    <div className="stat py-3">
+                                        <div className="stat-title text-[10px] uppercase tracking-wide">Data used</div>
+                                        <div className="stat-value text-sm font-mono">{formatBytes(result.dataUsedBytes)}</div>
                                     </div>
                                 </div>
                                 <div className="mt-3 text-sm leading-relaxed text-base-content/80">
@@ -1513,31 +1545,31 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                             </strong>.
                         </div>
                     ) : result.throughputTested && recommended ? (
-                        <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(116px,1fr))] gap-2">
-                            <div className="flex flex-col gap-0.5 rounded-md border border-base-content/10 bg-base-300 px-2.5 py-2">
-                                <span className="text-[10px] font-medium uppercase tracking-wide text-base-content/50">Recommended</span>
-                                <span className="text-xl font-bold tabular-nums text-base-content">{recommended}</span>
-                                <span className="text-[11px] tabular-nums text-base-content/80">
+                        <div className="stats stats-vertical mt-4 w-full border border-base-content/10 bg-base-300 sm:stats-horizontal">
+                            <div className="stat py-3">
+                                <div className="stat-title text-[10px] uppercase tracking-wide">Recommended</div>
+                                <div className="stat-value text-xl font-mono">{recommended}</div>
+                                <div className="stat-desc font-mono tabular-nums">
                                     connection{recommended === 1 ? "" : "s"}{bestSpeed != null ? ` · ≈ ${bestSpeed.toFixed(1)} MB/s` : ""}
-                                </span>
+                                </div>
                             </div>
                             {result.latency && (
-                                <div className="flex flex-col gap-0.5 rounded-md border border-base-content/10 bg-base-300 px-2.5 py-2">
-                                    <span className="text-[10px] font-medium uppercase tracking-wide text-base-content/50">Latency</span>
-                                    <span className="text-sm font-semibold tabular-nums text-base-content">{result.latency.avgMs} ms</span>
-                                    <span className="text-[11px] tabular-nums text-base-content/80">{result.latency.minMs} ms min</span>
+                                <div className="stat py-3">
+                                    <div className="stat-title text-[10px] uppercase tracking-wide">Latency</div>
+                                    <div className="stat-value text-sm font-mono">{result.latency.avgMs} ms</div>
+                                    <div className="stat-desc font-mono tabular-nums">{result.latency.minMs} ms min</div>
                                 </div>
                             )}
                             {result.providerConnectionCap != null && (
-                                <div className="flex flex-col gap-0.5 rounded-md border border-base-content/10 bg-base-300 px-2.5 py-2">
-                                    <span className="text-[10px] font-medium uppercase tracking-wide text-base-content/50">Provider cap</span>
-                                    <span className="text-sm font-semibold tabular-nums text-base-content">{result.providerConnectionCap}</span>
-                                    <span className="text-[11px] tabular-nums text-base-content/80">max at once</span>
+                                <div className="stat py-3">
+                                    <div className="stat-title text-[10px] uppercase tracking-wide">Provider cap</div>
+                                    <div className="stat-value text-sm font-mono">{result.providerConnectionCap}</div>
+                                    <div className="stat-desc">max at once</div>
                                 </div>
                             )}
-                            <div className="flex flex-col gap-0.5 rounded-md border border-base-content/10 bg-base-300 px-2.5 py-2">
-                                <span className="text-[10px] font-medium uppercase tracking-wide text-base-content/50">Data used</span>
-                                <span className="text-sm font-semibold tabular-nums text-base-content">{formatBytes(result.dataUsedBytes)}</span>
+                            <div className="stat py-3">
+                                <div className="stat-title text-[10px] uppercase tracking-wide">Data used</div>
+                                <div className="stat-value text-sm font-mono">{formatBytes(result.dataUsedBytes)}</div>
                             </div>
                         </div>
                     ) : (
@@ -1555,19 +1587,22 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                     )}
 
                     {result.warnings.length > 0 && (
-                        <ul className="mt-3 list-disc pl-4 text-[11px] leading-relaxed text-base-content/50">
-                            {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
-                        </ul>
+                        <Alert variant="warning" className="alert-soft mt-3 items-start py-3 text-xs">
+                            <ul className="list-disc space-y-1 pl-4 leading-relaxed">
+                                {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                            </ul>
+                        </Alert>
                     )}
 
                     {(canApply || (recommended != null && !result.verificationRun)) && (
                         <div className="mt-3.5 flex flex-wrap gap-2">
                             <Button variant={applied ? "secondary" : "primary"} onClick={() => { onApply(); setApplied(true); }}>
-                                {applied ? "Applied ✓ — review & save" : (result.pipeliningOnly ? "Apply pipelining" : "Apply recommendation")}
+                                {applied && <Icon name="check" className="!text-[18px]" />}
+                                {applied ? "Applied — review & save" : (result.pipeliningOnly ? "Apply pipelining" : "Apply recommendation")}
                             </Button>
                             {recommended != null && !result.verificationRun && (
                                 <Button
-                                    variant="secondary"
+                                    variant="outline"
                                     onClick={() => onVerify(recommended)}
                                     disabled={isBenchmarking}
                                 >
@@ -1585,27 +1620,29 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
 function SweepChart({ points, recommended }: { points: BenchmarkSweepPoint[]; recommended: number | null }) {
     const max = Math.max(...points.map(p => p.mbPerSec), 0.0001);
     return (
-        <div className={chartStyles["bench-chart"]}>
-            <div className={chartStyles["bench-chart-bars"]}>
+        <div className="mt-4">
+            <div className="flex h-[150px] items-end gap-2">
                 {points.map((p, i) => {
                     const isRec = recommended != null && p.connections === recommended;
                     const height = Math.max(4, Math.round((p.mbPerSec / max) * 104));
                     return (
-                        <div key={i} className={`${chartStyles["bench-chart-col"]} ${isRec ? chartStyles["bench-chart-col-rec"] : ""}`}>
-                            <span className={chartStyles["bench-chart-val"]}>
+                        <div key={i} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+                            <span className={`font-mono text-[10.5px] tabular-nums whitespace-nowrap ${isRec ? "font-semibold text-primary" : "text-base-content/45"}`}>
                                 {p.mbPerSec >= 10 ? p.mbPerSec.toFixed(0) : p.mbPerSec.toFixed(1)}
                             </span>
                             <div
-                                className={chartStyles["bench-chart-bar"]}
+                                className={`w-full max-w-8 rounded-t transition-all duration-200 ease-in-out ${isRec ? "bg-primary" : "bg-base-content/25"}`}
                                 style={{ height: `${height}px` }}
                                 title={`${p.connections} connections → ${p.mbPerSec.toFixed(1)} MB/s`}
                             />
-                            <span className={chartStyles["bench-chart-label"]}>{p.connections}</span>
+                            <span className={`font-mono text-[11px] tabular-nums ${isRec ? "font-semibold text-primary" : "text-base-content/45"}`}>
+                                {p.connections}
+                            </span>
                         </div>
                     );
                 })}
             </div>
-            <div className={chartStyles["bench-chart-foot"]}>
+            <div className="mt-2 flex justify-between gap-2.5">
                 <span className="text-[11px] text-base-content/45">MB/s by connection count</span>
                 {recommended != null && <span className="text-[11px] text-base-content/45">recommended: {recommended}</span>}
             </div>
@@ -1624,26 +1661,28 @@ function DepthChart({ pipe }: { pipe: BenchmarkPipelining }) {
     ];
     const max = Math.max(...points.map(p => p.mbPerSec), 0.0001);
     return (
-        <div className={chartStyles["bench-chart"]}>
-            <div className={chartStyles["bench-chart-bars"]}>
+        <div className="mt-4">
+            <div className="flex h-[150px] items-end gap-2">
                 {points.map((p, i) => {
                     const height = Math.max(4, Math.round((p.mbPerSec / max) * 104));
                     return (
-                        <div key={i} className={`${chartStyles["bench-chart-col"]} ${p.rec ? chartStyles["bench-chart-col-rec"] : ""}`}>
-                            <span className={chartStyles["bench-chart-val"]}>
+                        <div key={i} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+                            <span className={`font-mono text-[10.5px] tabular-nums whitespace-nowrap ${p.rec ? "font-semibold text-primary" : "text-base-content/45"}`}>
                                 {p.mbPerSec >= 10 ? p.mbPerSec.toFixed(0) : p.mbPerSec.toFixed(1)}
                             </span>
                             <div
-                                className={chartStyles["bench-chart-bar"]}
+                                className={`w-full max-w-8 rounded-t transition-all duration-200 ease-in-out ${p.rec ? "bg-primary" : "bg-base-content/25"}`}
                                 style={{ height: `${height}px` }}
                                 title={`${p.label} → ${p.mbPerSec.toFixed(1)} MB/s`}
                             />
-                            <span className={chartStyles["bench-chart-label"]}>{p.label}</span>
+                            <span className={`font-mono text-[11px] tabular-nums ${p.rec ? "font-semibold text-primary" : "text-base-content/45"}`}>
+                                {p.label}
+                            </span>
                         </div>
                     );
                 })}
             </div>
-            <div className={chartStyles["bench-chart-foot"]}>
+            <div className="mt-2 flex justify-between gap-2.5">
                 <span className="text-[11px] text-base-content/45">MB/s by pipeline depth</span>
                 <span className="text-[11px] text-base-content/45">
                     {pipe.recommendEnabled ? `best: depth ${pipe.recommendedDepth}` : "best: off"}
