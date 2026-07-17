@@ -1,6 +1,8 @@
 name: Feature request
 description: Suggest an improvement to NzbDav
 title: "[Feature]: "
+labels: ["enhancement"]
+type: Feature
 body:
   - type: markdown
     attributes:
