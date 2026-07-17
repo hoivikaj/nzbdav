@@ -220,6 +220,14 @@ class BackendClient {
         };
     }
 
+    public async clearOverviewStats(providerId?: string): Promise<number> {
+        const query = providerId ? `?provider=${encodeURIComponent(providerId)}` : "";
+        const data = await call(`/api/clear-overview-stats${query}`, "Failed to clear overview statistics", {
+            method: "POST",
+        });
+        return data.deletedRows ?? 0;
+    }
+
     public async getHealthCheckHistory(pageSize?: number): Promise<HealthCheckHistoryResponse> {
         const query = pageSize !== undefined ? `?pageSize=${pageSize}` : "";
         return await call(`/api/get-health-check-history${query}`, "Failed to get health check history", {

@@ -8,6 +8,7 @@ import { ConvertStrmToSymlinks } from "./strm-to-symlinks/strm-to-symlinks";
 import { RecreateStrmFiles } from "./recreate-strm-files/recreate-strm-files";
 import { MigrateDatabaseFilesToBlobstore } from "./migrate-database-files-to-blobstore/migrate-database-files-to-blobstore";
 import { ResetHealthCheckStats } from "./reset-health-check-stats/reset-health-check-stats";
+import { ResetOverviewStats } from "./reset-overview-stats/reset-overview-stats";
 
 type MaintenanceProps = {
     savedConfig: Record<string, string>,
@@ -244,7 +245,7 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
                             Run repair, migration, and destructive cleanup tools on demand.
                         </p>
                     </div>
-                    <span className="badge badge-ghost badge-sm shrink-0">6 tools</span>
+                    <span className="badge badge-ghost badge-sm shrink-0">7 tools</span>
                 </div>
                 <div className="space-y-3">
                     <MaintenanceTaskDetails title="Remove Orphaned Files">
@@ -264,6 +265,9 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
                     </MaintenanceTaskDetails>
                     <MaintenanceTaskDetails title="Reset Health-Check Statistics">
                         <ResetHealthCheckStats />
+                    </MaintenanceTaskDetails>
+                    <MaintenanceTaskDetails title="Reset Overview Statistics">
+                        <ResetOverviewStats />
                     </MaintenanceTaskDetails>
                 </div>
             </section>
