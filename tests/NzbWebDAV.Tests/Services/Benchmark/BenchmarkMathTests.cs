@@ -151,6 +151,19 @@ public class BenchmarkMathTests
         Assert.Equal(25_000_000, UsenetBenchmarkService.MinUsefulBytes(10, profile));
     }
 
+    [Fact]
+    public void PipeliningReserveBytes_ScalesWithSpeedAndCapsAtQuarterBudget()
+    {
+        var profile = BenchmarkProfile.For(BenchmarkIntensity.Thorough);
+
+        var reserve = UsenetBenchmarkService.PipeliningReserveBytes(profile, 100, 10_000_000_000);
+        // 4 steps (baseline + 3 depths) × MinUseful(100) = 4 × 300MB = 1.2GB, under 25% of 10GB
+        Assert.Equal(1_200_000_000, reserve);
+
+        var capped = UsenetBenchmarkService.PipeliningReserveBytes(profile, 100, 1_000_000_000);
+        Assert.Equal(250_000_000, capped);
+    }
+
     [Theory]
     [InlineData(0.1, false, false, false, true, "high")]
     [InlineData(0.2, false, false, false, true, "medium")]

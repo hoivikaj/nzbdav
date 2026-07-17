@@ -1033,7 +1033,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
             open={show}
             title={provider ? "Edit Provider" : "Add Provider"}
             onClose={onClose}
-            className="!max-w-2xl"
+            className="!max-w-4xl"
             footer={
                 <>
                     <Button variant="outline" onClick={onClose}>
@@ -1545,29 +1545,42 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                             </strong>.
                         </div>
                     ) : result.throughputTested && recommended ? (
-                        <div className="stats stats-vertical mt-4 w-full border border-base-content/10 bg-base-300 sm:stats-horizontal">
-                            <div className="stat py-3">
+                        <div className="stats stats-vertical mt-4 w-full max-w-full border border-base-content/10 bg-base-300 sm:stats-horizontal">
+                            <div className="stat min-w-0 py-3">
                                 <div className="stat-title text-[10px] uppercase tracking-wide">Recommended</div>
                                 <div className="stat-value text-xl font-mono">{recommended}</div>
                                 <div className="stat-desc font-mono tabular-nums">
                                     connection{recommended === 1 ? "" : "s"}{bestSpeed != null ? ` · ≈ ${bestSpeed.toFixed(1)} MB/s` : ""}
                                 </div>
                             </div>
+                            <div className="stat min-w-0 py-3">
+                                <div className="stat-title text-[10px] uppercase tracking-wide">Pipelining</div>
+                                <div className="stat-value text-sm font-mono">
+                                    {pipe
+                                        ? (pipe.recommendEnabled ? `Depth ${pipe.recommendedDepth}` : "Off")
+                                        : "—"}
+                                </div>
+                                <div className="stat-desc font-mono tabular-nums">
+                                    {pipe
+                                        ? (pipe.recommendEnabled ? `≈ +${pipeGainPct}% vs off` : "no real gain")
+                                        : "not tested"}
+                                </div>
+                            </div>
                             {result.latency && (
-                                <div className="stat py-3">
+                                <div className="stat min-w-0 py-3">
                                     <div className="stat-title text-[10px] uppercase tracking-wide">Latency</div>
                                     <div className="stat-value text-sm font-mono">{result.latency.avgMs} ms</div>
                                     <div className="stat-desc font-mono tabular-nums">{result.latency.minMs} ms min</div>
                                 </div>
                             )}
                             {result.providerConnectionCap != null && (
-                                <div className="stat py-3">
+                                <div className="stat min-w-0 py-3">
                                     <div className="stat-title text-[10px] uppercase tracking-wide">Provider cap</div>
                                     <div className="stat-value text-sm font-mono">{result.providerConnectionCap}</div>
                                     <div className="stat-desc">max at once</div>
                                 </div>
                             )}
-                            <div className="stat py-3">
+                            <div className="stat min-w-0 py-3">
                                 <div className="stat-title text-[10px] uppercase tracking-wide">Data used</div>
                                 <div className="stat-value text-sm font-mono">{formatBytes(result.dataUsedBytes)}</div>
                             </div>
@@ -1583,6 +1596,11 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
                             {pipe.recommendEnabled
                                 ? <>Turn on <strong className="font-semibold text-base-content">NNTP pipelining</strong> at depth <strong className="font-semibold text-base-content">{pipe.recommendedDepth}</strong> — measurably faster on this connection.</>
                                 : <>NNTP pipelining didn’t help here — leave it off.</>}
+                        </div>
+                    )}
+                    {!result.pipeliningOnly && !pipe && result.throughputTested && recommended != null && (
+                        <div className="mt-3 text-sm leading-relaxed text-base-content/80">
+                            Pipelining wasn’t tested this run. Raise the data budget, or use <strong className="font-semibold text-base-content">Only tune pipelining</strong> after applying the connection count.
                         </div>
                     )}
 

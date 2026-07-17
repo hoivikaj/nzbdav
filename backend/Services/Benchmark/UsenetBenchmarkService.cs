@@ -48,6 +48,11 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
         var budget = Math.Max(50_000_000, dataBudgetBytes ?? profile.HardTotalBytes);
         var result = new BenchmarkResult { PipeliningOnly = pipeliningOnly, DataBudgetBytes = budget };
         long Remaining() => Math.Max(0, budget - result.DataUsedBytes);
+        // Hold back enough for baseline + each pipelining depth so a full auto-tune
+        // still produces a depth recommendation instead of burning the whole budget
+        // on the connection sweep.
+        long SweepRemaining(double mbPerSec) =>
+            Math.Max(0, Remaining() - PipeliningReserveBytes(profile, mbPerSec, budget));
 
         using var ladder = new BenchmarkConnectionLadder(provider);
 
@@ -132,7 +137,7 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
                 ct.ThrowIfCancellationRequested();
                 var level = levels[i];
 
-                if (Remaining() < MinUsefulBytes(lastMbPerSec, profile))
+                if (SweepRemaining(lastMbPerSec) < MinUsefulBytes(lastMbPerSec, profile))
                 {
                     result.BudgetLimited = true;
                     result.Warnings.Add(
@@ -151,7 +156,7 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
                 }
 
                 var sample = await MeasureThroughputAsync(
-                    ladder, pool, AdaptiveTargetBytes(lastMbPerSec, profile, Remaining(), have),
+                    ladder, pool, AdaptiveTargetBytes(lastMbPerSec, profile, SweepRemaining(lastMbPerSec), have),
                     profile.WarmupDuration, profile.MeasureWindow, profile.PerLevelMaxDuration,
                     pipeliningDepth: 0, ct).ConfigureAwait(false);
                 result.DataUsedBytes += sample.Bytes;
@@ -160,13 +165,13 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
                 // Retry once with a properly sized budget before recording the point.
                 if (sample.ExhaustedDuringWarmup
                     && sample.MbPerSec > 0
-                    && Remaining() > MinUsefulBytes(sample.MbPerSec, profile))
+                    && SweepRemaining(sample.MbPerSec) > MinUsefulBytes(sample.MbPerSec, profile))
                 {
                     lastMbPerSec = Math.Max(lastMbPerSec, sample.MbPerSec);
                     Report("sweep", $"Re-measuring {have} connection{(have == 1 ? "" : "s")}…",
                         ProgressPercent(15, 75, i, levels.Count), result, have);
                     var retry = await MeasureThroughputAsync(
-                        ladder, pool, AdaptiveTargetBytes(lastMbPerSec, profile, Remaining(), have),
+                        ladder, pool, AdaptiveTargetBytes(lastMbPerSec, profile, SweepRemaining(lastMbPerSec), have),
                         profile.WarmupDuration, profile.MeasureWindow, profile.PerLevelMaxDuration,
                         pipeliningDepth: 0, ct).ConfigureAwait(false);
                     result.DataUsedBytes += retry.Bytes;
@@ -200,6 +205,7 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
             result.StillClimbing = stillClimbing;
 
             // Thorough only: confirm the pick with a second independent window and blend.
+            // Confirm may spend into the pipelining reserve if needed for accuracy.
             if (intensity == BenchmarkIntensity.Thorough
                 && result.RecommendedConnections is int knee
                 && Remaining() > MinUsefulBytes(lastMbPerSec, profile))
@@ -248,6 +254,12 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
                 result.Pipelining = await MeasurePipeliningAsync(
                     ladder, pool, profile, profile.PipelineDepths, Remaining,
                     bytes => result.DataUsedBytes += bytes, result.Warnings, ct).ConfigureAwait(false);
+            }
+            else if (result.Sweep.Count > 0)
+            {
+                result.Warnings.Add(
+                    "Skipped the pipelining test — not enough data budget left after the connection sweep. " +
+                    "Raise the budget or run \"Only tune pipelining\" separately.");
             }
         }
 
@@ -518,6 +530,18 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
         var seconds = profile.WarmupDuration.TotalSeconds + 1.5;
         var bytesPerSec = lastMbPerSec > 0 ? lastMbPerSec * 1_000_000 : 2_000_000;
         return Math.Max(4_000_000, (long)(bytesPerSec * seconds));
+    }
+
+    // Hold back enough for a pipelining baseline + each tested depth. Caps at 25% of
+    // the total budget so small Auto runs still spend most of their quota on the sweep.
+    internal static long PipeliningReserveBytes(
+        BenchmarkProfile profile, double lastMbPerSec, long totalBudget)
+    {
+        var steps = 1 + profile.PipelineDepths.Length;
+        var perStep = MinUsefulBytes(Math.Max(lastMbPerSec, 10), profile);
+        var reserve = perStep * steps;
+        var cap = Math.Max(0, totalBudget / 4);
+        return Math.Min(reserve, cap);
     }
 
     // Target enough bytes that workers never run dry before the wall clock stops the
