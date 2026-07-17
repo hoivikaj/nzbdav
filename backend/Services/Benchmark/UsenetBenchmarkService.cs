@@ -176,7 +176,9 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
             }
 
             result.ProviderConnectionCap = providerCap;
-            result.RecommendedConnections = DetectKnee(result.Sweep, providerCap, result.Warnings);
+            result.RecommendedConnections = DetectKnee(
+                result.Sweep, providerCap, result.Warnings, out var stillClimbing);
+            result.StillClimbing = stillClimbing;
 
             // Thorough only: confirm the pick with a second independent window and blend.
             if (intensity == BenchmarkIntensity.Thorough
@@ -195,9 +197,21 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
                     var point = result.Sweep.FirstOrDefault(p => p.Connections == knee);
                     if (point != null && confirm.MbPerSec > 0)
                     {
+                        if (point.MbPerSec > 0)
+                        {
+                            result.ConfirmDeltaPct = Math.Round(
+                                Math.Abs(confirm.MbPerSec - point.MbPerSec) / point.MbPerSec * 100, 1);
+                            if (result.ConfirmDeltaPct > 20)
+                                result.Warnings.Add(
+                                    "The confirmation run didn't reproduce the measured speed closely, " +
+                                    "so the recommendation may shift slightly between runs.");
+                        }
+
                         point.MbPerSec = Math.Round((point.MbPerSec + confirm.MbPerSec) / 2, 2);
                         point.Cv = Math.Round(Math.Max(point.Cv, confirm.Cv), 3);
-                        result.RecommendedConnections = DetectKnee(result.Sweep, providerCap, []);
+                        result.RecommendedConnections = DetectKnee(
+                            result.Sweep, providerCap, [], out stillClimbing);
+                        result.StillClimbing = stillClimbing;
                     }
                 }
             }
@@ -498,10 +512,46 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
     internal static string ComputeConfidence(BenchmarkResult result)
     {
         if (!result.ThroughputTested) return "low";
-        var maxCv = result.Sweep.Count > 0 ? result.Sweep.Max(p => p.Cv) : 0;
-        if (result.BudgetLimited || maxCv > 0.30) return "low";
-        if (result.WrappedPool || maxCv > 0.15) return "medium";
-        return "high";
+
+        var maxCv = KneeRegionMaxCv(result);
+
+        // Budget exhaustion only tanks confidence when the curve was still climbing —
+        // i.e. the untested upper levels actually mattered.
+        if (result.BudgetLimited && result.StillClimbing) return "low";
+        if (maxCv > 0.30) return "low";
+
+        // A tight confirm-run agreement can override the wrap-pool medium cap.
+        var confirmTight = result.ConfirmDeltaPct is <= 5;
+        var confirmLoose = result.ConfirmDeltaPct is > 20;
+
+        string confidence;
+        if ((!confirmTight && result.WrappedPool) || maxCv > 0.15)
+            confidence = "medium";
+        else
+            confidence = "high";
+
+        // Budget ran out after a found plateau: downgrade high → medium at most.
+        if (result.BudgetLimited && confidence == "high")
+            confidence = "medium";
+
+        // Confirm window disagreed with the original knee measurement.
+        if (confirmLoose)
+            confidence = confidence == "high" ? "medium" : "low";
+
+        return confidence;
+    }
+
+    // CV near the recommended level (or the upper half of the sweep) matters;
+    // jitter at 1–2 connections shouldn't poison an otherwise clean run.
+    internal static double KneeRegionMaxCv(BenchmarkResult result)
+    {
+        if (result.Sweep.Count == 0) return 0;
+        var threshold = result.RecommendedConnections is int rec and > 0
+            ? Math.Max(1, rec / 2)
+            : result.Sweep.Max(p => p.Connections) / 2;
+        var region = result.Sweep.Where(p => p.Connections >= threshold).ToList();
+        if (region.Count == 0) region = result.Sweep;
+        return region.Max(p => p.Cv);
     }
 
     private static List<int> BuildLevels(int configuredMaxConnections, BenchmarkProfile profile)
@@ -521,7 +571,13 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
 
     internal static int? DetectKnee(
         List<BenchmarkSweepPoint> sweep, int? providerCap, List<string> warnings)
+        => DetectKnee(sweep, providerCap, warnings, out _);
+
+    internal static int? DetectKnee(
+        List<BenchmarkSweepPoint> sweep, int? providerCap, List<string> warnings,
+        out bool stillClimbing)
     {
+        stillClimbing = false;
         if (sweep.Count == 0) return null;
         var ordered = sweep.OrderBy(p => p.Connections).ToList();
 
@@ -539,7 +595,10 @@ public sealed class UsenetBenchmarkService(WebsocketManager websocketManager, Be
         {
             var prev = ordered[^2];
             if (prev.MbPerSec > 0 && (peak.MbPerSec - prev.MbPerSec) / prev.MbPerSec > 0.08)
+            {
+                stillClimbing = true;
                 warnings.Add("Speed was still climbing at the highest level tested — a faster line or even more connections may help.");
+            }
         }
 
         if (ordered.Any(p => p.Cv > 0.25))

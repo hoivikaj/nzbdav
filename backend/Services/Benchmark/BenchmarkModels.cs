@@ -128,11 +128,23 @@ public sealed class BenchmarkResult
     /// <summary>True when the budget stopped the run before all planned levels.</summary>
     public bool BudgetLimited { get; set; }
 
+    /// <summary>
+    /// True when throughput was still rising at the highest connection level tested.
+    /// Combined with <see cref="BudgetLimited"/>, this means untested upper levels mattered.
+    /// </summary>
+    public bool StillClimbing { get; set; }
+
     /// <summary>True when the run cycled through the article pool more than once (provider caching may inflate speeds).</summary>
     public bool WrappedPool { get; set; }
 
     /// <summary>True when this run only verified a single connection count.</summary>
     public bool VerificationRun { get; set; }
+
+    /// <summary>
+    /// Relative percent difference between the Thorough confirm window and the original
+    /// knee measurement, if a confirm run was performed. Null when no confirm ran.
+    /// </summary>
+    public double? ConfirmDeltaPct { get; set; }
 
     /// <summary>"high" | "medium" | "low" — measurement quality signal for the UI.</summary>
     public string Confidence { get; set; } = "low";
