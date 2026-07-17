@@ -216,14 +216,14 @@ public class QueueItemProcessor(
         // If the first segment is gone across all providers, the rest are too.
         // Exclude known-unimportant extensions rather than matching important ones so
         // obfuscated filenames (common on DMCA'd content) still trigger the fast abort.
-        HashSet<string> unimportantExtensions = [".par2", ".nfo", ".txt", ".sfv", ".nzb", ".srr"];
+        // (FetchFirstSegmentsStep also aborts mid-fetch on the first important miss.)
         var missingNzbFiles = segments
             .Where(x => x.MissingFirstSegment)
             .Select(x => x.NzbFile)
             .ToHashSet();
         var importantFilesMissing = fileInfos
             .Where(x => missingNzbFiles.Contains(x.NzbFile))
-            .Where(x => !unimportantExtensions.Contains(Path.GetExtension(x.FileName).ToLowerInvariant()))
+            .Where(x => DeadNzbFailFast.IsImportantFileName(x.FileName))
             .ToList();
         if (importantFilesMissing.Count > 0)
         {

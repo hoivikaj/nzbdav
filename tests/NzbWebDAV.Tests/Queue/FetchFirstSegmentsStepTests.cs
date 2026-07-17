@@ -16,7 +16,7 @@ namespace NzbWebDAV.Tests.Queue;
 public class FetchFirstSegmentsStepTests
 {
     [Fact]
-    public async Task FetchFirstSegments_PipelinedDefinitivelyMissing_SkipsRescue()
+    public async Task FetchFirstSegments_PipelinedDefinitivelyMissingImportant_AbortsEarly()
     {
         var config = CreatePipeliningConfig(enabled: true, depth: 4);
         using var client = new MissingPipelinedNntpClient(definitivelyMissing: true);
@@ -24,33 +24,113 @@ public class FetchFirstSegmentsStepTests
         {
             CreateFile("a@example.com", "\"a.rar\" yEnc"),
             CreateFile("b@example.com", "\"b.rar\" yEnc"),
+            CreateFile("c@example.com", "\"c.rar\" yEnc"),
         };
 
-        var results = await FetchFirstSegmentsStep.FetchFirstSegments(
-            files, client, config, CancellationToken.None);
+        var ex = await Assert.ThrowsAsync<NonRetryableDownloadException>(() =>
+            FetchFirstSegmentsStep.FetchFirstSegments(files, client, config, CancellationToken.None));
 
-        Assert.Equal(2, results.Count);
-        Assert.All(results, r => Assert.True(r.MissingFirstSegment));
+        Assert.Contains("a.rar", ex.Message);
         Assert.Equal(0, client.ArticleFetches);
+        Assert.True(client.PipelinedResultsYielded >= 1);
+        Assert.True(client.PipelinedResultsYielded < files.Count);
     }
 
     [Fact]
-    public async Task FetchFirstSegments_PipelinedNonDefinitiveMiss_StillRescues()
+    public async Task FetchFirstSegments_PipelinedUnimportantMissing_ContinuesThenAbortsOnImportant()
+    {
+        var config = CreatePipeliningConfig(enabled: true, depth: 4);
+        using var client = new MissingPipelinedNntpClient(definitivelyMissing: true);
+        var files = new List<NzbFile>
+        {
+            CreateFile("par@example.com", "\"release.par2\" yEnc"),
+            CreateFile("sfv@example.com", "\"checksum.sfv\" yEnc"),
+            CreateFile("rar@example.com", "\"part01.rar\" yEnc"),
+            CreateFile("rar2@example.com", "\"part02.rar\" yEnc"),
+        };
+
+        var ex = await Assert.ThrowsAsync<NonRetryableDownloadException>(() =>
+            FetchFirstSegmentsStep.FetchFirstSegments(files, client, config, CancellationToken.None));
+
+        Assert.Contains("part01.rar", ex.Message);
+        Assert.Equal(0, client.ArticleFetches);
+        // Unimportant files + the triggering rar are yielded; later rar must not be.
+        Assert.Equal(3, client.PipelinedResultsYielded);
+    }
+
+    [Fact]
+    public async Task FetchFirstSegments_PipelinedNonDefinitiveMiss_AbortsOnRescueImportant()
     {
         var config = CreatePipeliningConfig(enabled: true, depth: 4);
         using var client = new MissingPipelinedNntpClient(definitivelyMissing: false);
+        // More files than rescue concurrency (maxQueueConnections+5) so abort can skip the tail.
+        var files = Enumerable.Range(0, 20)
+            .Select(i => CreateFile($"{i}@example.com", $"\"part{i:D2}.rar\" yEnc"))
+            .ToList();
+
+        var ex = await Assert.ThrowsAsync<NonRetryableDownloadException>(() =>
+            FetchFirstSegmentsStep.FetchFirstSegments(files, client, config, CancellationToken.None));
+
+        Assert.Contains(".rar", ex.Message);
+        Assert.True(client.ArticleFetches >= 1);
+        Assert.True(client.ArticleFetches < files.Count);
+    }
+
+    [Fact]
+    public async Task FetchFirstSegments_ConcurrentImportantMissing_AbortsFurtherFetches()
+    {
+        var config = CreatePipeliningConfig(enabled: false, depth: 4);
+        // More files than concurrent fetch slots (maxQueueConnections+5) so abort can skip the tail.
+        var missingIds = Enumerable.Range(0, 20).Select(i => $"{i}@example.com").ToArray();
+        using var client = new TrackingArticleNntpClient(missingIds: missingIds);
+        var files = missingIds
+            .Select((id, i) => CreateFile(id, $"\"part{i:D2}.rar\" yEnc"))
+            .ToList();
+
+        var ex = await Assert.ThrowsAsync<NonRetryableDownloadException>(() =>
+            FetchFirstSegmentsStep.FetchFirstSegments(files, client, config, CancellationToken.None));
+
+        Assert.Contains(".rar", ex.Message);
+        Assert.True(client.RequestedSegmentIds.Count < files.Count);
+    }
+
+    [Fact]
+    public async Task FetchFirstSegments_ConcurrentUnimportantMissing_FetchesImportantAfter()
+    {
+        var config = CreatePipeliningConfig(enabled: false, depth: 4);
+        using var client = new TrackingArticleNntpClient(
+            missingIds: ["par@example.com"],
+            presentPayload: Encoding.ASCII.GetBytes(new string('x', 64)));
         var files = new List<NzbFile>
         {
-            CreateFile("a@example.com", "\"a.rar\" yEnc"),
-            CreateFile("b@example.com", "\"b.rar\" yEnc"),
+            CreateFile("par@example.com", "\"release.par2\" yEnc"),
+            CreateFile("rar@example.com", "\"movie.rar\" yEnc"),
         };
 
         var results = await FetchFirstSegmentsStep.FetchFirstSegments(
             files, client, config, CancellationToken.None);
 
         Assert.Equal(2, results.Count);
-        Assert.All(results, r => Assert.True(r.MissingFirstSegment));
-        Assert.True(client.ArticleFetches > 0);
+        Assert.True(results[0].MissingFirstSegment);
+        Assert.False(results[1].MissingFirstSegment);
+        Assert.Contains("par@example.com", client.RequestedSegmentIds);
+        Assert.Contains("rar@example.com", client.RequestedSegmentIds);
+    }
+
+    [Fact]
+    public async Task FetchFirstSegments_ConcurrentTransientError_DoesNotTreatAsMissing()
+    {
+        var config = CreatePipeliningConfig(enabled: false, depth: 4);
+        using var client = new TransientErrorNntpClient();
+        var files = new List<NzbFile>
+        {
+            CreateFile("a@example.com", "\"a.rar\" yEnc"),
+        };
+
+        var ex = await Assert.ThrowsAsync<IOException>(() =>
+            FetchFirstSegmentsStep.FetchFirstSegments(files, client, config, CancellationToken.None));
+
+        Assert.Equal("provider blip", ex.Message);
     }
 
     [Fact]
@@ -114,7 +194,7 @@ public class FetchFirstSegmentsStepTests
             new ConfigItem
             {
                 ConfigName = ConfigKeys.UsenetMaxQueueConnections,
-                ConfigValue = "5",
+                ConfigValue = "1",
             },
         ]);
         return config;
@@ -147,6 +227,7 @@ public class FetchFirstSegmentsStepTests
     private sealed class MissingPipelinedNntpClient(bool definitivelyMissing) : NntpClient
     {
         public int ArticleFetches { get; private set; }
+        public int PipelinedResultsYielded { get; private set; }
 
         public override async IAsyncEnumerable<PipelinedArticleResult> DecodedArticlesPipelinedAsync(
             IReadOnlyList<string> segmentIds,
@@ -155,6 +236,8 @@ public class FetchFirstSegmentsStepTests
         {
             foreach (var id in segmentIds)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                PipelinedResultsYielded++;
                 yield return new PipelinedArticleResult
                 {
                     SegmentId = id,
@@ -175,9 +258,148 @@ public class FetchFirstSegmentsStepTests
             Action<ArticleBodyResult>? onConnectionReadyAgain,
             CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ArticleFetches++;
             onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotFound);
             throw new UsenetArticleNotFoundException(segmentId.ToString());
+        }
+
+        public override Task ConnectAsync(
+            string host, int port, bool useSsl, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public override Task<UsenetResponse> AuthenticateAsync(
+            string user, string pass, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetStatResponse> StatAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetHeadResponse> HeadAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+            IReadOnlyList<SegmentId> segmentIds,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDateResponse> DateAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override void Dispose()
+        {
+        }
+    }
+
+    private sealed class TrackingArticleNntpClient(
+        IReadOnlyCollection<string> missingIds,
+        byte[]? presentPayload = null) : NntpClient
+    {
+        public HashSet<string> RequestedSegmentIds { get; } = new(StringComparer.Ordinal);
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            DecodedArticleAsync(segmentId, null, cancellationToken);
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var key = segmentId.ToString();
+            RequestedSegmentIds.Add(key);
+
+            if (missingIds.Contains(key))
+            {
+                onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotFound);
+                throw new UsenetArticleNotFoundException(key);
+            }
+
+            var payload = presentPayload ?? Encoding.ASCII.GetBytes(new string('x', 64));
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.Retrieved);
+            return Task.FromResult(new UsenetDecodedArticleResponse
+            {
+                SegmentId = key,
+                ResponseCode = (int)UsenetResponseType.ArticleRetrievedHeadAndBodyFollow,
+                ResponseMessage = "220 article",
+                Stream = CreateCachedStream(payload),
+                ArticleHeaders = new UsenetArticleHeader
+                {
+                    Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["Date"] = DateTimeOffset.UtcNow.ToString("R"),
+                    },
+                },
+            });
+        }
+
+        public override Task ConnectAsync(
+            string host, int port, bool useSsl, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public override Task<UsenetResponse> AuthenticateAsync(
+            string user, string pass, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetStatResponse> StatAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetHeadResponse> HeadAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+            IReadOnlyList<SegmentId> segmentIds,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDateResponse> DateAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override void Dispose()
+        {
+        }
+    }
+
+    private sealed class TransientErrorNntpClient : NntpClient
+    {
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            DecodedArticleAsync(segmentId, null, cancellationToken);
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken)
+        {
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved);
+            throw new IOException("provider blip");
         }
 
         public override Task ConnectAsync(

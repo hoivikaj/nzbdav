@@ -1,15 +1,14 @@
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Models.Nzb;
+using NzbWebDAV.Queue;
 using NzbWebDAV.Queue.DeobfuscationSteps._1.FetchFirstSegment;
 using NzbWebDAV.Queue.DeobfuscationSteps._3.GetFileInfos;
+using NzbWebDAV.Services;
 
 namespace NzbWebDAV.Tests.Queue;
 
 public class FailFastDeadNzbTests
 {
-    private static readonly HashSet<string> UnimportantExtensions =
-        [".par2", ".nfo", ".txt", ".sfv", ".nzb", ".srr"];
-
     [Fact]
     public void ImportantMissingFile_TriggersFailFastCondition()
     {
@@ -26,7 +25,7 @@ public class FailFastDeadNzbTests
 
         var missing = fileInfos
             .Where(x => segment.MissingFirstSegment && ReferenceEquals(x.NzbFile, nzbFile))
-            .Where(x => !UnimportantExtensions.Contains(Path.GetExtension(x.FileName).ToLowerInvariant()))
+            .Where(x => DeadNzbFailFast.IsImportantFileName(x.FileName))
             .ToList();
 
         Assert.Single(missing);
@@ -49,7 +48,7 @@ public class FailFastDeadNzbTests
 
         var missing = fileInfos
             .Where(x => segment.MissingFirstSegment)
-            .Where(x => !UnimportantExtensions.Contains(Path.GetExtension(x.FileName).ToLowerInvariant()))
+            .Where(x => DeadNzbFailFast.IsImportantFileName(x.FileName))
             .ToList();
 
         Assert.Empty(missing);
@@ -72,7 +71,7 @@ public class FailFastDeadNzbTests
 
         var missing = fileInfos
             .Where(x => segment.MissingFirstSegment)
-            .Where(x => !UnimportantExtensions.Contains(Path.GetExtension(x.FileName).ToLowerInvariant()))
+            .Where(x => DeadNzbFailFast.IsImportantFileName(x.FileName))
             .ToList();
 
         Assert.Single(missing);
@@ -84,5 +83,34 @@ public class FailFastDeadNzbTests
         var ex = new UsenetArticleNotFoundException("<seg@example.com>");
         Assert.IsAssignableFrom<NonRetryableDownloadException>(ex);
         Assert.Equal("<seg@example.com>", ex.SegmentId);
+    }
+
+    [Theory]
+    [InlineData("movie.rar", true)]
+    [InlineData("aB3xY9q", true)]
+    [InlineData("release.par2", false)]
+    [InlineData("checksum.sfv", false)]
+    [InlineData("info.nfo", false)]
+    public void IsImportantFileName_MatchesExclusionList(string fileName, bool expectedImportant)
+    {
+        Assert.Equal(expectedImportant, DeadNzbFailFast.IsImportantFileName(fileName));
+    }
+
+    [Fact]
+    public void FailMissingImportantFile_CachesSegmentAndThrowsNonRetryable()
+    {
+        var segmentId = $"cache-me-{Guid.NewGuid():N}@example.com";
+        var nzbFile = new NzbFile
+        {
+            Subject = "\"dead.rar\" yEnc (1/1)",
+            Segments = { new NzbSegment { MessageId = segmentId, Bytes = 100 } },
+        };
+
+        var ex = Assert.Throws<NonRetryableDownloadException>(() =>
+            DeadNzbFailFast.FailMissingImportantFile(nzbFile));
+
+        Assert.Contains("dead.rar", ex.Message);
+        Assert.Throws<UsenetArticleNotFoundException>(() =>
+            HealthCheckService.CheckCachedMissingSegmentIds([segmentId]));
     }
 }

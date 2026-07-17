@@ -30,10 +30,43 @@ public static class FetchFirstSegmentsStep
             return await FetchFirstSegmentsPipelined(
                 files, usenetClient, configManager, cancellationToken, progress).ConfigureAwait(false);
 
-        return await files
-            .Select(x => FetchFirstSegment(x, usenetClient, cancellationToken))
-            .WithConcurrencyAsync(Math.Min(configManager.GetMaxQueueConnections() + 5, 50))
-            .GetAllAsync(cancellationToken, progress).ConfigureAwait(false);
+        return await FetchFirstSegmentsConcurrent(
+            files, usenetClient, configManager, cancellationToken, progress).ConfigureAwait(false);
+    }
+
+    private static async Task<List<NzbFileWithFirstSegment>> FetchFirstSegmentsConcurrent
+    (
+        List<NzbFile> files,
+        INntpClient usenetClient,
+        ConfigManager configManager,
+        CancellationToken cancellationToken,
+        IProgress<int>? progress
+    )
+    {
+        using var abortCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var results = new List<NzbFileWithFirstSegment>(files.Count);
+        var completed = 0;
+
+        await foreach (var result in files
+                           .Select(x => FetchFirstSegment(x, usenetClient, abortCts.Token))
+                           .WithConcurrencyAsync(
+                               Math.Min(configManager.GetMaxQueueConnections() + 5, 50),
+                               abortCts.Token)
+                           .WithCancellation(abortCts.Token)
+                           .ConfigureAwait(false))
+        {
+            results.Add(result);
+            progress?.Report(++completed);
+
+            if (result.MissingFirstSegment && DeadNzbFailFast.IsImportantNzbFile(result.NzbFile))
+            {
+                Log.Warning("First segment for `{FileName}` missing across all providers",
+                    result.NzbFile.GetSubjectFileName());
+                AbortRemainingFirstSegmentChecks(result.NzbFile, abortCts);
+            }
+        }
+
+        return results;
     }
 
     private static async Task<List<NzbFileWithFirstSegment>> FetchFirstSegmentsPipelined
@@ -56,11 +89,13 @@ public static class FetchFirstSegmentsStep
                 indexBySegmentId.TryAdd(key, i);
         }
         var completed = 0;
+        NzbFile? abortFile = null;
+        using var abortCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         try
         {
-            await foreach (var article in usenetClient.DecodedArticlesPipelinedAsync(segmentIds, depth, cancellationToken)
-                               .WithCancellation(cancellationToken).ConfigureAwait(false))
+            await foreach (var article in usenetClient.DecodedArticlesPipelinedAsync(segmentIds, depth, abortCts.Token)
+                               .WithCancellation(abortCts.Token).ConfigureAwait(false))
             {
                 var key = NntpClient.NormalizeSegmentId(article.SegmentId);
                 if (key.Length == 0 || !indexBySegmentId.TryGetValue(key, out var i))
@@ -78,18 +113,26 @@ public static class FetchFirstSegmentsStep
 
                 if (article.Found && article.Stream != null)
                 {
-                    results[i] = await BuildFirstSegment(files[i], article.Stream, article.ArticleHeaders, cancellationToken)
+                    results[i] = await BuildFirstSegment(files[i], article.Stream, article.ArticleHeaders, abortCts.Token)
                         .ConfigureAwait(false);
                     progress?.Report(++completed);
                 }
                 else if (article.DefinitivelyMissing)
                 {
                     // The batch failover already tried every provider; a rescue pass would
-                    // just repeat the same misses. Record and move on.
+                    // just repeat the same misses. Record and move on — unless this is an
+                    // important file, in which case remaining checks cannot help.
                     Log.Warning("First segment for `{FileName}` missing across all providers",
                         files[i].GetSubjectFileName());
                     results[i] = BuildMissingFirstSegment(files[i]);
                     progress?.Report(++completed);
+
+                    if (DeadNzbFailFast.IsImportantNzbFile(files[i]))
+                    {
+                        abortFile = files[i];
+                        abortCts.Cancel();
+                        break;
+                    }
                 }
                 else if (article.Stream != null)
                 {
@@ -98,27 +141,51 @@ public static class FetchFirstSegmentsStep
                 }
             }
         }
+        catch (Exception e) when (e.IsCancellationException() && abortFile is not null)
+        {
+            // Expected when cancelling the pipeline after an important miss.
+        }
         catch (Exception e) when (!e.IsCancellationException())
         {
             Log.Debug($"Pipelined first-segment fetch aborted early ({e.Message}); " +
                       "falling back to per-article failover for the remainder.");
         }
 
+        if (abortFile is not null)
+            AbortRemainingFirstSegmentChecks(abortFile, abortCts: null);
+
         var pending = Enumerable.Range(0, files.Count).Where(i => results[i] is null).ToList();
         if (pending.Count > 0)
         {
-            var rescued = await pending
-                .Select(i => RescueFirstSegment(i, files[i], usenetClient, cancellationToken))
-                .WithConcurrencyAsync(Math.Min(configManager.GetMaxQueueConnections() + 5, 50))
-                .GetAllAsync(cancellationToken).ConfigureAwait(false);
-            foreach (var (i, result) in rescued)
+            using var rescueAbortCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            await foreach (var (i, result) in pending
+                               .Select(i => RescueFirstSegment(i, files[i], usenetClient, rescueAbortCts.Token))
+                               .WithConcurrencyAsync(
+                                   Math.Min(configManager.GetMaxQueueConnections() + 5, 50),
+                                   rescueAbortCts.Token)
+                               .WithCancellation(rescueAbortCts.Token)
+                               .ConfigureAwait(false))
             {
                 results[i] = result;
                 progress?.Report(++completed);
+
+                if (result.MissingFirstSegment && DeadNzbFailFast.IsImportantNzbFile(result.NzbFile))
+                    AbortRemainingFirstSegmentChecks(result.NzbFile, rescueAbortCts);
             }
         }
 
         return results.Select(x => x!).ToList();
+    }
+
+    private static void AbortRemainingFirstSegmentChecks(
+        NzbFile nzbFile,
+        CancellationTokenSource? abortCts)
+    {
+        Log.Warning(
+            "Aborting remaining first-segment checks after missing important file `{FileName}`",
+            nzbFile.GetSubjectFileName());
+        abortCts?.Cancel();
+        DeadNzbFailFast.FailMissingImportantFile(nzbFile);
     }
 
     private static async Task<(int index, NzbFileWithFirstSegment result)> RescueFirstSegment
