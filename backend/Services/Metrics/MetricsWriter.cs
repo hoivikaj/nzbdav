@@ -20,6 +20,9 @@ namespace NzbWebDAV.Services.Metrics;
 /// Drop policy: if a queue grows past MaxQueueLength (10 000) new entries are
 /// dropped to protect the process. Drops are counted on the public Stats so
 /// the dashboard can surface metric-system health.
+///
+/// Overview-stats reset uses <see cref="BeginReset"/> / <see cref="EndReset"/>
+/// so an in-flight flush cannot re-insert drained rows after the wipe.
 /// </summary>
 public class MetricsWriter : BackgroundService
 {
@@ -40,6 +43,11 @@ public class MetricsWriter : BackgroundService
     private long _lastFlushLagMs;
     private long _lastSuccessfulFlushAtMs;
     private string? _lastFlushError;
+
+    // Bumped by BeginReset. An in-flight FlushAsync that drained before the bump
+    // must abandon its batch (no write, no requeue) so wiped rows cannot return.
+    private int _resetGeneration;
+    private int _resetting;
 
     public MetricsWriter() : this(static () => new MetricsDbContext())
     {
@@ -63,6 +71,25 @@ public class MetricsWriter : BackgroundService
         LastSuccessfulFlushAtMs: Interlocked.Read(ref _lastSuccessfulFlushAtMs),
         LastFlushError: Volatile.Read(ref _lastFlushError)
     );
+
+    /// <summary>
+    /// Marks the start of an overview-stats reset. Increments the generation so
+    /// any in-flight flush abandons its drained batch, and pauses new flushes
+    /// until <see cref="EndReset"/>.
+    /// </summary>
+    public void BeginReset()
+    {
+        Interlocked.Increment(ref _resetGeneration);
+        Interlocked.Exchange(ref _resetting, 1);
+    }
+
+    /// <summary>
+    /// Ends an overview-stats reset and allows flushes to resume.
+    /// </summary>
+    public void EndReset()
+    {
+        Interlocked.Exchange(ref _resetting, 0);
+    }
 
     public void RecordFetch(SegmentFetch f)
     {
@@ -133,6 +160,12 @@ public class MetricsWriter : BackgroundService
         var deadline = DateTime.UtcNow + FlushInterval;
         while (DateTime.UtcNow < deadline)
         {
+            if (Volatile.Read(ref _resetting) != 0)
+            {
+                await Task.Delay(100, stoppingToken).ConfigureAwait(false);
+                continue;
+            }
+
             if (_fetches.Count >= FlushThreshold ||
                 _events.Count >= FlushThreshold ||
                 _sessions.Count >= FlushThreshold ||
@@ -144,11 +177,27 @@ public class MetricsWriter : BackgroundService
 
     private async Task FlushAsync()
     {
+        // While a reset is in progress, drain+drop so we never write or hold
+        // a batch that could race the wipe. Callers discard queues explicitly too.
+        if (Volatile.Read(ref _resetting) != 0)
+        {
+            Drain(_fetches);
+            Drain(_events);
+            Drain(_sessions);
+            Drain(_failoverMisses);
+            return;
+        }
+
+        var generation = Volatile.Read(ref _resetGeneration);
         var fetches = Drain(_fetches);
         var events = Drain(_events);
         var sessions = Drain(_sessions);
         var failoverMisses = Drain(_failoverMisses);
         if (fetches.Count == 0 && events.Count == 0 && sessions.Count == 0 && failoverMisses.Count == 0) return;
+
+        // BeginReset ran between the pause check and Drain — abandon.
+        if (Volatile.Read(ref _resetGeneration) != generation || Volatile.Read(ref _resetting) != 0)
+            return;
 
         var started = DateTime.UtcNow;
         try
@@ -161,6 +210,10 @@ public class MetricsWriter : BackgroundService
             if (sessions.Count > 0) db.ReadSessions.AddRange(sessions);
             if (failoverMisses.Count > 0) db.FailoverMisses.AddRange(failoverMisses);
 
+            // Reset began while we held the drained batch — roll back and drop it.
+            if (Volatile.Read(ref _resetGeneration) != generation || Volatile.Read(ref _resetting) != 0)
+                return;
+
             await db.SaveChangesAsync().ConfigureAwait(false);
             await tx.CommitAsync().ConfigureAwait(false);
 
@@ -171,10 +224,15 @@ public class MetricsWriter : BackgroundService
         }
         catch (Exception ex)
         {
-            Requeue(_fetches, fetches);
-            Requeue(_events, events);
-            Requeue(_sessions, sessions);
-            Requeue(_failoverMisses, failoverMisses);
+            // Only requeue if this flush still belongs to the current generation.
+            // A reset that started mid-flush must not resurrect wiped rows.
+            if (Volatile.Read(ref _resetGeneration) == generation && Volatile.Read(ref _resetting) == 0)
+            {
+                Requeue(_fetches, fetches);
+                Requeue(_events, events);
+                Requeue(_sessions, sessions);
+                Requeue(_failoverMisses, failoverMisses);
+            }
             Interlocked.Exchange(ref _lastFlushError, ex.GetBaseException().Message);
             throw;
         }

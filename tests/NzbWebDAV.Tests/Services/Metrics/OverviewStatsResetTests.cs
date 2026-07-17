@@ -192,7 +192,7 @@ public class OverviewStatsResetTests
     }
 
     [Fact]
-    public void FoldUsageIntoOffsets_FoldsTrackerAndOffset()
+    public void FoldUsageIntoOffsets_FoldsSnapshotAndOffset()
     {
         var providerId = Guid.NewGuid();
         var key = UsenetProviderIdentity.MetricsKey(providerId);
@@ -206,7 +206,10 @@ public class OverviewStatsResetTests
             ],
         };
 
-        var changed = OverviewStatsReset.FoldUsageIntoOffsets(config, tracker, nowMs: 99);
+        var snapshot = OverviewStatsReset.SnapshotUsage(config, tracker);
+        tracker.ResetCounters(); // fold must use the snapshot, not the cleared tracker
+
+        var changed = OverviewStatsReset.FoldUsageIntoOffsets(config, snapshot, nowMs: 99);
 
         Assert.True(changed);
         Assert.Equal(1_250, config.Providers[0].BytesUsedOffset);
@@ -232,7 +235,8 @@ public class OverviewStatsResetTests
             ],
         };
 
-        var changed = OverviewStatsReset.FoldUsageIntoOffsets(config, tracker, nowMs: 50, providerKey: aKey);
+        var snapshot = OverviewStatsReset.SnapshotUsage(config, tracker, providerKey: aKey);
+        var changed = OverviewStatsReset.FoldUsageIntoOffsets(config, snapshot, nowMs: 50, providerKey: aKey);
 
         Assert.True(changed);
         Assert.Equal(100, config.Providers[0].BytesUsedOffset);
@@ -253,7 +257,9 @@ public class OverviewStatsResetTests
             ],
         };
 
-        Assert.False(OverviewStatsReset.FoldUsageIntoOffsets(config, tracker, nowMs: 1));
+        var emptySnapshot = OverviewStatsReset.SnapshotUsage(config, tracker);
+        Assert.Empty(emptySnapshot);
+        Assert.False(OverviewStatsReset.FoldUsageIntoOffsets(config, emptySnapshot, nowMs: 1));
 
         var providerId = Guid.NewGuid();
         config = new UsenetProviderConfig
@@ -263,7 +269,8 @@ public class OverviewStatsResetTests
                 MakeProvider(providerId, bytesUsedOffset: 0, bytesUsedResetAt: 42),
             ],
         };
-        Assert.False(OverviewStatsReset.FoldUsageIntoOffsets(config, tracker, nowMs: 42));
+        var snapshot = OverviewStatsReset.SnapshotUsage(config, tracker);
+        Assert.False(OverviewStatsReset.FoldUsageIntoOffsets(config, snapshot, nowMs: 42));
     }
 
     [Fact]
@@ -385,6 +392,102 @@ public class OverviewStatsResetTests
         }
     }
 
+    [Fact]
+    public async Task MetricsWriter_BeginReset_DropsQueuedWithoutWriting()
+    {
+        await using var harness = await MetricsHarness.CreateAsync();
+        var writer = new MetricsWriter(harness.CreateContext);
+        writer.RecordFetch(new SegmentFetch
+        {
+            At = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Provider = "a",
+            Status = SegmentFetch.FetchStatus.Ok,
+        });
+
+        writer.BeginReset();
+        try
+        {
+            await writer.FlushNowAsync();
+            Assert.Equal(0, writer.Stats.QueuedFetches);
+            await using var check = harness.CreateContext();
+            Assert.Equal(0, await check.SegmentFetches.CountAsync());
+        }
+        finally
+        {
+            writer.EndReset();
+        }
+    }
+
+    [Fact]
+    public async Task MetricsWriter_BeginReset_AbandonsFailedFlushBatchWithoutRequeue()
+    {
+        var flushEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowFail = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callCount = 0;
+
+        var writer = new MetricsWriter(() =>
+        {
+            if (Interlocked.Increment(ref callCount) == 1)
+            {
+                flushEntered.TrySetResult();
+                allowFail.Task.GetAwaiter().GetResult();
+                throw new InvalidOperationException("simulated flush failure during reset");
+            }
+
+            throw new InvalidOperationException("unexpected second context create");
+        });
+
+        writer.RecordFetch(new SegmentFetch
+        {
+            At = 1,
+            Provider = "a",
+            Status = SegmentFetch.FetchStatus.Ok,
+        });
+
+        // FlushNowAsync invokes the context factory synchronously before the first
+        // await, so run it off-thread or the test would deadlock on allowFail.
+        var flushTask = Task.Run(() => writer.FlushNowAsync());
+        await flushEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        writer.BeginReset();
+        allowFail.TrySetResult();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => flushTask);
+        Assert.Equal(0, writer.Stats.QueuedFetches);
+
+        writer.DiscardQueuedAndResetStats();
+        writer.EndReset();
+    }
+
+    [Fact]
+    public async Task MetricsWriter_EndReset_AllowsFlushToResume()
+    {
+        await using var harness = await MetricsHarness.CreateAsync();
+        var writer = new MetricsWriter(harness.CreateContext);
+
+        writer.BeginReset();
+        writer.RecordFetch(new SegmentFetch
+        {
+            At = 1,
+            Provider = "a",
+            Status = SegmentFetch.FetchStatus.Ok,
+        });
+        await writer.FlushNowAsync(); // drops while resetting
+        Assert.Equal(0, writer.Stats.QueuedFetches);
+        writer.EndReset();
+
+        writer.RecordFetch(new SegmentFetch
+        {
+            At = 2,
+            Provider = "a",
+            Status = SegmentFetch.FetchStatus.Ok,
+        });
+        await writer.FlushNowAsync();
+
+        await using var check = harness.CreateContext();
+        Assert.Equal(1, await check.SegmentFetches.CountAsync());
+        Assert.Equal(2, (await check.SegmentFetches.SingleAsync()).At);
+    }
+
     private static UsenetProviderConfig.ConnectionDetails MakeProvider(
         Guid providerId,
         long bytesUsedOffset = 0,
@@ -418,6 +521,8 @@ public class OverviewStatsResetTests
         }
 
         public MetricsDbContext Context { get; }
+
+        public MetricsDbContext CreateContext() => new(_options);
 
         public static async Task<MetricsHarness> CreateAsync()
         {

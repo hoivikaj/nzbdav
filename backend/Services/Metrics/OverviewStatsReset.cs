@@ -18,22 +18,44 @@ public static class OverviewStatsReset
     internal static int SegmentFetchDeleteBatchSize { get; set; } = 50_000;
 
     /// <summary>
-    /// Preserves the per-provider data-cap gauge across the wipe:
-    /// gauge = live tracker bytes + BytesUsedOffset, so folding the current
-    /// usage into the offset keeps the displayed value stable once the
-    /// tracker and ProviderHourly are zeroed. When providerKey is given,
-    /// only matching config entries are folded. Returns true when any
-    /// provider changed.
+    /// Captures the current user-facing usage (tracker lifetime + offset) for
+    /// each provider before the tracker is cleared. Keys are metrics keys.
+    /// </summary>
+    public static Dictionary<string, long> SnapshotUsage(
+        UsenetProviderConfig config, ProviderBytesTracker tracker, string? providerKey = null)
+    {
+        var snapshot = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var provider in config.Providers)
+        {
+            if (provider.ProviderId == Guid.Empty) continue;
+            var key = UsenetProviderIdentity.MetricsKey(provider);
+            if (providerKey != null && key != providerKey) continue;
+            snapshot[key] = ProviderUsageHelper.ComputeUsage(tracker, provider);
+        }
+        return snapshot;
+    }
+
+    /// <summary>
+    /// Preserves the per-provider data-cap gauge across the wipe by writing a
+    /// pre-captured usage snapshot into BytesUsedOffset. Call this after the
+    /// tracker has been cleared so SeedTrackerAsync cannot double-count.
+    /// When providerKey is given, only matching config entries are folded.
+    /// Returns true when any provider changed.
     /// </summary>
     public static bool FoldUsageIntoOffsets(
-        UsenetProviderConfig config, ProviderBytesTracker tracker, long nowMs, string? providerKey = null)
+        UsenetProviderConfig config,
+        IReadOnlyDictionary<string, long> usageByMetricsKey,
+        long nowMs,
+        string? providerKey = null)
     {
         var changed = false;
         foreach (var provider in config.Providers)
         {
             if (provider.ProviderId == Guid.Empty) continue;
-            if (providerKey != null && UsenetProviderIdentity.MetricsKey(provider) != providerKey) continue;
-            var usage = ProviderUsageHelper.ComputeUsage(tracker, provider);
+            var key = UsenetProviderIdentity.MetricsKey(provider);
+            if (providerKey != null && key != providerKey) continue;
+            if (!usageByMetricsKey.TryGetValue(key, out var usage))
+                usage = provider.BytesUsedOffset;
             if (usage == provider.BytesUsedOffset && provider.BytesUsedResetAt == nowMs) continue;
             provider.BytesUsedOffset = usage;
             provider.BytesUsedResetAt = nowMs;
