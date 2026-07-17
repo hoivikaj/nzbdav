@@ -159,6 +159,7 @@ class Program
                 .AddSingleton(logBufferSink)
                 .AddSingleton(streamTraceBuffer)
                 .AddSingleton<BenchmarkGate>()
+                .AddSingleton<NzbWebDAV.Services.Benchmark.BenchmarkRunControl>()
                 .AddHostedService<LogBroadcaster>()
                 .AddSingleton<ActiveReadRegistry>()
                 .AddSingleton<ProviderUsageTracker>(sp =>

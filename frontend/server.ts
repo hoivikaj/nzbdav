@@ -108,6 +108,11 @@ if (DEVELOPMENT) {
 
 // Create both the http and websocket servers
 const server = http.createServer(app);
+// Allow long-lived proxied API calls (Usenet speed tests can run for many
+// minutes on large data budgets). Node defaults are 5 minutes / 60s headers.
+const LONG_RUNNING_REQUEST_TIMEOUT_MS = 3 * 60 * 60 * 1000; // 3 hours
+server.requestTimeout = LONG_RUNNING_REQUEST_TIMEOUT_MS;
+server.headersTimeout = LONG_RUNNING_REQUEST_TIMEOUT_MS + 1000;
 setWebsocketServer(new WebSocketServer({ server, maxPayload: 64 * 1024 }));
 
 // Begin listening for connections

@@ -27,8 +27,28 @@ public class BenchmarkUsenetConnectionRequest
     /// <summary>When set, skip the sweep and just measure this single connection count.</summary>
     public int? VerifyConnections { get; init; }
 
+    /// <summary>When true, cancel the in-flight speed test instead of starting a new one.</summary>
+    public bool Cancel { get; init; }
+
     public BenchmarkUsenetConnectionRequest(HttpContext context, ConfigManager configManager)
     {
+        Cancel = string.Equals(
+            context.Request.Form["cancel"].FirstOrDefault(),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+        if (Cancel)
+        {
+            // Cancel requests only need the flag — skip credential validation.
+            Host = "";
+            User = "";
+            Pass = "";
+            Port = 0;
+            UseSsl = false;
+            MaxConnections = 1;
+            Intensity = BenchmarkIntensity.Quick;
+            return;
+        }
+
         Host = context.Request.Form["host"].FirstOrDefault()
                ?? throw new BadHttpRequestException("Usenet host is required");
 

@@ -12,6 +12,7 @@ namespace NzbWebDAV.Api.Controllers.BenchmarkUsenetConnection;
 public class BenchmarkUsenetConnectionController(
     UsenetBenchmarkService benchmarkService,
     BenchmarkGate benchmarkGate,
+    BenchmarkRunControl runControl,
     ActiveReadRegistry activeReads,
     QueueManager queueManager,
     ConfigManager configManager
@@ -23,12 +24,23 @@ public class BenchmarkUsenetConnectionController(
 
     private async Task<BenchmarkUsenetConnectionResponse> BenchmarkAsync(BenchmarkUsenetConnectionRequest request)
     {
+        if (request.Cancel)
+        {
+            runControl.Cancel();
+            return new BenchmarkUsenetConnectionResponse { Status = true };
+        }
+
         if (!await SingleFlight.WaitAsync(TimeSpan.Zero).ConfigureAwait(false))
             return new BenchmarkUsenetConnectionResponse
             {
                 Status = false,
                 Error = "A speed test is already running. Wait for it to finish (or cancel it) and try again."
             };
+
+        // Do not link to HttpContext.RequestAborted: intermediaries often drop the
+        // long-lived POST (~30s TTFB/idle) while the UI is still watching websocket
+        // progress. Only an explicit cancel (Cancel button / modal close) aborts.
+        var ct = runControl.Begin();
 
         try
         {
@@ -49,7 +61,7 @@ public class BenchmarkUsenetConnectionController(
                 request.PipeliningOnly,
                 request.DataBudgetBytes,
                 request.VerifyConnections,
-                HttpContext.RequestAborted
+                ct
             ).ConfigureAwait(false);
 
             var streamsAfter = activeReads.Count;
@@ -63,20 +75,32 @@ public class BenchmarkUsenetConnectionController(
 
             return new BenchmarkUsenetConnectionResponse { Status = true, Result = result };
         }
-        catch (CouldNotConnectToUsenetException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             return new BenchmarkUsenetConnectionResponse
             {
                 Status = false,
-                Error = "Couldn't connect to the provider. Check the host, port and SSL settings."
+                Error = "Speed test cancelled."
+            };
+        }
+        catch (CouldNotConnectToUsenetException)
+        {
+            const string error = "Couldn't connect to the provider. Check the host, port and SSL settings.";
+            benchmarkService.ReportFailure(error);
+            return new BenchmarkUsenetConnectionResponse
+            {
+                Status = false,
+                Error = error
             };
         }
         catch (CouldNotLoginToUsenetException)
         {
+            const string error = "Couldn't log in to the provider. Check the username and password.";
+            benchmarkService.ReportFailure(error);
             return new BenchmarkUsenetConnectionResponse
             {
                 Status = false,
-                Error = "Couldn't log in to the provider. Check the username and password."
+                Error = error
             };
         }
         finally
