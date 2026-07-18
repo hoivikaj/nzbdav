@@ -78,6 +78,7 @@ const defaultConfig = {
     "play.max-attempts": "10",
     "play.verify-mode": "none",
     "play.candidate-negative-cache-minutes": "5",
+    "play.resolution-cache-ttl-hours": "168",
     "play.prefer-subtitles": "true",
     "grab.stall-failover-enabled": "true",
     "grab.stall-failover-window-seconds": "2",
