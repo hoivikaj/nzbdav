@@ -96,6 +96,8 @@ public class ActiveReadsBroadcaster(
                 bytesRead = Interlocked.Read(ref e.BytesRead),
                 currentOffset = Interlocked.Read(ref e.CurrentOffset),
                 fileSize = e.FileSize,
+                clientIp = e.ClientIp,
+                clientUserAgent = e.ClientUserAgent,
                 providers = (usage.GetValueOrDefault(e.Id) ?? new Dictionary<string, long>())
                     .Select(kv =>
                     {

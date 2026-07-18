@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import styles from "./live-reads-panel.module.css";
 import type { ActiveRead, ActiveReadsMessage } from "~/clients/backend-client.server";
 import { formatBytes } from "../../utils/format";
+import { clientIdentityTooltip, clientLabelFromUserAgent } from "~/utils/client-label";
 import { useWebsocketTopic } from "~/utils/shared-websocket";
 
 const TOPIC_ACTIVE_READS = "ar";
@@ -69,6 +70,15 @@ export function LiveReadsPanel() {
                             >
                                 <div className="truncate text-sm font-medium text-base-content" title={r.path}>
                                     {r.fileName || lastSegment(r.path)}
+                                </div>
+                                <div
+                                    className="truncate text-xs text-base-content/50"
+                                    title={clientIdentityTooltip(r.clientUserAgent, r.clientIp)}
+                                >
+                                    {clientLabelFromUserAgent(r.clientUserAgent)}
+                                    {r.clientIp ? (
+                                        <span className="font-mono text-base-content/40"> · {r.clientIp}</span>
+                                    ) : null}
                                 </div>
                                 <button
                                     type="button"

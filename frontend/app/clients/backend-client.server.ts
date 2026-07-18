@@ -744,6 +744,8 @@ export type ActiveRead = {
     bytesRead: number,
     currentOffset: number,
     fileSize: number | null,
+    clientIp?: string | null,
+    clientUserAgent?: string | null,
     providers: { host: string, nickname?: string | null, segments: number }[],
 }
 

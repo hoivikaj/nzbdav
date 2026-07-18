@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useWebsocketTopic } from "~/utils/shared-websocket";
+import { clientIdentityTooltip, clientLabelFromUserAgent } from "~/utils/client-label";
 import { Icon } from "~/components/ui";
 
 type ProviderUsage = { host: string; nickname?: string | null; segments: number };
@@ -11,6 +12,8 @@ type Read = {
     lastActivityAt: number;
     bytesRead: number;
     fileSize: number | null;
+    clientIp?: string | null;
+    clientUserAgent?: string | null;
     providers: ProviderUsage[];
 };
 type Snapshot = { reads: Read[] };
@@ -49,7 +52,7 @@ export function LiveReads() {
     return (
         <section className="rounded-box border border-base-content/10 bg-base-200 p-3">
             <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">
-                <Icon name="play_circle" className="!text-[16px]" />
+                <Icon name="download" className="!text-[16px]" />
                 Active Reads
             </div>
             <div className="flex flex-col gap-2">
@@ -61,9 +64,16 @@ export function LiveReads() {
 
 function ReadRow({ item }: { item: Read }) {
     const totalSegments = item.providers.reduce((acc, p) => acc + p.segments, 0);
+    const clientLabel = clientLabelFromUserAgent(item.clientUserAgent);
     return (
         <div className="flex flex-col gap-0.5 text-[11px] leading-snug" title={item.fileName}>
             <div className="truncate text-base-content">{shortName(item.fileName)}</div>
+            <div
+                className="truncate text-base-content/50"
+                title={clientIdentityTooltip(item.clientUserAgent, item.clientIp)}
+            >
+                {clientLabel}
+            </div>
             <div className="flex flex-wrap items-center gap-x-1 text-base-content/50">
                 {item.providers.length === 0
                     ? <span className="italic text-base-content/40">buffering…</span>

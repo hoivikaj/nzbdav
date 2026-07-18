@@ -70,6 +70,10 @@ Ports: UI `5173` → proxies WebDAV + `/api` → backend `5000`.
 
 While a file is playing, Overview → **Right now** shows a truncated session id (click to copy). After seeking/scrubbing:
 
+!!! tip "Active Reads"
+
+    Overview **Active Reads / Right now** lists any WebDAV byte fetch (not only playback). Sustained high bandwidth with nothing watching usually means rclone VFS/cache thrash or media-server analysis.
+
 ```bash
 # Latest active/recent session (or pass an explicit session id)
 ./scripts/dump-stream-trace.sh

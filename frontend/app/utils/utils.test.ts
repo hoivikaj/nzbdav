@@ -1,9 +1,46 @@
 import { describe, expect, it, vi } from "vitest";
+import { clientIdentityTooltip, clientLabelFromUserAgent } from "./client-label";
 import { isMaskedSecret } from "./config-mask";
 import { formatFileSize } from "./file-size";
 import { getExploreContentLink, getLeafDirectoryName, parseExploreWebdavPath } from "./path";
 import { className, classNames } from "./styling";
 import { receiveMessage } from "./websocket-util";
+
+describe("clientLabelFromUserAgent", () => {
+  it.each([
+    [undefined, "Unknown"],
+    [null, "Unknown"],
+    ["", "Unknown"],
+    ["  ", "Unknown"],
+    ["rclone/1.68.0", "rclone"],
+    ["Mozilla/5.0 PlexMediaServer/1.40", "Plex"],
+    ["EmbyServer/4.8", "Emby"],
+    ["Jellyfin-Server/10.9", "Jellyfin"],
+    ["Infuse-Direct/7.0", "Infuse"],
+    ["VLC/3.0.20 LibVLC/3.0.20", "VLC"],
+    ["Kodi/21.0", "Kodi"],
+  ])("maps %s to %s", (ua, expected) => {
+    expect(clientLabelFromUserAgent(ua)).toBe(expected);
+  });
+
+  it("truncates unknown long user agents", () => {
+    const ua = "SomeCustomClient/1.2.3 (very-long-build-id-abcdefghijklmnop)";
+    const label = clientLabelFromUserAgent(ua);
+    expect(label.length).toBe(28);
+    expect(label.endsWith("…")).toBe(true);
+    expect(label.startsWith("SomeCustomClient")).toBe(true);
+  });
+});
+
+describe("clientIdentityTooltip", () => {
+  it("joins UA and IP when both present", () => {
+    expect(clientIdentityTooltip("rclone/1.68", "10.0.0.5")).toBe("rclone/1.68 · 10.0.0.5");
+  });
+
+  it("returns undefined when neither is present", () => {
+    expect(clientIdentityTooltip(null, undefined)).toBeUndefined();
+  });
+});
 
 describe("formatFileSize", () => {
   it.each([

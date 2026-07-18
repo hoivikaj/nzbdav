@@ -164,6 +164,10 @@ Set your username and password.
 | WebDAV Password | Create a password (required for Rclone, AIOStreams, and other WebDAV clients) |
 | Enforce Read-Only | Leave checked, unless you'd like to delete files from a terminal |
 
+!!! tip "Active Reads"
+
+    Overview **Active Reads / Right now** lists any WebDAV byte fetch (not only playback). Sustained high bandwidth with nothing watching usually means rclone VFS/cache thrash or media-server analysis.
+
 ### 3. Choose an import strategy
 
 Go to `Settings` → `SABnzbd` → `Import Strategy`:
