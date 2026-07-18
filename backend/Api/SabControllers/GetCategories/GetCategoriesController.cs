@@ -1,11 +1,6 @@
-﻿using System.Text.Json;
-using System.Text.Json.Nodes;
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NzbWebDAV.Config;
-using NzbWebDAV.Database.Models;
-using NzbWebDAV.Extensions;
-using NzbWebDAV.Utils;
 
 namespace NzbWebDAV.Api.SabControllers.GetCategories;
 
@@ -14,10 +9,18 @@ public class GetCategoriesController(
     ConfigManager configManager
 ) : SabApiController.BaseController(httpContext, configManager)
 {
-    protected override async Task<IActionResult> Handle()
+    protected override Task<IActionResult> Handle()
     {
-        var categories = configManager.GetApiCategories();
+        var categories = BuildCategories(configManager);
         var response = new { categories };
-        return Ok(response);
+        return Task.FromResult<IActionResult>(Ok(response));
+    }
+
+    internal static List<string> BuildCategories(ConfigManager configManager)
+    {
+        return configManager.GetApiCategories()
+            .Where(category => category != "*")
+            .Prepend("*")
+            .ToList();
     }
 }

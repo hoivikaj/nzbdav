@@ -19,7 +19,7 @@ public class GetHistoryRequest
         var limitParam = context.GetRequestParam("limit");
         var pageSizeParam = context.GetRequestParam("pageSize");
         var nzoIdsParam = context.GetRequestParam("nzo_ids");
-        Category = context.GetRequestParam("category");
+        Category = SabCategoryResolver.GetCategory(context, configManager);
         CancellationToken = context.RequestAborted;
 
         if (startParam is not null)

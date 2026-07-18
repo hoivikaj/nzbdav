@@ -91,7 +91,7 @@ public class GetQueueController(
 
     protected override async Task<IActionResult> Handle()
     {
-        var request = new GetQueueRequest(httpContext);
+        var request = new GetQueueRequest(httpContext, configManager);
         return Ok(await GetQueueAsync(request).ConfigureAwait(false));
     }
 }

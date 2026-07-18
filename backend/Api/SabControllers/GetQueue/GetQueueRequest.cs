@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Http;
+using NzbWebDAV.Config;
 using NzbWebDAV.Extensions;
 
 namespace NzbWebDAV.Api.SabControllers.GetQueue;
@@ -11,11 +12,11 @@ public class GetQueueRequest
     public CancellationToken CancellationToken { get; init; }
 
 
-    public GetQueueRequest(HttpContext context)
+    public GetQueueRequest(HttpContext context, ConfigManager configManager)
     {
         var startParam = context.GetRequestParam("start");
         var limitParam = context.GetRequestParam("limit");
-        Category = context.GetRequestParam("category");
+        Category = SabCategoryResolver.GetCategory(context, configManager);
         CancellationToken = context.RequestAborted;
 
         if (startParam is not null)
