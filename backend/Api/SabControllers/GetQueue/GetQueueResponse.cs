@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using NzbWebDAV.Database.Models;
 
@@ -73,6 +74,7 @@ public class GetQueueResponse : SabBaseResponse
             IReadOnlyDictionary<string, (string Host, string? Nickname)>? displayByMetricsKey = null
         )
         {
+            var sabProgressPercentage = Math.Clamp(progressPercentage, 0, 100);
             return new QueueSlot
             {
                 Index = index,
@@ -80,12 +82,13 @@ public class GetQueueResponse : SabBaseResponse
                 Priority = queueItem.Priority.ToString(),
                 Filename = queueItem.FileName,
                 Category = queueItem.Category,
-                Percentage = (progressPercentage % 100).ToString(),
-                TruePercentage = progressPercentage.ToString(),
+                Percentage = sabProgressPercentage.ToString(CultureInfo.InvariantCulture),
+                TruePercentage = progressPercentage.ToString(CultureInfo.InvariantCulture),
                 Status = status,
                 TimeLeft = TimeSpan.Zero,
                 SizeInMB = FormatSizeMB(queueItem.TotalSegmentBytes),
-                SizeLeftInMB = FormatSizeMB((100 - progressPercentage) * queueItem.TotalSegmentBytes / 100),
+                SizeLeftInMB = FormatSizeMB(
+                    (100 - sabProgressPercentage) * queueItem.TotalSegmentBytes / 100),
                 Indexer = queueItem.IndexerName,
                 Providers = providerUsage is { Count: > 0 }
                     ? providerUsage
@@ -115,7 +118,7 @@ public class GetQueueResponse : SabBaseResponse
         private static string FormatSizeMB(long bytes)
         {
             var megabytes = bytes / (1024.0 * 1024.0);
-            return megabytes.ToString("0.00");
+            return megabytes.ToString("0.00", CultureInfo.InvariantCulture);
         }
     }
 
