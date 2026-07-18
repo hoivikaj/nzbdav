@@ -31,8 +31,7 @@ public class LazyRarProcessor(
     private const double YencDecodeRatio = 0.95;
 
     // We dropped the explicit "must be a single-file archive" check because
-    // detecting it required walking past the first file header — which is
-    // the slow seek that dominates first-volume parse cost. This sanity
+    // detecting it required walking past the first file header. This sanity
     // check replaces it: if the matched file isn't large enough to span
     // most of the NZB, it's likely a companion file (.nfo, sample, etc.)
     // sitting in front of the actual video inside a multi-file archive,
@@ -53,10 +52,8 @@ public class LazyRarProcessor(
         {
             await using var firstStream = usenetClient.GetFileStream(
                 firstInfo.NzbFile, firstFileSize, articleBufferSize: 0);
-            // Stop as soon as the first file header lands. Walking further
-            // forces SharpCompress to seek past the file data, which on
-            // NzbFileStream triggers InterpolationSearch (~7 STAT calls)
-            // and was the dominant cost of first-volume parse.
+            // Stop as soon as the first file header lands. NzbDav.SharpCompress
+            // deferred data-skip means this does not seek past packed payload.
             headers = await RarUtil.ReadHeadersUntilFirstFileAsync(firstStream, password, ct)
                 .ConfigureAwait(false);
         }
@@ -68,42 +65,42 @@ public class LazyRarProcessor(
             return null;
         }
 
-        var archiveHeader = headers.FirstOrDefault(h => h.HeaderType == HeaderType.Archive);
+        var archiveHeader = headers.OfType<IRarArchiveHeader>().FirstOrDefault();
         if (archiveHeader is null)
         {
             Log.Information("LazyRarProcessor: no archive header in {File}, falling back to eager",
                 firstInfo.FileName);
             return null;
         }
-        if (!archiveHeader.GetIsFirstVolume())
+        if (!archiveHeader.IsFirstVolume)
         {
             Log.Information("LazyRarProcessor: {File} is not the first volume, falling back to eager",
                 firstInfo.FileName);
             return null;
         }
 
-        var fileHeader = headers.LastOrDefault(h => h.HeaderType == HeaderType.File && !h.IsDirectory());
+        var fileHeader = headers.OfType<IRarFileHeader>().LastOrDefault(h => !h.IsDirectory);
         if (fileHeader is null)
         {
             Log.Information("LazyRarProcessor: no file header in {File}, falling back to eager",
                 firstInfo.FileName);
             return null;
         }
-        if (fileHeader.GetCompressionMethod() != 0)
+        if (!fileHeader.IsStored)
         {
             Log.Information("LazyRarProcessor: {File} uses compression, falling back to eager",
                 firstInfo.FileName);
             return null;
         }
-        if (fileHeader.GetIsSolid())
+        if (fileHeader.IsSolid)
         {
             Log.Information("LazyRarProcessor: {File} is solid, falling back to eager", firstInfo.FileName);
             return null;
         }
 
-        var pathInArchive = fileHeader.GetFileName();
+        var pathInArchive = fileHeader.FileName;
         var aesParams = fileHeader.GetAesParams(password);
-        var totalFileSize = aesParams?.DecodedSize ?? fileHeader.GetUncompressedSize();
+        var totalFileSize = aesParams?.DecodedSize ?? fileHeader.UncompressedSize;
 
         // Inner-file-vs-NZB-size sanity check (replaces the dropped
         // multi-file count check). Only compares when we have PAR2 sizes
@@ -122,8 +119,8 @@ public class LazyRarProcessor(
         }
 
         var firstPartByteRange = LongRange.FromStartAndSize(
-            fileHeader.GetDataStartPosition(),
-            fileHeader.GetAdditionalDataSize()
+            fileHeader.DataStartPosition,
+            fileHeader.AdditionalDataSize
         );
 
         var firstPart = new DavMultipartFile.FilePart
@@ -141,10 +138,9 @@ public class LazyRarProcessor(
         for (var i = 0; i < trailingInfos.Count; i++)
         {
             var partInfo = trailingInfos[i];
-            // Stream length must be an upper bound: SharpCompress seekable
-            // header parsing seeks to dataStart+packedSize before yielding
-            // the file header. Encoded size is always >= decoded size, so
-            // use it (not *0.95) when PAR2 FileSize is unavailable.
+            // Stream length should still be an upper bound for defensive
+            // measure-and-retry in LazyRarResolver. Encoded size is always
+            // >= decoded size, so use it (not *0.95) when PAR2 FileSize is unavailable.
             var streamLength = partInfo.FileSize ?? partInfo.NzbFile.GetTotalYencodedSize();
             var estimateSource = partInfo.FileSize
                 ?? (long)(partInfo.NzbFile.GetTotalYencodedSize() * YencDecodeRatio);

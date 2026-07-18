@@ -184,23 +184,20 @@ public class LazyRarResolver(INntpClient usenetClient, ConfigManager configManag
         await using var stream = OpenVolumeStream(
             pending.SegmentIds, fileSize, pending.SegmentFallbackIds);
 
-        // Find-and-stop so SharpCompress never seeks past the matched header.
-        // The seek would force NzbFileStream to fire InterpolationSearch
-        // (~7 STAT calls), which is the main reason naïve full-walk
-        // resolution stalls playback at every volume boundary.
-        // Note: seekable SharpCompress still seeks past the matched file's
-        // packed data before yielding the header, so fileSize must be at
-        // least dataStart + packedSize.
+        // Find-and-stop after the matching header. With NzbDav.SharpCompress
+        // deferred data-skip, this no longer seeks past packed payload on
+        // NzbFileStream (which previously triggered InterpolationSearch).
+        // Measure-and-retry for understated Length remains as defense in depth.
         var match = await RarUtil.FindFirstFileHeaderAsync(
             stream,
             password,
-            h => h.GetFileName() == pathInArchive,
+            h => h.FileName == pathInArchive,
             ct).ConfigureAwait(false)
             ?? throw new CorruptRarException(
                 $"Lazy RAR resolution: continuation header for '{pathInArchive}' not found in trailing volume.");
 
-        var dataStart = match.GetDataStartPosition();
-        var dataSize = match.GetAdditionalDataSize();
+        var dataStart = match.DataStartPosition;
+        var dataSize = match.AdditionalDataSize;
         return new DavMultipartFile.FilePart
         {
             SegmentIds = pending.SegmentIds,

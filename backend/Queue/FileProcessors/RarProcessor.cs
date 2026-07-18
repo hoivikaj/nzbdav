@@ -26,20 +26,20 @@ public class RarProcessor(
         return new Result()
         {
             StoredFileSegments = headers
-                .Where(x => x.HeaderType == HeaderType.File)
+                .OfType<IRarFileHeader>()
                 .Select(x => new StoredFileSegment()
                 {
                     NzbFile = fileInfo.NzbFile,
                     PartSize = stream.Length,
                     ArchiveName = archiveName,
                     PartNumber = partNumber,
-                    PathWithinArchive = x.GetFileName(),
+                    PathWithinArchive = x.FileName,
                     ByteRangeWithinPart = LongRange.FromStartAndSize(
-                        x.GetDataStartPosition(),
-                        x.GetAdditionalDataSize()
+                        x.DataStartPosition,
+                        x.AdditionalDataSize
                     ),
                     AesParams = x.GetAesParams(password),
-                    FileUncompressedSize = x.GetUncompressedSize(),
+                    FileUncompressedSize = x.UncompressedSize,
                     ReleaseDate = fileInfo.ReleaseDate,
                 }).ToArray(),
         };
@@ -69,17 +69,13 @@ public class RarProcessor(
 
     private static int? GetPartNumberFromHeaders(List<IRarHeader> headers)
     {
-        headers = headers.Where(x => x.HeaderType is HeaderType.Archive or HeaderType.EndArchive).ToList();
+        var archiveHeader = headers.OfType<IRarArchiveHeader>().FirstOrDefault();
+        if (archiveHeader?.VolumeNumber != null) return archiveHeader.VolumeNumber.Value;
 
-        var archiveHeader = headers.FirstOrDefault(x => x.HeaderType is HeaderType.Archive);
-        var archiveVolumeNumber = archiveHeader?.GetVolumeNumber();
-        if (archiveVolumeNumber != null) return archiveVolumeNumber!.Value;
+        var endHeader = headers.OfType<IRarEndArchiveHeader>().FirstOrDefault();
+        if (endHeader?.VolumeNumber != null) return endHeader.VolumeNumber.Value;
 
-        var endHeader = headers.FirstOrDefault(x => x.HeaderType == HeaderType.EndArchive);
-        var endVolumeNumber = endHeader?.GetVolumeNumber();
-        if (endVolumeNumber != null) return endVolumeNumber!.Value;
-
-        if (archiveHeader?.GetIsFirstVolume() == true) return -1;
+        if (archiveHeader?.IsFirstVolume == true) return -1;
         return null;
     }
 

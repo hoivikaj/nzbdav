@@ -1,5 +1,4 @@
-﻿using NzbWebDAV.Extensions;
-using NzbWebDAV.Models;
+﻿using NzbWebDAV.Models;
 using NzbWebDAV.Streams;
 using SharpCompress.Archives.SevenZip;
 using SharpCompress.Common;
@@ -28,24 +27,34 @@ public static class SevenZipUtil
         );
         return archive.Entries
             .Where(x => !x.IsDirectory)
-            .Select((entry, index) => new SevenZipEntry(entry, archive, index, password))
+            .Select(entry => new SevenZipEntry(entry, password))
             .ToList();
     }
 
-    public class SevenZipEntry(SevenZipArchiveEntry entry, SevenZipArchive archive, int index, string? password)
+    public class SevenZipEntry(SevenZipArchiveEntry entry, string? password)
     {
         public SevenZipArchiveEntry Entry => entry;
         public string PathWithinArchive { get; } = entry.Key!;
-        public CompressionType CompressionType { get; } = entry.GetCompressionType();
+        public CompressionType CompressionType { get; } = entry.CompressionType;
         public bool IsEncrypted { get; } = entry.IsEncrypted;
         public bool IsSolid { get; } = entry.IsSolid;
 
         public AesParams? AesParams { get; } =
-            AesParams.FromCoderInfo(entry.GetAesCoderInfoProps(), password, entry.Size);
+            AesParams.FromCoderInfo(
+                entry.AesCoderProperties is { Length: > 0 } props ? props : null,
+                password,
+                entry.Size);
 
-        public long FolderStartByteOffset { get; } = entry.GetFolderStartByteOffset();
+        public long FolderStartByteOffset { get; } = entry.FolderStartOffset;
 
-        public LongRange ByteRangeWithinArchive { get; } =
-            LongRange.FromStartAndSize(archive.GetEntryStartByteOffset(index), archive.GetPackSize(index));
+        public LongRange ByteRangeWithinArchive { get; } = GetPackedByteRange(entry);
+
+        private static LongRange GetPackedByteRange(SevenZipArchiveEntry archiveEntry)
+        {
+            if (!archiveEntry.TryGetPackedByteRange(out var start, out var length))
+                throw new InvalidOperationException(
+                    $"7z entry '{archiveEntry.Key}' has no packed byte range.");
+            return LongRange.FromStartAndSize(start, length);
+        }
     }
 }
