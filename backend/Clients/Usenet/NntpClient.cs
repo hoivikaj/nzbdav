@@ -409,7 +409,7 @@ public abstract class NntpClient : INntpClient
     internal static bool IsValidSegmentId(string? id)
     {
         var value = NormalizeSegmentId(id);
-        if (value.Length is < 3 or > 495) return false;
+        if (value.Length is < 3 or > 248) return false;
         if (value[0] == '@' || value[^1] == '@' || !value.Contains('@')) return false;
         if (value.Contains('<') || value.Contains('>')) return false;
         foreach (var character in value)

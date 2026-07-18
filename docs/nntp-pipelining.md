@@ -1,6 +1,6 @@
 # NNTP Pipelining
 
-NzbDav uses **UsenetSharp 2.x** batch BODY requests to pipeline multiple NNTP
+NzbDav uses **UsenetSharp 3.x** batch BODY requests to pipeline multiple NNTP
 commands on one connection without waiting for each response. Responses are read
 strictly in order with bounded backpressure.
 
@@ -41,7 +41,7 @@ depth. The client chain is:
 - `MultiProviderNntpClient` — provider selection and byte counting
 - `DownloadingNntpClient` / `WrappingNntpClient` — permits and delegation
 
-`StatsPipelinedAsync` remains a sequential fallback because UsenetSharp 2.x does
+`StatsPipelinedAsync` remains a sequential fallback because UsenetSharp 3.x does
 not ship a pipelined `STAT` API. Health checks always use concurrent `STAT`
 across the connection pool.
 

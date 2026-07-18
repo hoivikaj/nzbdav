@@ -60,15 +60,15 @@ public class NntpClientPipelinedMappingTests
     }
 
     [Fact]
-    public void IsValidSegmentId_RejectsBareIdsLongerThan495Octets()
+    public void IsValidSegmentId_RejectsBareIdsLongerThan248Octets()
     {
-        // With client-added angle brackets the wire argument must stay ≤ 497 octets.
-        var tooLong = new string('a', 492) + "@x.y"; // 496 octets
-        Assert.Equal(496, tooLong.Length);
+        // RFC 5536 limits a message-id to 250 octets including client-added brackets.
+        var tooLong = new string('a', 245) + "@x.y"; // 249 octets
+        Assert.Equal(249, tooLong.Length);
         Assert.False(NntpClient.IsValidSegmentId(tooLong));
 
-        var maxOk = new string('a', 491) + "@x.y"; // 495 octets
-        Assert.Equal(495, maxOk.Length);
+        var maxOk = new string('a', 244) + "@x.y"; // 248 octets
+        Assert.Equal(248, maxOk.Length);
         Assert.True(NntpClient.IsValidSegmentId(maxOk));
     }
 

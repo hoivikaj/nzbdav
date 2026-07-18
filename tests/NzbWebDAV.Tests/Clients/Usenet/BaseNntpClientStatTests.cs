@@ -65,8 +65,20 @@ public class BaseNntpClientStatTests
         Assert.Contains("requires authentication", exception.Message);
     }
 
-    private sealed class ScriptedUsenetClient(int responseCode) : IUsenetClient
+    [Fact]
+    public void Dispose_PrefersUnderlyingAsyncDispose()
     {
+        var underlying = new ScriptedUsenetClient(223);
+        var client = new BaseNntpClient(underlying);
+
+        client.Dispose();
+
+        Assert.True(underlying.AsyncDisposed);
+    }
+
+    private sealed class ScriptedUsenetClient(int responseCode) : IUsenetClient, IAsyncDisposable
+    {
+        public bool AsyncDisposed { get; private set; }
         public bool IsConnected => true;
         public bool IsHealthy => true;
 
@@ -122,5 +134,11 @@ public class BaseNntpClientStatTests
 
         public Task WaitForReadyAsync(CancellationToken cancellationToken) =>
             Task.CompletedTask;
+
+        public ValueTask DisposeAsync()
+        {
+            AsyncDisposed = true;
+            return ValueTask.CompletedTask;
+        }
     }
 }

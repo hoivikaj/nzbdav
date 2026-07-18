@@ -214,8 +214,17 @@ public class BaseNntpClient : NntpClient
 
     public override void Dispose()
     {
-        if (_client is IDisposable disposable)
+        if (_client is IAsyncDisposable asyncDisposable)
+        {
+            // UsenetSharp sends a best-effort QUIT only from DisposeAsync.
+            // Pool disposal already runs off the request path, so wait here to
+            // release strict providers' connection slots before reconnecting.
+            asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+        else if (_client is IDisposable disposable)
+        {
             disposable.Dispose();
+        }
         GC.SuppressFinalize(this);
     }
 }
