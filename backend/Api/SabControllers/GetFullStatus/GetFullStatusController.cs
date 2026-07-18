@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NzbWebDAV.Config;
-using NzbWebDAV.Database.Models;
 
 namespace NzbWebDAV.Api.SabControllers.GetFullStatus;
 
@@ -15,9 +14,9 @@ public class GetFullStatusController(
         // mimic sabnzbd fullstatus
         var status = new GetFullStatusResponse()
         {
-            Status = new GetFullStatusResponse.FullStatusObject()
+            Status = new SabStatusObject
             {
-                CompleteDir = Path.Join(configManager.GetRcloneMountDir(), DavItem.SymlinkFolder.Name),
+                CompleteDir = SabPathResolver.GetCompletedDir(configManager),
             }
         };
 

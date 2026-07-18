@@ -1,5 +1,9 @@
-﻿namespace NzbWebDAV.Api.SabControllers.GetStatus;
+﻿using System.Text.Json.Serialization;
 
-public class GetStatusResponse : SabBaseResponse
+namespace NzbWebDAV.Api.SabControllers.GetStatus;
+
+public class GetStatusResponse
 {
+    [JsonPropertyName("status")]
+    public required SabStatusObject Status { get; init; }
 }

@@ -3,7 +3,6 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NzbWebDAV.Config;
-using NzbWebDAV.Database.Models;
 using NzbWebDAV.Utils;
 
 namespace NzbWebDAV.Api.SabControllers.GetConfig;
@@ -24,7 +23,7 @@ public class GetConfigController(
         var root = JsonNode.Parse(config)!;
 
         // update the complete_dir
-        root["config"]!["misc"]!["complete_dir"] = GetCompletedDir();
+        root["config"]!["misc"]!["complete_dir"] = SabPathResolver.GetCompletedDir(configManager);
 
         // update the categories
         var categoriesRoot = root["config"]?["categories"]?.AsArray()!;
@@ -47,12 +46,5 @@ public class GetConfigController(
         var options = new JsonSerializerOptions { WriteIndented = true };
         var response = root.ToJsonString(options);
         return Content(response, "application/json");
-    }
-
-    private string GetCompletedDir()
-    {
-        return configManager.GetImportStrategy() == "strm"
-            ? configManager.GetStrmCompletedDownloadDir()
-            : Path.Join(configManager.GetRcloneMountDir(), DavItem.SymlinkFolder.Name);
     }
 }

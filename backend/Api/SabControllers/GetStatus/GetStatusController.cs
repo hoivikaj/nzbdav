@@ -11,7 +11,13 @@ public class GetStatusController(
 {
     protected override Task<IActionResult> Handle()
     {
-        var response = new GetStatusResponse() { Status = true };
+        var response = new GetStatusResponse
+        {
+            Status = new SabStatusObject
+            {
+                CompleteDir = SabPathResolver.GetCompletedDir(configManager),
+            },
+        };
         return Task.FromResult<IActionResult>(Ok(response));
     }
 }
