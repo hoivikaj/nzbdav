@@ -21,6 +21,25 @@ public class UtilityTests
     }
 
     [Theory]
+    [InlineData("archive.part03.rar", 3)]
+    [InlineData("archive.r07", 100007)]
+    [InlineData("x.rar", -1)]
+    [InlineData("X.RAR", -1)]
+    public void GetRarPartOrdinal_ParsesKnownRarSuffixes(string filename, int expected)
+    {
+        Assert.Equal(expected, FilenameUtil.GetRarPartOrdinal(filename));
+    }
+
+    [Theory]
+    [InlineData("x.mkv")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void GetRarPartOrdinal_ReturnsNullForNonRarNames(string? filename)
+    {
+        Assert.Null(FilenameUtil.GetRarPartOrdinal(filename));
+    }
+
+    [Theory]
     [InlineData("Movie {{secret}}.nzb", "Movie", "secret")]
     [InlineData("Movie password=secret.nzb", "Movie", "secret")]
     [InlineData("Movie.nzb", "Movie", null)]

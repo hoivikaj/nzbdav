@@ -39,6 +39,21 @@ public partial class FilenameUtil
                || Regex.IsMatch(filename, @"\.r(\d+)$", RegexOptions.IgnoreCase);
     }
 
+    /// <summary>
+    /// Injective ordinal for RAR volume identity checks.
+    /// .partN.rar → N, .rNN → N + 100_000, bare .rar → -1, else null.
+    /// </summary>
+    public static int? GetRarPartOrdinal(string? filename)
+    {
+        if (string.IsNullOrEmpty(filename)) return null;
+        var partMatch = Regex.Match(filename, @"\.part(\d+)\.rar$", RegexOptions.IgnoreCase);
+        if (partMatch.Success) return int.Parse(partMatch.Groups[1].Value);
+        var rMatch = Regex.Match(filename, @"\.r(\d+)$", RegexOptions.IgnoreCase);
+        if (rMatch.Success) return int.Parse(rMatch.Groups[1].Value) + 100_000;
+        if (filename.EndsWith(".rar", StringComparison.OrdinalIgnoreCase)) return -1;
+        return null;
+    }
+
     public static bool Is7zFile(string? filename)
     {
         if (string.IsNullOrEmpty(filename)) return false;
