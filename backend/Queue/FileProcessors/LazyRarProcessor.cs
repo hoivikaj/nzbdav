@@ -143,6 +143,7 @@ public class LazyRarProcessor(
 
         var pending = new List<DavMultipartFile.PendingPart>(trailingInfos.Count);
         var pendingSum = 0L;
+        var pendingStreamSum = 0L;
         for (var i = 0; i < trailingInfos.Count; i++)
         {
             var partInfo = trailingInfos[i];
@@ -160,7 +161,22 @@ public class LazyRarProcessor(
                 EstimatedDataSize = estimate,
                 SegmentFallbackIds = partInfo.NzbFile.GetSegmentFallbackIds(),
             });
+            pendingStreamSum += streamLength;
             pendingSum += estimate;
+        }
+
+        // Encoded/packed size is a strict upper bound on decoded bytes. Undershoot means
+        // volumes are missing — fall back to eager (ValidateVolumes fails loudly) instead
+        // of inflating the last PendingPart to claim full TotalFileSize.
+        const long coverageTolerance = 16; // matches RarAggregator.ValidateVolumes
+        var maxCoverage = firstPartByteRange.Count + pendingStreamSum;
+        if (maxCoverage < totalFileSize - coverageTolerance)
+        {
+            Log.Information(
+                "LazyRarProcessor: volumes cover at most {Max} of {Total} bytes for {File}, " +
+                "likely missing volumes — falling back to eager",
+                maxCoverage, totalFileSize, firstInfo.FileName);
+            return null;
         }
 
         // Force the sum of estimates to match the inner file size exactly by
