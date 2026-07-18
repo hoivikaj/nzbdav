@@ -104,7 +104,9 @@ public class GetWebdavItemController(
 
         if (rangeStart is not null)
         {
-            var end = rangeEnd ?? (fileSize - 1);
+            // clamp a range end that runs past the file to the last byte
+            // so the response headers stay valid.
+            var end = Math.Min(rangeEnd ?? (fileSize - 1), fileSize - 1);
 
             // Syntactically valid but unsatisfiable → 416 (mirror WebDAV handler).
             if (rangeStart.Value < 0 || rangeStart.Value >= fileSize || rangeStart.Value > end)
