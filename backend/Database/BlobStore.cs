@@ -1,4 +1,5 @@
-﻿using MemoryPack;
+﻿using System.Runtime.CompilerServices;
+using MemoryPack;
 using Microsoft.Extensions.Caching.Memory;
 using NzbWebDAV.Database.Models;
 using ZstdSharp;
@@ -43,6 +44,9 @@ public class BlobStore
         return fileStream;
     }
 
+    // Prefer this overload over WriteBlob<T> when the argument is a Stream;
+    // an optional CancellationToken otherwise loses to the generic method.
+    [OverloadResolutionPriority(1)]
     public static async Task WriteBlob(
         Guid id,
         Stream stream,
