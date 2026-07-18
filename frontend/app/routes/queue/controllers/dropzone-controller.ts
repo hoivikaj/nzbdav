@@ -9,7 +9,8 @@ function isIosUserAgent(): boolean {
 }
 
 function isNzbFile(file: File): boolean {
-    return file.name.toLowerCase().endsWith(".nzb");
+    const name = file.name.toLowerCase();
+    return name.endsWith(".nzb") || name.endsWith(".nzb.gz");
 }
 
 export function useQueueDropzone(
@@ -84,7 +85,7 @@ export function useQueueDropzone(
         const rejected = selected.length - nzbFiles.length;
         setRejectMessage(
             rejected > 0
-                ? `Skipped ${rejected} non-.nzb file${rejected === 1 ? "" : "s"}.`
+                ? `Skipped ${rejected} ${rejected === 1 ? "file that was" : "files that were"} not .nzb or .nzb.gz.`
                 : null,
         );
         enqueueFiles(nzbFiles);
@@ -105,7 +106,7 @@ export function useQueueDropzone(
         getInputProps: () => ({
             ref: inputRef,
             type: "file",
-            accept: ".nzb,application/x-nzb",
+            accept: ".nzb,.nzb.gz,application/x-nzb,application/gzip",
             multiple: true,
             hidden: true,
             onChange: onInputChange,

@@ -96,10 +96,11 @@ public class AddUrlRequest() : AddFileRequest
 
             var contentType = response.Content.Headers.ContentType?.MediaType;
 
-            var fileName = AddNzbExtension(nzbName)
-                           ?? GetFilenameFromResponseHeader(response)
-                           ?? GetFilenameFromUrl(url)
-                           ?? throw new Exception("Nzb filename could not be determined.");
+            var resolvedFileName = nzbName
+                                   ?? GetFilenameFromResponseHeader(response)
+                                   ?? GetFilenameFromUrl(url)
+                                   ?? throw new Exception("Nzb filename could not be determined.");
+            var fileName = NzbStreamUtil.NormalizeFileName(resolvedFileName);
 
             var fileStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
@@ -122,9 +123,7 @@ public class AddUrlRequest() : AddFileRequest
 
     private static string? AddNzbExtension(string? nzbName)
     {
-        return nzbName == null ? null
-            : nzbName.ToLower().EndsWith("nzb") ? nzbName
-            : $"{nzbName}.nzb";
+        return nzbName == null ? null : NzbStreamUtil.NormalizeFileName(nzbName);
     }
 
     private static async Task<HttpResponseMessage> GetAsync(

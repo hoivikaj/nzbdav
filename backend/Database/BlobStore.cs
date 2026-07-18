@@ -43,10 +43,13 @@ public class BlobStore
         return fileStream;
     }
 
-    public static async Task WriteBlob(Guid id, Stream stream)
+    public static async Task WriteBlob(
+        Guid id,
+        Stream stream,
+        CancellationToken cancellationToken = default)
     {
         await using var fileStream = OpenBlobWrite(id);
-        await stream.CopyToAsync(fileStream);
+        await stream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
         MetadataCache.Remove(id);
     }
 

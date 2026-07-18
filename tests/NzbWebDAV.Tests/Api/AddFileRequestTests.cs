@@ -17,6 +17,15 @@ public class AddFileRequestTests
         Assert.Equal("My.Release.nzb", AddFileRequest.ResolveFileName("My.Release.nzb", "upload.nzb"));
     }
 
+    [Theory]
+    [InlineData("My.Release.nzb.gz", "My.Release.nzb")]
+    [InlineData("My.Release.gz", "My.Release.nzb")]
+    public void ResolveFileName_NormalizesGzipNames(string input, string expected)
+    {
+        Assert.Equal(expected, AddFileRequest.ResolveFileName(input, "upload.nzb"));
+        Assert.Equal(expected, AddFileRequest.ResolveFileName(null, input));
+    }
+
     [Fact]
     public void ResolveFileName_FallsBackToFormFileName()
     {

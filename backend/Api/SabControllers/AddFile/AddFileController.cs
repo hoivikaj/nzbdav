@@ -53,14 +53,26 @@ public class AddFileController(
         if (AfterDuplicatePreCheckHook is not null)
             await AfterDuplicatePreCheckHook().ConfigureAwait(false);
 
-        // write the file to the blob-store
-        await using var stream = request.NzbFileStream;
-        await BlobStore.WriteBlob(id, stream);
-
-        // save the queue item to the database
+        await using var sourceStream = request.NzbFileStream;
         QueueItem? queueItem;
         try
         {
+            var prepared = await NzbStreamUtil.OpenMaybeCompressedAsync(
+                    sourceStream, request.CancellationToken)
+                .ConfigureAwait(false);
+            await using var nzbInputStream = prepared.Stream;
+            try
+            {
+                // Store normalized XML so every downstream parser remains
+                // compression-agnostic.
+                await BlobStore.WriteBlob(id, nzbInputStream, request.CancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (InvalidDataException exception) when (prepared.IsGzip)
+            {
+                throw new BadHttpRequestException("The uploaded gzip NZB is invalid.", exception);
+            }
+
             // backup the nzb file if enabled
             if (configManager.IsNzbBackupEnabled())
             {
@@ -73,7 +85,17 @@ public class AddFileController(
 
             // compute the total segment bytes
             await using var nzbFileStream = BlobStore.ReadBlob(id)!;
-            var totalSegmentBytes = ComputeTotalSegmentBytes(nzbFileStream);
+            long totalSegmentBytes;
+            try
+            {
+                totalSegmentBytes = ComputeTotalSegmentBytes(nzbFileStream);
+            }
+            catch (XmlException exception) when (prepared.IsGzip)
+            {
+                throw new BadHttpRequestException(
+                    "The uploaded gzip file does not contain a valid NZB document.",
+                    exception);
+            }
 
             // create the queue item record
             queueItem = new QueueItem
@@ -122,8 +144,7 @@ public class AddFileController(
         }
         catch
         {
-            // in case of any errors writing to the database
-            // delete the nzb file blob (only after UNIQUE retry has also failed)
+            // Delete partial or unreferenced blobs after ingest/database failures.
             BlobStore.Delete(id);
             throw;
         }
