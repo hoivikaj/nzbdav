@@ -109,7 +109,7 @@ Special thanks to the forks and contributors whose ideas we absorbed:
 
 ## Quick start
 
-NzbDAV ships as a single Docker image. To try it out:
+NzbDAV ships as a single Docker image. Use the `latest` tag for the newest release, or `lts` for a slower, more conservative release cycle that lags one feature release behind `latest`. To try it out:
 
 ```bash
 docker run --rm -it -p 3000:3000 ghcr.io/nzbdav/nzbdav:latest
