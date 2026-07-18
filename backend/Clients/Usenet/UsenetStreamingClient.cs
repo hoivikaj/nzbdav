@@ -1,6 +1,7 @@
 ﻿using NzbWebDAV.Clients.Usenet.Connections;
 using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Config;
+using NzbWebDAV.Database.Models.Metrics;
 using NzbWebDAV.Services;
 using NzbWebDAV.Services.Metrics;
 using NzbWebDAV.Services.StreamTrace;
@@ -118,7 +119,8 @@ public class UsenetStreamingClient : WrappingNntpClient
             .Select((provider, index) => CreateProviderClient(
                 provider,
                 connectionPoolStats.GetOnConnectionPoolChanged(index),
-                idleTimeoutSeconds
+                idleTimeoutSeconds,
+                metricsWriter
             ))
             .ToList();
         return new MultiProviderNntpClient(
@@ -132,7 +134,8 @@ public class UsenetStreamingClient : WrappingNntpClient
     (
         UsenetProviderConfig.ConnectionDetails connectionDetails,
         EventHandler<ConnectionPoolStats.ConnectionPoolChangedEventArgs> onConnectionPoolChanged,
-        int idleTimeoutSeconds
+        int idleTimeoutSeconds,
+        MetricsWriter metricsWriter
     )
     {
         var maxConnections = connectionDetails.MaxConnections;
@@ -163,10 +166,24 @@ public class UsenetStreamingClient : WrappingNntpClient
             onConnectionPoolChanged,
             idleTimeoutSeconds
         );
-        var circuitBreaker = new ProviderCircuitBreaker(connectionDetails.Host);
         // Ensure a metrics key even if startup backfill was skipped somehow.
         if (connectionDetails.ProviderId == Guid.Empty)
             connectionDetails.ProviderId = Guid.NewGuid();
+        var metricsKey = UsenetProviderIdentity.MetricsKey(connectionDetails);
+        var circuitBreaker = new ProviderCircuitBreaker(
+            connectionDetails.Host,
+            transition => metricsWriter.RecordEvent(new MetricEvent
+            {
+                At = transition.AtUnixMilliseconds,
+                Kind = "circuit",
+                Tag1 = metricsKey,
+                Tag2 = transition.State == ProviderCircuitTransitionState.Open
+                    ? "open"
+                    : "closed",
+                Num = transition.Cooldown is { } cooldown
+                    ? (long)cooldown.TotalMilliseconds
+                    : null,
+            }));
         return new MultiConnectionNntpClient(
             connectionPool,
             connectionDetails.Type,
@@ -177,7 +194,7 @@ public class UsenetStreamingClient : WrappingNntpClient
             connectionDetails.Priority,
             connectionDetails.PipeliningDepth,
             connectionDetails.StorageGroup,
-            UsenetProviderIdentity.MetricsKey(connectionDetails)
+            metricsKey
         );
     }
 

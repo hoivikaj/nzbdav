@@ -30,6 +30,7 @@ public class ProviderCircuitBreaker
     private static readonly TimeSpan DefaultProbeAbandonTimeout = TimeSpan.FromSeconds(60);
 
     private readonly string _providerName;
+    private readonly Action<ProviderCircuitTransition>? _onTransition;
     private readonly object _lock = new();
     private readonly Queue<(long AtMs, bool Failed)> _window = new();
 
@@ -42,9 +43,12 @@ public class ProviderCircuitBreaker
     private long _failureCount;
     private long _articleMissCount;
 
-    public ProviderCircuitBreaker(string providerName)
+    public ProviderCircuitBreaker(
+        string providerName,
+        Action<ProviderCircuitTransition>? onTransition = null)
     {
         _providerName = providerName;
+        _onTransition = onTransition;
     }
 
     /// <summary>How long an unanswered half-open probe may hold the slot. For tests.</summary>
@@ -96,7 +100,8 @@ public class ProviderCircuitBreaker
     {
         lock (_lock)
         {
-            if (_window.Count > 0 || _trippedUntilMs > 0 || _halfOpenProbeInFlight != 0)
+            var wasCircuitActive = _trippedUntilMs > 0 || _halfOpenProbeInFlight != 0;
+            if (_window.Count > 0 || wasCircuitActive)
                 Log.Information("Provider {Provider} recovered — circuit breaker reset.", _providerName);
 
             _window.Clear();
@@ -105,6 +110,8 @@ public class ProviderCircuitBreaker
             _lastFailureReason = null;
             Volatile.Write(ref _halfOpenProbeInFlight, 0);
             Volatile.Write(ref _probeStartedMs, 0);
+            if (wasCircuitActive)
+                NotifyTransition(ProviderCircuitTransitionState.Closed, cooldown: null);
         }
     }
 
@@ -202,16 +209,41 @@ public class ProviderCircuitBreaker
 
     private void Trip(long nowMs, string reason)
     {
+        var appliedCooldown = _currentCooldown;
         _lastFailureReason = reason;
         Interlocked.Increment(ref _tripCount);
-        _trippedUntilMs = nowMs + (long)_currentCooldown.TotalMilliseconds;
+        _trippedUntilMs = nowMs + (long)appliedCooldown.TotalMilliseconds;
         Log.Warning(
             "Provider {Provider} tripped ({Reason}). Skipping for {Cooldown}s.",
-            _providerName, reason, _currentCooldown.TotalSeconds);
+            _providerName, reason, appliedCooldown.TotalSeconds);
+        NotifyTransition(ProviderCircuitTransitionState.Open, appliedCooldown);
 
         _window.Clear();
         _currentCooldown = TimeSpan.FromMilliseconds(
             Math.Min(_currentCooldown.TotalMilliseconds * 2, MaxCooldown.TotalMilliseconds));
+    }
+
+    private void NotifyTransition(
+        ProviderCircuitTransitionState state,
+        TimeSpan? cooldown)
+    {
+        if (_onTransition is null)
+            return;
+
+        try
+        {
+            _onTransition(new ProviderCircuitTransition(
+                state,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                cooldown));
+        }
+        catch (Exception exception)
+        {
+            Log.Warning(
+                exception,
+                "Provider {Provider} circuit transition callback failed",
+                _providerName);
+        }
     }
 
     private void EvictOldEntries(long nowMs)

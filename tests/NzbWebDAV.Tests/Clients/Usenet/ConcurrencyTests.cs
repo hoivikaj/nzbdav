@@ -26,6 +26,63 @@ public class ConcurrencyTests
     }
 
     [Fact]
+    public void ProviderCircuitBreaker_EmitsOneOpenAndClosedTransition()
+    {
+        var transitions = new List<ProviderCircuitTransition>();
+        var breaker = new ProviderCircuitBreaker("events", transitions.Add);
+
+        breaker.RecordFailure();
+        breaker.RecordFailure();
+        Assert.Empty(transitions);
+        breaker.RecordFailure();
+        breaker.RecordFailure();
+        Assert.Single(transitions);
+        breaker.RecordSuccess();
+        breaker.RecordSuccess();
+
+        Assert.Collection(
+            transitions,
+            opened =>
+            {
+                Assert.Equal(ProviderCircuitTransitionState.Open, opened.State);
+                Assert.Equal(TimeSpan.FromSeconds(60), opened.Cooldown);
+                Assert.True(opened.AtUnixMilliseconds > 0);
+            },
+            closed =>
+            {
+                Assert.Equal(ProviderCircuitTransitionState.Closed, closed.State);
+                Assert.Null(closed.Cooldown);
+                Assert.True(closed.AtUnixMilliseconds >= transitions[0].AtUnixMilliseconds);
+            });
+    }
+
+    [Fact]
+    public void ProviderCircuitBreaker_DoesNotEmitClosedForTransientFailures()
+    {
+        var transitions = new List<ProviderCircuitTransition>();
+        var breaker = new ProviderCircuitBreaker("events", transitions.Add);
+
+        breaker.RecordFailure();
+        breaker.RecordSuccess();
+
+        Assert.Empty(transitions);
+    }
+
+    [Fact]
+    public void ProviderCircuitBreaker_ContainsTransitionCallbackFailures()
+    {
+        var breaker = new ProviderCircuitBreaker(
+            "events",
+            _ => throw new InvalidOperationException("metrics unavailable"));
+
+        breaker.RecordFailure();
+        breaker.RecordFailure();
+        breaker.RecordFailure();
+
+        Assert.True(breaker.IsTripped);
+    }
+
+    [Fact]
     public void ProviderCircuitBreaker_BurstOfFailuresProducesExactlyOneTrip()
     {
         var breaker = new ProviderCircuitBreaker("burst");
