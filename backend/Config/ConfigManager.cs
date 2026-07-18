@@ -170,6 +170,7 @@ public class ConfigManager
                 case ConfigKeys.PlayMaxAttempts:
                 case ConfigKeys.PlayVerifySampleCount:
                 case ConfigKeys.PlayCandidateNegativeCacheMinutes:
+                case ConfigKeys.PlayResolutionCacheTtlHours:
                 case ConfigKeys.GrabStallFailoverWindowSeconds:
                 case ConfigKeys.GrabStallFailoverCeilingSeconds:
                 case ConfigKeys.SearchExcludeSyncRefreshMinutes:
@@ -640,6 +641,18 @@ public class ConfigManager
         var v = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayCandidateNegativeCacheMinutes));
         if (v == null) return TimeSpan.FromMinutes(5);
         return int.TryParse(v, out var n) ? TimeSpan.FromMinutes(Math.Clamp(n, 1, 60 * 24)) : TimeSpan.FromMinutes(5);
+    }
+
+    /// <summary>
+    /// Lifetime of play tokens served in search results. Config key wins over
+    /// RESOLUTION_CACHE_TTL_HOURS; default 7 days to outlive consumer search caches.
+    /// </summary>
+    public TimeSpan GetPlayResolutionCacheTtl()
+    {
+        var raw = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.PlayResolutionCacheTtlHours))
+                  ?? EnvironmentUtil.GetEnvironmentVariable("RESOLUTION_CACHE_TTL_HOURS");
+        if (int.TryParse(raw, out var hours)) return TimeSpan.FromHours(Math.Clamp(hours, 1, 720));
+        return TimeSpan.FromHours(168);
     }
 
     public bool IsPlaySubtitlePreferenceEnabled()

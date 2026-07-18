@@ -90,6 +90,7 @@ public static class ConfigKeys
     public const string PlayMaxAttempts = "play.max-attempts";
     public const string PlayMaxCandidates = "play.max-candidates";
     public const string PlayPreferSubtitles = "play.prefer-subtitles";
+    public const string PlayResolutionCacheTtlHours = "play.resolution-cache-ttl-hours";
     public const string PlayTotalBudgetSeconds = "play.total-budget-seconds";
     public const string PlayVerifyMode = "play.verify-mode";
     public const string PlayVerifySampleCount = "play.verify-sample-count";

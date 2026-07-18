@@ -219,6 +219,7 @@ class Program
                 .AddHostedService<NzbBackupRetentionService>()
                 .AddHostedService<HistoryCleanupService>()
                 .AddHostedService<HistoryRetentionService>()
+                .AddHostedService<NzbResolutionCacheRetentionService>()
                 .AddHostedService<WatchdogPurgeService>()
                 .AddHostedService<DavCleanupService>()
                 .AddHostedService<UsenetFileToBlobstoreMigrationService>()
