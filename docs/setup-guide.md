@@ -490,6 +490,21 @@ Go to the **Save & Install** tab, click **Save**, and then install the addon to 
 
 Search profiles expose selected NzbDav indexers through token-scoped endpoints. Create and manage profiles under `Settings` → `Profiles`, and treat each generated token as a secret.
 
+### Search link lifetime
+
+Play links embedded in search results are persisted in NzbDav's database, so they
+remain valid across container restarts. Their lifetime defaults to 168 hours
+(7 days) and can be changed under `Settings` → `Watchdog` → **Search link
+lifetime (hours)**, with a supported range of 1–720 hours.
+
+Set the lifetime at least as high as the result-cache lifetime of every search
+client that consumes these links. AIOStreams defaults to 7 days. Docker
+operators can set the fallback with `RESOLUTION_CACHE_TTL_HOURS`; a saved
+`play.resolution-cache-ttl-hours` setting takes precedence.
+
+Links created before upgrading to the persistent cache were never stored and
+must be refreshed by searching again.
+
 ### 1. Newznab adapter for Prowlarr, Sonarr, or Radarr
 
 1. Add a custom Newznab indexer.
