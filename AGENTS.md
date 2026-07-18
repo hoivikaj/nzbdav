@@ -111,13 +111,13 @@ database behavior. Frontend tests use Vitest and are colocated as `*.test.ts`.
 Performance benchmarks live in `backend.Benchmarks/` and are run manually with
 `dotnet run --project backend.Benchmarks -c Release`; do not run benchmarks in CI.
 
-## UsenetSharp integration
+## UsenetSharp / SharpCompress integration
 
-NzbDav consumes the public `NzbDav.UsenetSharp` package from NuGet.org.
+NzbDav consumes the public `NzbDav.UsenetSharp` and `NzbDav.SharpCompress` packages from NuGet.org.
 
-- Publish and verify the UsenetSharp package before bumping `backend/NzbWebDAV.csproj`. A release tag can exist without a package if the publish workflow fails before its pack/push steps.
+- Publish and verify the package before bumping `backend/NzbWebDAV.csproj`. A release tag can exist without a package if the publish workflow fails before its pack/push steps.
 - Repository CI restores anonymously from NuGet.org and is the authoritative package-consumption check.
-- After bumping the package, build and test the backend:
+- After bumping either package, build and test the backend:
 
 ```bash
 dotnet build backend/NzbWebDAV.csproj
@@ -355,7 +355,7 @@ Docker image builds are shared via the reusable workflow. Branch and dependabot 
 - **Env mismatch:** frontend and backend must share `CONFIG_PATH`, `FRONTEND_BACKEND_API_KEY`, and `BACKEND_URL`.
 - **Proxy paths:** new WebDAV mount points must be added to the proxy allowlists in `frontend/server/app.ts` and compression skip list in `frontend/server.ts`.
 - **Editing CHANGELOG.md:** it is generated — commit messages are the source of truth.
-- **Package release ordering:** do not bump UsenetSharp merely because a release/tag exists; confirm the package publish job completed.
+- **Package release ordering:** do not bump `NzbDav.UsenetSharp` or `NzbDav.SharpCompress` merely because a release/tag exists; confirm the package publish job completed and NuGet.org lists the version.
 - **Breaking upgrades:** irreversible schema changes ship as ordinary EF migrations that auto-apply on startup and surface through the migration-progress splash; there is no `UPGRADE` env-var interlock. Advise a `/config` backup before upgrading across such a migration. Commits that add migrations **must** use a breaking conventional-commit marker (`!` or `BREAKING CHANGE`) so release-please bumps as breaking.
 - **Test fixtures:** prefer deterministic generated data and `FakeNntpClient`; do not require live Usenet providers in the automated suite.
 - **Streaming changes:** run the focused backend tests and retain manual range, rclone scrubbing, and encrypted-archive playback checks for behavior not covered by automation.
