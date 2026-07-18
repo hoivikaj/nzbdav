@@ -16,6 +16,7 @@ using NzbWebDAV.Queue.DeobfuscationSteps._2.GetPar2FileDescriptors;
 using NzbWebDAV.Queue.DeobfuscationSteps._3.GetFileInfos;
 using NzbWebDAV.Queue.FileAggregators;
 using NzbWebDAV.Queue.FileProcessors;
+using NzbWebDAV.Queue.NestedRarExpansion;
 using NzbWebDAV.Queue.PostProcessors;
 using NzbWebDAV.Services;
 using NzbWebDAV.Services.Metrics;
@@ -252,6 +253,12 @@ public class QueueItemProcessor(
         {
             var lazyProc = new LazyRarProcessor(rarFiles, usenetClient, archivePassword, ct);
             lazyRarResult = await lazyProc.ProcessAsync().ConfigureAwait(false) as LazyRarProcessor.Result;
+            // Nested archives need the full eager pass + NestedRarExpansionStep.
+            if (lazyRarResult is not null &&
+                FilenameUtil.IsRarFile(Path.GetFileName(lazyRarResult.PathInArchive)))
+            {
+                lazyRarResult = null;
+            }
         }
         var msRar = stepTimer.ElapsedMilliseconds;
         stepTimer.Restart();
@@ -273,6 +280,8 @@ public class QueueItemProcessor(
             .Select(x => x!)
             .ToList();
         if (lazyRarResult is not null) fileProcessingResults.Add(lazyRarResult);
+        fileProcessingResults = await NestedRarExpansionStep.ExpandAsync(
+            fileProcessingResults, usenetClient, archivePassword, ct).ConfigureAwait(false);
         var msProcessors = stepTimer.ElapsedMilliseconds;
         stepTimer.Restart();
 

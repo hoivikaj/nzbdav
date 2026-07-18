@@ -99,6 +99,14 @@ public class LazyRarProcessor(
         }
 
         var pathInArchive = fileHeader.FileName;
+        if (FilenameUtil.IsRarFile(Path.GetFileName(pathInArchive)))
+        {
+            Log.Information(
+                "LazyRarProcessor: inner path {Inner} is RAR, falling back to eager",
+                pathInArchive);
+            return null;
+        }
+
         var aesParams = fileHeader.GetAesParams(password);
         var totalFileSize = aesParams?.DecodedSize ?? fileHeader.UncompressedSize;
 
