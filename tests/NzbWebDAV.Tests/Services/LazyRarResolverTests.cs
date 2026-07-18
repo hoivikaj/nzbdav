@@ -4,8 +4,6 @@ using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database.Models;
-using NzbWebDAV.Exceptions;
-using NzbWebDAV.Extensions;
 using NzbWebDAV.Models;
 using NzbWebDAV.Services;
 using NzbWebDAV.Utils;
@@ -16,7 +14,7 @@ namespace NzbWebDAV.Tests.Services;
 public class LazyRarResolverTests
 {
     [Fact]
-    public async Task EnsureResolvedThroughAsync_RetriesWithMeasuredSize_WhenPendingEstimateIsShort()
+    public async Task EnsureResolvedThroughAsync_SucceedsWithoutMeasure_WhenPendingEstimateIsShort()
     {
         const string pathInArchive = "movie.mkv";
         const int packedSize = 1000;
@@ -25,16 +23,18 @@ public class LazyRarResolverTests
         var underestimatedSize = (long)(trueSize * 0.95);
         Assert.True(underestimatedSize < trueSize);
 
-        // Sanity: understated Length alone is enough to fail header parse.
+        // Deferred data-skip means find-and-stop no longer seeks past packed
+        // payload, so an understated Length alone does not fail header parse.
         await using (var shortStream = new BoundedLengthStream(volumeBytes, underestimatedSize))
         {
-            var ex = await Assert.ThrowsAsync<RarSeekPastEndException>(async () =>
-                await RarUtil.FindFirstFileHeaderAsync(
-                    shortStream,
-                    password: null,
-                    h => h.GetFileName() == pathInArchive,
-                    CancellationToken.None));
-            Assert.Contains("seek past stream end", ex.Message);
+            var match = await RarUtil.FindFirstFileHeaderAsync(
+                shortStream,
+                password: null,
+                h => h.FileName == pathInArchive,
+                CancellationToken.None);
+            Assert.NotNull(match);
+            Assert.Equal(pathInArchive, match!.FileName);
+            Assert.Equal(packedSize, match.AdditionalDataSize);
         }
 
         const string segmentId = "vol2-seg0";
@@ -42,8 +42,8 @@ public class LazyRarResolverTests
         var resolver = new LazyRarResolver(client, new ConfigManager())
         {
             // Bypass NzbFileStream/yEnc (rapidyenc native is not available on
-            // all local RID targets). Still exercises the understated-Length
-            // failure and measured-size retry path.
+            // all local RID targets). Still exercises resolution with an
+            // understated Length estimate.
             VolumeStreamFactory = (_, size) => new BoundedLengthStream(volumeBytes, size),
         };
 
@@ -85,7 +85,7 @@ public class LazyRarResolverTests
         Assert.Equal(packedSize, resolved.FilePartByteRange.Count);
         Assert.Equal(resolved.FilePartByteRange.StartInclusive + packedSize,
             resolved.SegmentIdByteRange.Count);
-        Assert.True(client.MeasuredSizeRequests > 0);
+        Assert.Equal(0, client.MeasuredSizeRequests);
     }
 
     // Minimal RAR4 multi-volume continuation: mark + archive(VOLUME) +

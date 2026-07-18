@@ -1,6 +1,8 @@
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
 using NzbWebDAV.Utils;
+using SharpCompress.Common;
+using SharpCompress.Common.Rar;
 
 namespace NzbWebDAV.Tests.Utils;
 
@@ -21,6 +23,33 @@ public class RarUtilTests
         Assert.Contains("seek past stream end", ex.Message);
         Assert.Contains("52223980", ex.Message);
         Assert.Contains("stream length 100", ex.Message);
+        Assert.True(ex.IsNonRetryableDownloadException());
+    }
+
+    [Fact]
+    public void TryMapHeaderParseFailure_MapsTruncatedRarHeaderSeekPastEnd()
+    {
+        using var stream = new MemoryStream(new byte[50]);
+        var truncated = new RarHeaderReadException(
+            "Failed to skip RAR packed data: seek past stream end at offset 100",
+            truncated: true);
+
+        Assert.True(RarUtil.TryMapHeaderParseFailure(truncated, stream, out var mapped));
+        var ex = Assert.IsType<RarSeekPastEndException>(mapped);
+        Assert.Contains("seek past stream end", ex.Message);
+        Assert.Contains("stream length 50", ex.Message);
+        Assert.True(ex.IsNonRetryableDownloadException());
+    }
+
+    [Fact]
+    public void TryMapHeaderParseFailure_MapsIncompleteArchiveAsCorruptRar()
+    {
+        using var stream = new MemoryStream(new byte[10]);
+        var incomplete = new IncompleteArchiveException("unexpected EOF");
+
+        Assert.True(RarUtil.TryMapHeaderParseFailure(incomplete, stream, out var mapped));
+        var ex = Assert.IsType<CorruptRarException>(mapped);
+        Assert.Contains("unexpected end of stream", ex.Message);
         Assert.True(ex.IsNonRetryableDownloadException());
     }
 
@@ -49,11 +78,15 @@ public class RarUtilTests
 
         var wrappedInvalidFormat = new Exception(
             "wrapper",
-            new SharpCompress.Common.InvalidFormatException("bad rar"));
+            new InvalidFormatException("bad rar"));
         Assert.True(
-            wrappedInvalidFormat.TryGetCausingException<SharpCompress.Common.InvalidFormatException>(out _));
+            wrappedInvalidFormat.TryGetCausingException<InvalidFormatException>(out _));
         Assert.True(IsKnownDownloadStyle(wrappedInvalidFormat, out var reason));
         Assert.Equal("bad rar", reason);
+
+        Assert.True(new IncompleteArchiveException("eof").IsNonRetryableDownloadException());
+        Assert.True(new RarHeaderReadException("bad crc", truncated: false)
+            .IsNonRetryableDownloadException());
     }
 
     // Mirrors ExceptionMiddleware.IsKnownDownloadException chain walk.
