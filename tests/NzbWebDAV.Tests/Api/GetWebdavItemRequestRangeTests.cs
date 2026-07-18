@@ -32,4 +32,15 @@ public class GetWebdavItemRequestRangeTests
         Assert.Null(e);
         Assert.Null(suf);
     }
+
+    [Theory]
+    [InlineData(1_048_575L, 50_000L, 49_999L)] // end past EOF → last byte
+    [InlineData(49_999L, 50_000L, 49_999L)] // exact last byte → unchanged
+    [InlineData(null, 50_000L, 49_999L)] // open-ended → last byte
+    [InlineData(1_023L, 50_000L, 1_023L)] // in-bounds end → unchanged
+    public void ResolveRangeEnd_ClampsPastEofAndPreservesInBounds(
+        long? rangeEnd, long fileSize, long expected)
+    {
+        Assert.Equal(expected, GetWebdavItemController.ResolveRangeEnd(rangeEnd, fileSize));
+    }
 }

@@ -106,7 +106,7 @@ public class GetWebdavItemController(
         {
             // clamp a range end that runs past the file to the last byte
             // so the response headers stay valid.
-            var end = Math.Min(rangeEnd ?? (fileSize - 1), fileSize - 1);
+            var end = ResolveRangeEnd(rangeEnd, fileSize);
 
             // Syntactically valid but unsatisfiable → 416 (mirror WebDAV handler).
             if (rangeStart.Value < 0 || rangeStart.Value >= fileSize || rangeStart.Value > end)
@@ -279,6 +279,13 @@ public class GetWebdavItemController(
             Response.StatusCode = 401;
         }
     }
+
+    /// <summary>
+    /// Resolves the inclusive range end for a /view response, clamping past-EOF
+    /// ends to the last byte (RFC 7233 / WebDAV parity).
+    /// </summary>
+    internal static long ResolveRangeEnd(long? rangeEnd, long fileSize) =>
+        Math.Min(rangeEnd ?? (fileSize - 1), fileSize - 1);
 
     private static string GetContentType(string item)
     {
