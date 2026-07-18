@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Queue;
@@ -17,8 +18,18 @@ public class RemoveFromQueueController(
 {
     public async Task<RemoveFromQueueResponse> RemoveFromQueue(RemoveFromQueueRequest request)
     {
-        await queueManager.RemoveQueueItemsAsync(request.NzoIds, dbClient, request.CancellationToken).ConfigureAwait(false);
-        _ = websocketManager.SendMessage(WebsocketTopic.QueueItemRemoved, string.Join(",", request.NzoIds));
+        var ids = request.DeleteAll
+            ? await dbClient.Ctx.QueueItems.AsNoTracking()
+                .Select(item => item.Id)
+                .ToListAsync(request.CancellationToken)
+                .ConfigureAwait(false)
+            : request.NzoIds;
+        if (ids.Count > 0)
+        {
+            await queueManager.RemoveQueueItemsAsync(ids, dbClient, request.CancellationToken)
+                .ConfigureAwait(false);
+        }
+        _ = websocketManager.SendMessage(WebsocketTopic.QueueItemRemoved, string.Join(",", ids));
         _ = DavDatabaseContext.RcloneVfsForget(["/nzbs"]);
         return new RemoveFromQueueResponse() { Status = true };
     }

@@ -17,7 +17,25 @@ public class RemoveFromHistoryController(
 {
     public async Task<RemoveFromHistoryResponse> RemoveFromHistory(RemoveFromHistoryRequest request)
     {
-        await dbClient.RemoveHistoryItemsAsync(request.NzoIds, request.DeleteCompletedFiles, request.CancellationToken).ConfigureAwait(false);
+        var historyQuery = dbClient.Ctx.HistoryItems.AsNoTracking();
+        var ids = request.DeleteAll
+            ? await historyQuery.Select(item => item.Id)
+                .ToListAsync(request.CancellationToken)
+                .ConfigureAwait(false)
+            : request.DeleteFailed
+                ? await historyQuery
+                    .Where(item => item.DownloadStatus == HistoryItem.DownloadStatusOption.Failed)
+                    .Select(item => item.Id)
+                    .ToListAsync(request.CancellationToken)
+                    .ConfigureAwait(false)
+                : request.NzoIds;
+
+        if (ids.Count > 0)
+        {
+            await dbClient.RemoveHistoryItemsAsync(
+                    ids, request.DeleteCompletedFiles, request.CancellationToken)
+                .ConfigureAwait(false);
+        }
         try
         {
             await dbClient.Ctx.SaveChangesAsync(request.CancellationToken).ConfigureAwait(false);
@@ -40,7 +58,7 @@ public class RemoveFromHistoryController(
 
             await dbClient.Ctx.SaveChangesAsync(request.CancellationToken).ConfigureAwait(false);
         }
-        _ = websocketManager.SendMessage(WebsocketTopic.HistoryItemRemoved, string.Join(",", request.NzoIds));
+        _ = websocketManager.SendMessage(WebsocketTopic.HistoryItemRemoved, string.Join(",", ids));
         return new RemoveFromHistoryResponse() { Status = true };
     }
 
