@@ -72,6 +72,8 @@ public class GetOverviewStatsResponse
         public List<long> ErrorSpark { get; init; } = new();
         /// <summary>Segment-fetch retry counts per spark bucket (same sizing as <see cref="Spark"/>).</summary>
         public List<long> RetrySpark { get; init; } = new();
+        /// <summary>Percentage of each spark bucket spent with the provider circuit open.</summary>
+        public List<int> OutageSpark { get; set; } = new();
         public string CircuitState { get; init; } = "closed";
         public int? CooldownRemainingSeconds { get; init; }
         public string? LastFailureReason { get; init; }

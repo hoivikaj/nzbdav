@@ -272,12 +272,16 @@ public class MetricsWriter : BackgroundService
     }
 
     /// <summary>
-    /// Drops queued rows belonging to one provider (fetches and failover misses;
-    /// events and sessions are not provider-keyed). Drop counters are untouched.
+    /// Drops queued rows belonging to one provider. Circuit events use Tag1 as
+    /// their provider key; unrelated/global events and sessions are preserved.
+    /// Drop counters are untouched.
     /// </summary>
     public void DiscardQueuedForProvider(string providerKey)
     {
         FilterQueue(_fetches, f => !string.Equals(f.Provider, providerKey, StringComparison.Ordinal));
+        FilterQueue(_events, e =>
+            !string.Equals(e.Kind, "circuit", StringComparison.Ordinal)
+            || !string.Equals(e.Tag1, providerKey, StringComparison.Ordinal));
         FilterQueue(_failoverMisses, m =>
             !string.Equals(m.FromProvider, providerKey, StringComparison.Ordinal)
             && !string.Equals(m.ToProvider, providerKey, StringComparison.Ordinal));

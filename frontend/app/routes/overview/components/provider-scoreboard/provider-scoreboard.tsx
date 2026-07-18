@@ -23,11 +23,16 @@ export function ProviderScoreboard({ providers, window }: ProviderScoreboardProp
                     <p className="py-6 text-center text-xs text-base-content/50">No providers configured.</p>
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="table table-sm min-w-[560px]">
+                        <table className="table table-sm min-w-[680px]">
                             <thead>
                                 <tr>
                                     <th>Provider</th>
                                     <th className="w-[120px]">Activity</th>
+                                    <th
+                                        className="w-[120px]"
+                                        title="Percentage of each interval that the provider circuit was open and skipped">
+                                        Outages
+                                    </th>
                                     <th>Articles</th>
                                     <th>Read</th>
                                     <th>Share</th>
@@ -59,6 +64,12 @@ export function ProviderScoreboard({ providers, window }: ProviderScoreboardProp
                                             </td>
                                             <td>
                                                 <Sparkline values={p.spark} tone="success" />
+                                            </td>
+                                            <td title="Provider circuit-open time">
+                                                <Sparkline
+                                                    values={p.outageSpark ?? []}
+                                                    tone="error"
+                                                    fixedMax={100} />
                                             </td>
                                             <td className="font-mono tabular-nums">{formatNumber(p.articles)}</td>
                                             <td className="font-mono tabular-nums">{formatBytes(p.bytesFetched)}</td>
@@ -154,11 +165,19 @@ function ShareBar({ share }: { share: number }) {
     );
 }
 
-function Sparkline({ values, tone = "success" }: { values: number[], tone?: "success" | "error" | "warning" }) {
+function Sparkline({
+    values,
+    tone = "success",
+    fixedMax,
+}: {
+    values: number[],
+    tone?: "success" | "error" | "warning",
+    fixedMax?: number,
+}) {
     if (values.length === 0) return <div className="h-[22px] w-[110px] rounded-sm bg-base-content/[0.04]" />;
     const w = 110;
     const h = 22;
-    const max = Math.max(1, ...values);
+    const max = fixedMax ?? Math.max(1, ...values);
     const step = values.length > 1 ? w / (values.length - 1) : 0;
     const y = (v: number) => h - (v / max) * (h - 4) - 2;
     const path = values

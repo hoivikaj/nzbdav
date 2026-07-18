@@ -87,6 +87,10 @@ public class OverviewStatsResetTests
         db.ProviderHourly.AddRange(
             new ProviderHourly { Hour = now, Provider = target, Articles = 1 },
             new ProviderHourly { Hour = now, Provider = other, Articles = 2 });
+        db.MetricEvents.AddRange(
+            new MetricEvent { At = now, Kind = "circuit", Tag1 = target, Tag2 = "open" },
+            new MetricEvent { At = now, Kind = "circuit", Tag1 = other, Tag2 = "open" },
+            new MetricEvent { At = now, Kind = "global" });
         db.FailoverMisses.AddRange(
             new FailoverMiss
             {
@@ -139,6 +143,9 @@ public class OverviewStatsResetTests
         Assert.Equal(1, await db.ProviderMinutes.CountAsync(x => x.Provider == other));
         Assert.Equal(0, await db.ProviderHourly.CountAsync(x => x.Provider == target));
         Assert.Equal(1, await db.ProviderHourly.CountAsync(x => x.Provider == other));
+        Assert.Equal(0, await db.MetricEvents.CountAsync(x =>
+            x.Kind == "circuit" && x.Tag1 == target));
+        Assert.Equal(2, await db.MetricEvents.CountAsync());
         Assert.Equal(0, await db.FailoverMisses.CountAsync(x =>
             x.FromProvider == target || x.ToProvider == target));
         Assert.Equal(1, await db.FailoverMisses.CountAsync());

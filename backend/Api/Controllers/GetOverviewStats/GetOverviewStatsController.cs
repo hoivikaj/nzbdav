@@ -200,6 +200,7 @@ public class GetOverviewStatsController(
         await using var metricsA = new MetricsDbContext();
         await using var metricsB = new MetricsDbContext();
         await using var metricsLive = new MetricsDbContext();
+        await using var metricsEvents = new MetricsDbContext();
 
         var sessionsTask = metricsSessions.ReadSessions
             .Where(x => x.EndedAt >= windowStart)
@@ -220,6 +221,20 @@ public class GetOverviewStatsController(
                     && x.Status != SegmentFetch.FetchStatus.Missing),
             })
             .FirstOrDefaultAsync();
+        var circuitEventsTask = metricsEvents.MetricEvents
+            .Where(item =>
+                item.Kind == "circuit" &&
+                item.Tag1 != null &&
+                item.Tag2 != null &&
+                item.At >= Math.Max(0, windowStart - OneDay))
+            .Select(item => new
+            {
+                item.At,
+                Provider = item.Tag1!,
+                State = item.Tag2!,
+                CooldownMs = item.Num,
+            })
+            .ToListAsync();
 
         List<(long At, string Provider, long Saves)> rescues;
         List<(string From, SegmentFetch.FetchStatus Reason, long Count)> misses;
@@ -334,10 +349,66 @@ public class GetOverviewStatsController(
             providers,
             usenetStreamingClient.GetProviderCircuitSnapshots(),
             labelsByMetricsKey);
+        var circuitEvents = await circuitEventsTask.ConfigureAwait(false);
+        ApplyOutageSparks(
+            providers,
+            circuitEvents.Select(item => new CircuitOutageSparkBuilder.Event(
+                item.At,
+                item.Provider,
+                item.State,
+                item.CooldownMs)),
+            windowStart,
+            window,
+            nowMs,
+            useRollups);
 
         return new WindowSectionResult(
             tiles, throughput, bucketSize, providers, sessionsBlock, heatmap, failover,
             totalArticles, totalMisses, totalErrors, totalBytesFetched);
+    }
+
+    private static void ApplyOutageSparks(
+        List<GetOverviewStatsResponse.ProviderRow> providers,
+        IEnumerable<CircuitOutageSparkBuilder.Event> events,
+        long windowStart,
+        GetOverviewStatsRequest.OverviewWindow window,
+        long nowMs,
+        bool useRollups)
+    {
+        var (bucketCount, bucketSize, sparkStart) = ResolveProviderSparkGeometry(
+            windowStart, window, nowMs, useRollups);
+        var sparks = CircuitOutageSparkBuilder.Build(
+            events,
+            providers.Select(provider => provider.Provider),
+            sparkStart,
+            bucketSize,
+            bucketCount,
+            nowMs);
+        foreach (var provider in providers)
+            provider.OutageSpark = sparks.GetValueOrDefault(provider.Provider) ?? [];
+    }
+
+    private static (int BucketCount, long BucketSize, long SparkStart) ResolveProviderSparkGeometry(
+        long windowStart,
+        GetOverviewStatsRequest.OverviewWindow window,
+        long nowMs,
+        bool useRollups)
+    {
+        if (useRollups)
+        {
+            const long sparkSize = OneDay;
+            var totalSpan = nowMs - windowStart;
+            var sparkBuckets = Math.Max(1, (int)Math.Min(60, totalSpan / sparkSize + 1));
+            return (sparkBuckets, sparkSize, windowStart - windowStart % sparkSize);
+        }
+
+        var (bucketCount, bucketSize) = window switch
+        {
+            GetOverviewStatsRequest.OverviewWindow.Last1Hour => (60, OneMinute),
+            GetOverviewStatsRequest.OverviewWindow.Last7Days => (168, OneHour),
+            _ => (24, OneHour),
+        };
+        return (bucketCount, bucketSize, windowStart - windowStart % bucketSize);
     }
 
     private static async Task<long?> LoadPreviousFailoverSavesAsync(

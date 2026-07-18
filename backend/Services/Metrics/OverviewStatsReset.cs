@@ -89,8 +89,8 @@ public static class OverviewStatsReset
 
     /// <summary>
     /// Deletes rows attributable to one provider. Global rollups
-    /// (ThroughputMinutes, ReadSessions, MetricEvents, CatalogueDaily) are
-    /// left intact because their rows cannot be split by provider.
+    /// (ThroughputMinutes, ReadSessions, non-circuit MetricEvents, CatalogueDaily)
+    /// are left intact because their rows cannot be split by provider.
     /// Deletes commit per statement (and per batch for SegmentFetches), so a
     /// cancelled run is harmless and re-running completes the remainder.
     /// </summary>
@@ -118,6 +118,9 @@ public static class OverviewStatsReset
             .Where(x => x.Provider == providerKey).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         deleted += await db.ProviderHourly
             .Where(x => x.Provider == providerKey).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        deleted += await db.MetricEvents
+            .Where(x => x.Kind == "circuit" && x.Tag1 == providerKey)
+            .ExecuteDeleteAsync(ct).ConfigureAwait(false);
         deleted += await db.FailoverMisses
             .Where(x => x.FromProvider == providerKey || x.ToProvider == providerKey)
             .ExecuteDeleteAsync(ct).ConfigureAwait(false);

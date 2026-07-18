@@ -142,6 +142,7 @@ export function mergeProviderCircuitBreakers(
                 spark: [],
                 errorSpark: [],
                 retrySpark: [],
+                outageSpark: [],
             }),
             circuitState: breaker.circuitState,
             cooldownRemainingSeconds: breaker.cooldownRemainingSeconds,

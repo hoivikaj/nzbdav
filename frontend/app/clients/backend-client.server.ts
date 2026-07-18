@@ -673,6 +673,7 @@ export type ProviderRow = {
     spark: number[],
     errorSpark?: number[],
     retrySpark?: number[],
+    outageSpark?: number[],
     circuitState?: ProviderCircuitState,
     cooldownRemainingSeconds?: number | null,
     lastFailureReason?: string | null,
