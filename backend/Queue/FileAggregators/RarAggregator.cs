@@ -228,11 +228,16 @@ public class RarAggregator(DavDatabaseClient dbClient, DavItem mountDirectory, b
             }
 
             var first = entries[0].Segment;
+            var firstMessageId = first.NzbFile.Segments[0].MessageId;
             var allIdentical = entries.All(e =>
                 e.Segment.PartSize == first.PartSize
                 && e.Segment.ByteRangeWithinPart == first.ByteRangeWithinPart
                 && e.Segment.PathWithinArchive == first.PathWithinArchive
-                && e.Segment.FileUncompressedSize == first.FileUncompressedSize);
+                && e.Segment.FileUncompressedSize == first.FileUncompressedSize
+                && string.Equals(
+                    e.Segment.NzbFile.Segments[0].MessageId,
+                    firstMessageId,
+                    StringComparison.Ordinal));
 
             if (allIdentical)
             {

@@ -71,6 +71,19 @@ public class RarAggregatorTests
     }
 
     [Fact]
+    public void SortByPartNumber_RejectsEqualMetadataVolumesWithDifferentMessageIds()
+    {
+        var first = SegmentNullable(headerPart: 0, filenamePart: 1, start: 0, length: 5,
+            messageId: "vol-a@example.com");
+        var other = SegmentNullable(headerPart: 0, filenamePart: 1, start: 0, length: 5,
+            messageId: "vol-b@example.com");
+
+        var ex = Assert.Throws<InvalidDataException>(
+            () => RarAggregator.SortByPartNumber([first, other]));
+        Assert.Contains("duplicate volume numbers", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void SortByPartNumber_DistinctHeadersUnchanged()
     {
         var parts = Enumerable.Range(0, 3)
@@ -111,11 +124,19 @@ public class RarAggregatorTests
         => SegmentNullable(headerPart, filenamePart, start, length);
 
     private static RarProcessor.StoredFileSegment SegmentNullable(
-        int? headerPart, int? filenamePart, long start, long length)
+        int? headerPart, int? filenamePart, long start, long length,
+        string messageId = "shared@example.com")
     {
         return new RarProcessor.StoredFileSegment
         {
-            NzbFile = new NzbFile { Subject = "archive" },
+            NzbFile = new NzbFile
+            {
+                Subject = "archive",
+                Segments =
+                {
+                    new NzbSegment { MessageId = messageId, Bytes = length }
+                },
+            },
             PartSize = length,
             ArchiveName = "archive",
             PartNumber = new RarProcessor.PartNumber
