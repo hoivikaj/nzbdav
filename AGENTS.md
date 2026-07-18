@@ -273,6 +273,22 @@ Prefer this rhythm:
 
 Do not accumulate a large uncommitted diff across unrelated areas.
 
+## Issue tracking
+
+Use **GitHub Issue Types** for kind — not kind labels:
+
+| Issue Type | Use for |
+|------------|---------|
+| `Bug` | Unexpected problem or incorrect behavior |
+| `Feature` | New capability or improvement request |
+| `Task` | Concrete work item that is neither a bug nor a feature |
+
+- Do **not** use (or recreate) `bug` / `enhancement` labels — they were removed; Issue Type is the source of truth.
+- Do **not** put `[Bug]:` / `[Feature]:` in issue titles; the type field already conveys that.
+- Triage / meta labels are fine: `priority:P*`, `effort:*`, `cataloged`, `more-info-required`, and source tags (`upstream-audit`, `elfhosted`, etc.).
+
+Bug and feature issue templates set Issue Type only (no kind labels, no title prefix).
+
 ## After completing a task
 
 When a task that changed the repo is done (unless the user explicitly said not to commit, push, or open a PR):
