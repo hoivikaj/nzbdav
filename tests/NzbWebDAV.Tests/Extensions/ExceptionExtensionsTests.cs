@@ -64,4 +64,39 @@ public class ExceptionExtensionsTests
         Assert.True(ex.TryGetKnownErrorMessage(out var reason));
         Assert.Contains("<missing@example>", reason);
     }
+
+    [Theory]
+    [InlineData(typeof(IOException))]
+    [InlineData(typeof(TimeoutException))]
+    public void IsTransientTransportException_RecognizesBareTransportErrors(Type exceptionType)
+    {
+        var ex = (Exception)Activator.CreateInstance(exceptionType, "blip")!;
+        Assert.True(ex.IsTransientTransportException());
+    }
+
+    [Fact]
+    public void IsTransientTransportException_RecognizesSocketException()
+    {
+        Assert.True(new SocketException((int)SocketError.ConnectionReset).IsTransientTransportException());
+    }
+
+    [Fact]
+    public void IsTransientTransportException_RecognizesNestedIoOverSocket()
+    {
+        var nested = new IOException("reset", new SocketException((int)SocketError.ConnectionReset));
+        Assert.True(nested.IsTransientTransportException());
+    }
+
+    [Fact]
+    public void IsTransientTransportException_RejectsArticleNotFound()
+    {
+        Assert.False(new UsenetArticleNotFoundException("<missing@example>").IsTransientTransportException());
+    }
+
+    [Fact]
+    public void IsTransientTransportException_RejectsAlreadyRetryable()
+    {
+        Assert.False(new RetryableDownloadException("already classified", new IOException("inner"))
+            .IsTransientTransportException());
+    }
 }

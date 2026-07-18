@@ -313,6 +313,13 @@ public static class FetchFirstSegmentsStep
         {
             return BuildMissingFirstSegment(nzbFile);
         }
+        catch (Exception e) when (
+            e.IsTransientTransportException() && !e.IsCancellationException())
+        {
+            throw new RetryableDownloadException(
+                $"Transient provider error fetching first segment of " +
+                $"`{nzbFile.GetSubjectFileName()}`: {e.Message}", e);
+        }
     }
 
     public class NzbFileWithFirstSegment

@@ -127,10 +127,46 @@ public class FetchFirstSegmentsStepTests
             CreateFile("a@example.com", "\"a.rar\" yEnc"),
         };
 
-        var ex = await Assert.ThrowsAsync<IOException>(() =>
+        var ex = await Assert.ThrowsAsync<RetryableDownloadException>(() =>
             FetchFirstSegmentsStep.FetchFirstSegments(files, client, config, CancellationToken.None));
 
-        Assert.Equal("provider blip", ex.Message);
+        Assert.IsType<IOException>(ex.InnerException);
+        Assert.Equal("provider blip", ex.InnerException!.Message);
+        Assert.Contains("a.rar", ex.Message);
+    }
+
+    [Fact]
+    public async Task FetchFirstSegments_ConcurrentNestedSocketError_IsRetryable()
+    {
+        var config = CreatePipeliningConfig(enabled: false, depth: 4);
+        using var client = new TransientErrorNntpClient(nestedSocket: true);
+        var files = new List<NzbFile>
+        {
+            CreateFile("a@example.com", "\"a.rar\" yEnc"),
+        };
+
+        var ex = await Assert.ThrowsAsync<RetryableDownloadException>(() =>
+            FetchFirstSegmentsStep.FetchFirstSegments(files, client, config, CancellationToken.None));
+
+        Assert.IsType<IOException>(ex.InnerException);
+        Assert.IsType<System.Net.Sockets.SocketException>(ex.InnerException!.InnerException);
+    }
+
+    [Fact]
+    public async Task FetchFirstSegments_PipelinedRescueTransientError_IsRetryable()
+    {
+        var config = CreatePipeliningConfig(enabled: true, depth: 4);
+        using var client = new PipelinedFailThenRescueTransientNntpClient();
+        var files = new List<NzbFile>
+        {
+            CreateFile("a@example.com", "\"a.rar\" yEnc"),
+        };
+
+        var ex = await Assert.ThrowsAsync<RetryableDownloadException>(() =>
+            FetchFirstSegmentsStep.FetchFirstSegments(files, client, config, CancellationToken.None));
+
+        Assert.IsType<IOException>(ex.InnerException);
+        Assert.Equal(1, client.ArticleFetches);
     }
 
     [Fact]
@@ -387,7 +423,7 @@ public class FetchFirstSegmentsStepTests
         }
     }
 
-    private sealed class TransientErrorNntpClient : NntpClient
+    private sealed class TransientErrorNntpClient(bool nestedSocket = false) : NntpClient
     {
         public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
             SegmentId segmentId, CancellationToken cancellationToken) =>
@@ -399,7 +435,93 @@ public class FetchFirstSegmentsStepTests
             CancellationToken cancellationToken)
         {
             onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved);
+            if (nestedSocket)
+            {
+                throw new IOException(
+                    "provider blip",
+                    new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionReset));
+            }
             throw new IOException("provider blip");
+        }
+
+        public override Task ConnectAsync(
+            string host, int port, bool useSsl, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public override Task<UsenetResponse> AuthenticateAsync(
+            string user, string pass, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetStatResponse> StatAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetHeadResponse> HeadAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+            IReadOnlyList<SegmentId> segmentIds,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDateResponse> DateAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override void Dispose()
+        {
+        }
+    }
+
+    /// <summary>
+    /// Pipelined batch yields nothing useful (mismatched ids), then rescue DecodedArticleAsync
+    /// throws a transient IOException — should surface as RetryableDownloadException.
+    /// </summary>
+    private sealed class PipelinedFailThenRescueTransientNntpClient : NntpClient
+    {
+        public int ArticleFetches { get; private set; }
+
+        public override async IAsyncEnumerable<PipelinedArticleResult> DecodedArticlesPipelinedAsync(
+            IReadOnlyList<string> segmentIds,
+            int depth,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            foreach (var _ in segmentIds)
+            {
+                yield return new PipelinedArticleResult
+                {
+                    SegmentId = "unknown@example.com",
+                    Found = true,
+                    Stream = CreateCachedStream(Encoding.ASCII.GetBytes("wrong")),
+                    ArticleHeaders = null,
+                    DefinitivelyMissing = false,
+                };
+            }
+        }
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            DecodedArticleAsync(segmentId, null, cancellationToken);
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken)
+        {
+            ArticleFetches++;
+            onConnectionReadyAgain?.Invoke(ArticleBodyResult.NotRetrieved);
+            throw new IOException("rescue provider blip");
         }
 
         public override Task ConnectAsync(

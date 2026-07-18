@@ -11,6 +11,23 @@ public static class ExceptionExtensions
         return exception is RetryableDownloadException;
     }
 
+    /// <summary>
+    /// True when the exception chain indicates a transient transport failure that
+    /// should pause-and-retry the queue item. Already-classified download exceptions
+    /// return false (do not re-wrap retryable; never soften non-retryable).
+    /// </summary>
+    public static bool IsTransientTransportException(this Exception exception)
+    {
+        for (var current = exception; current != null; current = current.InnerException)
+        {
+            if (current is RetryableDownloadException or NonRetryableDownloadException)
+                return false;
+            if (current is TimeoutException or SocketException or IOException)
+                return true;
+        }
+        return false;
+    }
+
     public static bool IsNonRetryableDownloadException(this Exception exception)
     {
         return exception is NonRetryableDownloadException
