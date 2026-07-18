@@ -5,6 +5,7 @@ using NzbWebDAV.Models.Nzb;
 using NzbWebDAV.Par2Recovery.Packets;
 using NzbWebDAV.Queue.DeobfuscationSteps._1.FetchFirstSegment;
 using NzbWebDAV.Utils;
+using Serilog;
 
 namespace NzbWebDAV.Queue.DeobfuscationSteps._3.GetFileInfos;
 
@@ -18,11 +19,20 @@ public static class GetFileInfosStep
     {
         using var md5 = MD5.Create();
         var hashToFileDescMap = GetHashToFileDescMap(par2FileDescriptors);
-        var filesInfos = files
-            .Select(x => GetFileInfo(x, hashToFileDescMap, md5))
-            .ToList();
+        var picks = files.Select(x =>
+        {
+            var fileDesc = GetMatchingFileDescriptor(x, hashToFileDescMap, md5);
+            return new NamePick
+            {
+                Info = GetFileInfo(x, fileDesc),
+                HeaderName = x.Header?.FileName ?? "",
+                // Usable PAR2 name only — null descriptor or empty FileName does not count.
+                HasPar2Name = !string.IsNullOrWhiteSpace(fileDesc?.FileName),
+            };
+        }).ToList();
 
-        return filesInfos;
+        RepairRarGroupNames(picks);
+        return picks.Select(p => p.Info).ToList();
     }
 
     private static Dictionary<string, LinkedList<FileDesc>> GetHashToFileDescMap(List<FileDesc> par2FileDescriptors)
@@ -44,11 +54,9 @@ public static class GetFileInfosStep
 
     private static FileInfo GetFileInfo(
         FetchFirstSegmentsStep.NzbFileWithFirstSegment file,
-        Dictionary<string, LinkedList<FileDesc>> hashToFiledescMap,
-        MD5 md5
+        FileDesc? fileDesc
     )
     {
-        var fileDesc = GetMatchingFileDescriptor(file, hashToFiledescMap, md5);
         var subjectFileName = file.NzbFile.GetSubjectFileName();
         var headerFileName = file.Header?.FileName ?? "";
         var par2FileName = fileDesc?.FileName ?? "";
@@ -99,6 +107,44 @@ public static class GetFileInfosStep
     {
         var range = new LongRange(95 * totalYencodedSize / 100, totalYencodedSize);
         return range.Contains(fileSize);
+    }
+
+    /// <summary>
+    /// When RAR volumes share colliding subject-derived names (no distinct part
+    /// identity) but yEnc headers restore distinct .partN/.rNN identity, prefer
+    /// the header names. Skipped when any volume already has a PAR2 name.
+    /// </summary>
+    internal static void RepairRarGroupNames(List<NamePick> picks)
+    {
+        // Magic-based group: every real RAR volume carries the signature, so this
+        // does not depend on the (possibly colliding) FileName.
+        var group = picks.Where(x => x.Info.IsRar).ToList();
+        if (group.Count < 2) return;
+        // Keep PAR2 authoritative; never mix PAR2 + header repairs in one group.
+        if (group.Any(x => x.HasPar2Name)) return;
+        if (HasDistinctRarParts(group.Select(x => x.Info.FileName))) return;
+        if (!HasDistinctRarParts(group.Select(x => x.HeaderName))) return;
+
+        Log.Information(
+            "Repairing {Count} RAR volume names without distinct part identity using yEnc header names",
+            group.Count);
+        foreach (var pick in group)
+            pick.Info = pick.Info with { FileName = pick.HeaderName };
+    }
+
+    private static bool HasDistinctRarParts(IEnumerable<string> names)
+    {
+        var parts = names.Select(FilenameUtil.GetRarPartOrdinal).ToList();
+        return parts.Count > 0
+               && parts.All(p => p is not null)
+               && parts.Distinct().Count() == parts.Count;
+    }
+
+    internal sealed class NamePick
+    {
+        public required FileInfo Info { get; set; }
+        public required string HeaderName { get; init; }
+        public required bool HasPar2Name { get; init; }
     }
 
     public record FileInfo

@@ -1,11 +1,14 @@
 using NzbWebDAV.Models.Nzb;
 using NzbWebDAV.Queue.DeobfuscationSteps._1.FetchFirstSegment;
 using NzbWebDAV.Queue.DeobfuscationSteps._3.GetFileInfos;
+using UsenetSharp.Models;
 
 namespace NzbWebDAV.Tests.Queue;
 
 public class GetFileInfosStepTests
 {
+    private static readonly byte[] Rar4Magic = [0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00];
+
     [Fact]
     public void GetFileInfos_UsesSubjectNameAndDetectsRarMagic()
     {
@@ -49,5 +52,121 @@ public class GetFileInfosStepTests
 
         Assert.Equal("video.mkv", result.FileName);
         Assert.False(result.IsRar);
+    }
+
+    [Fact]
+    public void GetFileInfos_RepairsCollidingSubjectsUsingDistinctYencHeaders()
+    {
+        var inputs = new List<FetchFirstSegmentsStep.NzbFileWithFirstSegment>
+        {
+            Seg("Release.Name.rar", "abc123.rar"),
+            Seg("Release.Name.rar", "abc123.r00"),
+            Seg("Release.Name.rar", "abc123.r01"),
+        };
+
+        var results = GetFileInfosStep.GetFileInfos(inputs, []);
+
+        Assert.Equal(["abc123.rar", "abc123.r00", "abc123.r01"], results.Select(x => x.FileName));
+        Assert.All(results, r => Assert.True(r.IsRar));
+    }
+
+    [Fact]
+    public void GetFileInfos_LeavesWellFormedPartNamesUntouched()
+    {
+        var inputs = new List<FetchFirstSegmentsStep.NzbFileWithFirstSegment>
+        {
+            Seg("Release.part1.rar", "hashA.r00"),
+            Seg("Release.part2.rar", "hashB.r01"),
+        };
+
+        var results = GetFileInfosStep.GetFileInfos(inputs, []);
+
+        Assert.Equal(["Release.part1.rar", "Release.part2.rar"], results.Select(x => x.FileName));
+    }
+
+    [Fact]
+    public void GetFileInfos_DeclinesRepairWhenHeadersAlsoCollide()
+    {
+        var inputs = new List<FetchFirstSegmentsStep.NzbFileWithFirstSegment>
+        {
+            Seg("Release.Name.rar", "same.rar"),
+            Seg("Release.Name.rar", "same.rar"),
+        };
+
+        var results = GetFileInfosStep.GetFileInfos(inputs, []);
+
+        Assert.All(results, r => Assert.Equal("Release.Name.rar", r.FileName));
+    }
+
+    [Fact]
+    public void GetFileInfos_DeclinesRepairWhenHeadersLackRarSuffixes()
+    {
+        var inputs = new List<FetchFirstSegmentsStep.NzbFileWithFirstSegment>
+        {
+            Seg("Release.Name.rar", "hashA.bin"),
+            Seg("Release.Name.rar", "hashB.bin"),
+        };
+
+        var results = GetFileInfosStep.GetFileInfos(inputs, []);
+
+        Assert.All(results, r => Assert.Equal("Release.Name.rar", r.FileName));
+    }
+
+    [Fact]
+    public void RepairRarGroupNames_SkipsWhenAnyVolumeHasPar2Name()
+    {
+        var picks = new List<GetFileInfosStep.NamePick>
+        {
+            new()
+            {
+                Info = new GetFileInfosStep.FileInfo
+                {
+                    NzbFile = new NzbFile { Subject = "\"Release.rar\" yEnc" },
+                    FileName = "Release.rar",
+                    ReleaseDate = DateTimeOffset.UnixEpoch,
+                    IsRar = true,
+                },
+                HeaderName = "vol.rar",
+                HasPar2Name = true,
+            },
+            new()
+            {
+                Info = new GetFileInfosStep.FileInfo
+                {
+                    NzbFile = new NzbFile { Subject = "\"Release.rar\" yEnc" },
+                    FileName = "Release.rar",
+                    ReleaseDate = DateTimeOffset.UnixEpoch,
+                    IsRar = true,
+                },
+                HeaderName = "vol.r00",
+                HasPar2Name = false,
+            },
+        };
+
+        GetFileInfosStep.RepairRarGroupNames(picks);
+
+        Assert.All(picks, p => Assert.Equal("Release.rar", p.Info.FileName));
+    }
+
+    private static FetchFirstSegmentsStep.NzbFileWithFirstSegment Seg(
+        string subject, string? headerName, byte[]? first16Kb = null)
+    {
+        return new()
+        {
+            NzbFile = new NzbFile { Subject = $"\"{subject}\" yEnc (1/1)" },
+            Header = headerName is null ? null : new UsenetYencHeader
+            {
+                FileName = headerName,
+                FileSize = 1,
+                LineLength = 128,
+                PartNumber = 1,
+                TotalParts = 1,
+                PartOffset = 0,
+                PartSize = 1,
+            },
+            First16KB = first16Kb ?? Rar4Magic,
+            MissingFirstSegment = false,
+            ReleaseDate = DateTimeOffset.UnixEpoch,
+        };
     }
 }
