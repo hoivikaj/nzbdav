@@ -659,3 +659,7 @@ dav-delete-bulk source=history-cleanup count=...
 ### Persist `/config`
 
 Map a durable host directory to `/config` in Docker Compose. Without that, every recreate/reboot starts with an empty database and it will look like all content disappeared.
+
+### Recovering mounts when NZB blobs remain
+
+If `/content` mounts are gone but NZB blobs are still under `{CONFIG_PATH}/blobs/` (and often still referenced by SAB history), a future maintenance task can rebuild mounts from those retained blobs. See the design doc: [Content rebuild from retained NZB blobs](content-rebuild.md). (Design only today — not shipped yet.)
