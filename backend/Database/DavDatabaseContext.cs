@@ -62,6 +62,7 @@ public sealed class DavDatabaseContext : DbContext
     public DbSet<IndexerApiHit> IndexerApiHits => Set<IndexerApiHit>();
     public DbSet<ListSource> ListSources => Set<ListSource>();
     public DbSet<WantedItem> WantedItems => Set<WantedItem>();
+    public DbSet<NzbResolutionGroup> NzbResolutionGroups => Set<NzbResolutionGroup>();
 
     // Pending blob writes for the current unit of work (flushed in SaveChangesAsync).
     private readonly List<DavNzbFile> _blobNzbFiles = [];
@@ -695,6 +696,23 @@ public sealed class DavDatabaseContext : DbContext
             e.HasIndex(i => i.NextCheckAtUnix);
             e.HasIndex(i => i.State);
             e.HasIndex(i => i.UpdatedAtUnix);
+        });
+
+        // NzbResolutionGroup
+        b.Entity<NzbResolutionGroup>(e =>
+        {
+            e.ToTable("NzbResolutionGroups");
+            e.HasKey(i => i.Id);
+
+            e.Property(i => i.Id).ValueGeneratedNever();
+            e.Property(i => i.Type).IsRequired();
+            e.Property(i => i.ProfileToken).IsRequired();
+            e.Property(i => i.SearchId).IsRequired();
+            e.Property(i => i.CandidatesJson).IsRequired();
+            e.Property(i => i.TokensJson).IsRequired();
+            e.Property(i => i.CreatedAtUnix).IsRequired();
+
+            e.HasIndex(i => i.CreatedAtUnix);
         });
     }
 

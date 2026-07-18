@@ -144,6 +144,22 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
             </Form.Group>
 
             <Form.Group className="flex flex-col gap-2">
+                <Form.Label>Search link lifetime (hours)</Form.Label>
+                <Form.Control
+                    className="w-full max-w-md"
+                    type="number"
+                    min={1}
+                    max={720}
+                    value={config["play.resolution-cache-ttl-hours"] ?? "168"}
+                    onChange={e => set("play.resolution-cache-ttl-hours", e.target.value)} />
+                <p className="m-0 text-[11px] leading-relaxed text-base-content/45">
+                    How long play links embedded in search results stay valid. Set at or above your search
+                    client's result-cache lifetime (AIOStreams defaults to 7 days). Links now also survive
+                    restarts. Default 168 (7 days).
+                </p>
+            </Form.Group>
+
+            <Form.Group className="flex flex-col gap-2">
                 <Form.Check
                     type="switch"
                     id="play-prefer-subtitles"
@@ -353,6 +369,7 @@ export function isWatchdogSettingsUpdated(config: Record<string, string>, newCon
         || config["play.max-attempts"] !== newConfig["play.max-attempts"]
         || config["play.verify-mode"] !== newConfig["play.verify-mode"]
         || config["play.candidate-negative-cache-minutes"] !== newConfig["play.candidate-negative-cache-minutes"]
+        || config["play.resolution-cache-ttl-hours"] !== newConfig["play.resolution-cache-ttl-hours"]
         || config["play.prefer-subtitles"] !== newConfig["play.prefer-subtitles"]
         || config["grab.stall-failover-enabled"] !== newConfig["grab.stall-failover-enabled"]
         || config["grab.stall-failover-window-seconds"] !== newConfig["grab.stall-failover-window-seconds"]
