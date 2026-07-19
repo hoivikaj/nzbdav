@@ -126,6 +126,15 @@ The image runs two processes: the frontend and public proxy on port `3000`, and 
 
     For adapter/Newznab absolute links and STRM URLs, set an explicit **Base URL** under Settings (preferred). Without it, public scheme/host come only from trusted forwarded headers: the frontend strips client `X-Forwarded-*` and rewrites canonical values for the backend (which trusts loopback by default). TLS-terminating reverse proxies should set `TRUST_PROXY=1` on the container so Express honors the proxy’s forwarded headers when rewriting, **or** set Base URL explicitly — otherwise generated links may stay `http://`. Split-container topologies can widen backend trust with `TRUSTED_PROXY_CIDRS` (comma-separated IPs or CIDRs).
 
+    When download clients send `mode=addurl` NZB links that point at Docker-internal or LAN indexers (for example `http://prowlarr:9696/...`), set **Settings → SABnzbd → Trusted local hosts**, or set the `TRUSTED_INTERNAL_HOSTS` environment variable when that UI setting is empty. Both accept the same comma-separated hostnames, IP literals, CIDR ranges, or `*`. Example:
+
+    ```yaml
+    environment:
+      - TRUSTED_INTERNAL_HOSTS=prowlarr
+    ```
+
+    See [SABnzbd API compatibility](sab-api.md) for formats and security notes. Only list hosts you control.
+
     Frontend session cookies: set `SECURE_COOKIES=true` when the UI is only served over HTTPS. Optionally set `SESSION_KEY` to a long random secret (otherwise a stable key is persisted under `CONFIG_PATH/session.key` so restarts do not log everyone out). Optionally set `SESSION_MAX_AGE` in seconds (default one year).
 
 

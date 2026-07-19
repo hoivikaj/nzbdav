@@ -14,6 +14,7 @@ namespace NzbWebDAV.Api.SabControllers.AddUrl;
 public class AddUrlRequest() : AddFileRequest
 {
     private static readonly HttpClient DirectHttpClient = InitializeHttpClient();
+    private static readonly HttpRequestOptionsKey<TrustedHostsMatcher> TrustedHostsOptionKey = new("TrustedHosts");
     private const int MaxAutomaticRedirections = 10;
     private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(60);
 
@@ -26,6 +27,7 @@ public class AddUrlRequest() : AddFileRequest
 
         var userAgent = IndexerConfig.PerIndexerRetrieveUserAgent(matchedIndexer) ?? configManager.GetUserAgent();
         var proxyUrl = StringUtil.EmptyToNull(matchedIndexer?.ProxyUrl) ?? indexerConfig.ProxyUrl;
+        var trustedHosts = TrustedHostsMatcher.Parse(configManager.GetAddUrlTrustedHosts());
 
         if (matchedIndexer is not null)
         {
@@ -41,7 +43,7 @@ public class AddUrlRequest() : AddFileRequest
         }
 
         var nzbFile = await GetNzbFile(
-            nzbUrl, nzbName, userAgent, proxyUrl, context.RequestAborted).ConfigureAwait(false);
+            nzbUrl, nzbName, userAgent, proxyUrl, trustedHosts, context.RequestAborted).ConfigureAwait(false);
         if (matchedIndexer is not null)
             _ = hitTracker.RecordAsync(matchedIndexer.Name, IndexerApiHit.HitType.Download, CancellationToken.None);
         return new AddUrlRequest()
@@ -79,6 +81,7 @@ public class AddUrlRequest() : AddFileRequest
         string? nzbName,
         string userAgent,
         string? proxyUrl,
+        TrustedHostsMatcher trustedHosts,
         CancellationToken cancellationToken)
     {
         try
@@ -87,7 +90,7 @@ public class AddUrlRequest() : AddFileRequest
                 throw new Exception($"The url is invalid.");
 
             var response = await GetAsync(
-                url, userAgent, proxyUrl, cancellationToken).ConfigureAwait(false);
+                url, userAgent, proxyUrl, trustedHosts, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 response.Dispose();
@@ -130,6 +133,7 @@ public class AddUrlRequest() : AddFileRequest
         string url,
         string userAgent,
         string? proxyUrl,
+        TrustedHostsMatcher trustedHosts,
         CancellationToken cancellationToken
     )
     {
@@ -146,8 +150,9 @@ public class AddUrlRequest() : AddFileRequest
             // Validate the destination before every request, including requests sent through
             // an indexer proxy. The direct client repeats this check at connect time to
             // protect against DNS rebinding between validation and socket creation.
-            await EnsurePublicHostAsync(currentUri, ct).ConfigureAwait(false);
+            await EnsurePublicHostAsync(currentUri, trustedHosts, ct).ConfigureAwait(false);
             using var request = new HttpRequestMessage(HttpMethod.Get, currentUri);
+            request.Options.Set(TrustedHostsOptionKey, trustedHosts);
             if (!string.IsNullOrWhiteSpace(userAgent))
                 request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
 
@@ -203,15 +208,21 @@ public class AddUrlRequest() : AddFileRequest
         return new HttpClient(handler);
     }
 
-    private static async Task EnsurePublicHostAsync(Uri uri, CancellationToken cancellationToken)
+    private static async Task EnsurePublicHostAsync(
+        Uri uri,
+        TrustedHostsMatcher trustedHosts,
+        CancellationToken cancellationToken)
     {
+        if (trustedHosts.IsTrustedHost(uri.Host))
+            return;
+
         var addresses = IPAddress.TryParse(uri.Host, out var literalAddress)
             ? [literalAddress]
             : await Dns.GetHostAddressesAsync(uri.Host, cancellationToken).ConfigureAwait(false);
 
         if (addresses.Length == 0)
             throw new HttpRequestException($"The host `{uri.Host}` did not resolve to an IP address.");
-        if (addresses.Any(address => !IsPublicAddress(address)))
+        if (addresses.Any(address => !IsPublicAddress(address) && !trustedHosts.IsTrustedAddress(address)))
             throw new HttpRequestException($"The host `{uri.Host}` resolved to a non-public IP address.");
     }
 
@@ -221,6 +232,19 @@ public class AddUrlRequest() : AddFileRequest
     )
     {
         var host = context.DnsEndPoint.Host;
+        var trustedHosts = TrustedHostsMatcher.Empty;
+        if (context.InitialRequestMessage.Options.TryGetValue(TrustedHostsOptionKey, out var requestTrustedHosts)
+            && requestTrustedHosts is not null)
+        {
+            trustedHosts = requestTrustedHosts;
+        }
+
+        if (trustedHosts.IsTrustedHost(host))
+        {
+            return await ConnectToAnyAddressAsync(host, context.DnsEndPoint.Port, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         IPAddress[] addresses;
 
         if (IPAddress.TryParse(host, out var literalAddress))
@@ -235,9 +259,41 @@ public class AddUrlRequest() : AddFileRequest
         if (addresses.Length == 0)
             throw new HttpRequestException($"The host `{host}` did not resolve to an IP address.");
 
-        if (addresses.Any(address => !IsPublicAddress(address)))
+        if (addresses.Any(address => !IsPublicAddress(address) && !trustedHosts.IsTrustedAddress(address)))
             throw new HttpRequestException($"The host `{host}` resolved to a non-public IP address.");
 
+        return await ConnectToAddressesAsync(host, addresses, context.DnsEndPoint.Port, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async ValueTask<Stream> ConnectToAnyAddressAsync(
+        string host,
+        int port,
+        CancellationToken cancellationToken)
+    {
+        IPAddress[] addresses;
+
+        if (IPAddress.TryParse(host, out var literalAddress))
+        {
+            addresses = [literalAddress];
+        }
+        else
+        {
+            addresses = await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (addresses.Length == 0)
+            throw new HttpRequestException($"The host `{host}` did not resolve to an IP address.");
+
+        return await ConnectToAddressesAsync(host, addresses, port, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async ValueTask<Stream> ConnectToAddressesAsync(
+        string host,
+        IPAddress[] addresses,
+        int port,
+        CancellationToken cancellationToken)
+    {
         Exception? lastException = null;
         foreach (var address in addresses.Distinct())
         {
@@ -249,7 +305,7 @@ public class AddUrlRequest() : AddFileRequest
             try
             {
                 await socket.ConnectAsync(
-                    new IPEndPoint(address, context.DnsEndPoint.Port),
+                    new IPEndPoint(address, port),
                     cancellationToken
                 ).ConfigureAwait(false);
                 return new NetworkStream(socket, ownsSocket: true);

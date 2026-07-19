@@ -181,6 +181,24 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
             </div>
             <hr />
             <div className="space-y-2">
+                <label className="block text-sm font-medium text-base-content" htmlFor="addurl-trusted-hosts-input">Trusted local hosts</label>
+                <ExpandingTextInput
+                    className={'w-full'}
+                    id="addurl-trusted-hosts-input"
+                    aria-describedby="addurl-trusted-hosts-help"
+                    value={config["api.addurl-trusted-hosts"]}
+                    placeholder="prowlarr, hydra.lan, 192.168.1.0/24"
+                    onChange={value => setNewConfig({ ...config, "api.addurl-trusted-hosts": value })} />
+                <p className="text-[11px] leading-relaxed text-base-content/45" id="addurl-trusted-hosts-help">
+                    By default, <code>addurl</code> refuses NZB URLs that resolve to private or loopback
+                    addresses (SSRF protection). List comma-separated hostnames, IP literals, or CIDR
+                    ranges that should be allowed anyway — for example Docker service names like{" "}
+                    <code>prowlarr</code> or a LAN subnet like <code>192.168.1.0/24</code>. Use{" "}
+                    <code>*</code> to trust every non-public address. Only list hosts you control.
+                </p>
+            </div>
+            <hr />
+            <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
                     id="ensure-importable-video-checkbox"
@@ -361,6 +379,7 @@ export function isSabnzbdSettingsUpdated(config: Record<string, string>, newConf
         || config["api.completed-downloads-dir"] !== newConfig["api.completed-downloads-dir"]
         || config["general.base-url"] !== newConfig["general.base-url"]
         || config["api.user-agent"] !== newConfig["api.user-agent"]
+        || config["api.addurl-trusted-hosts"] !== newConfig["api.addurl-trusted-hosts"]
         || config["api.nzb-backup-enabled"] !== newConfig["api.nzb-backup-enabled"]
         || config["api.nzb-backup-location"] !== newConfig["api.nzb-backup-location"]
         || config["api.nzb-backup-retention-days"] !== newConfig["api.nzb-backup-retention-days"]

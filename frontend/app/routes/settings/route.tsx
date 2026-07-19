@@ -38,6 +38,7 @@ const defaultConfig = {
     "api.import-strategy": "symlinks",
     "api.completed-downloads-dir": "",
     "api.user-agent": "",
+    "api.addurl-trusted-hosts": "",
     "api.search-user-agent": "",
     "usenet.providers": "",
     "usenet.max-download-connections": "0",

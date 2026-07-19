@@ -29,6 +29,7 @@ public static class ConfigKeys
     public const string ApiSkipNonVideoOnMissingArticles = "api.skip-non-video-on-missing-articles";
     public const string ApiStrmKey = "api.strm-key";
     public const string ApiUserAgent = "api.user-agent";
+    public const string ApiAddUrlTrustedHosts = "api.addurl-trusted-hosts";
 
     // usenet
     public const string UsenetArticleBufferSize = "usenet.article-buffer-size";

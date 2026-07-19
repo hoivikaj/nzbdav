@@ -28,6 +28,45 @@ sentinel returned by `get_cats` is `*`.
 - Authentication failures use HTTP error status codes instead of always
   returning HTTP 200 with an error body.
 
+## `addurl` and private / LAN hosts
+
+`mode=addurl` fetches the NZB from the URL the download client supplies. Before
+each hop (including redirects), NzbDav rejects destinations that resolve to a
+non-public IP address. That SSRF guard blocks classic attacks against cloud
+metadata and localhost, but it also blocks the common self-hosted pattern where
+Prowlarr, NZBHydra2, or another indexer is only reachable on Docker DNS or a
+RFC1918 LAN.
+
+Allow specific destinations under **Settings → SABnzbd → Trusted local hosts**
+(`api.addurl-trusted-hosts`). Entries are comma- or whitespace-separated and may
+be:
+
+| Entry | Meaning |
+|-------|---------|
+| `prowlarr` / `hydra.lan` | Hostname matched case-insensitively against the URL host |
+| `192.168.1.50` | Exact IP literal |
+| `192.168.1.0/24` / `fd00::/8` | CIDR range for resolved addresses |
+| `*` | Trust any non-public address (disables the guard) |
+
+Example for a Docker stack where Sportarr/Sonarr send Prowlarr download links:
+
+```text
+prowlarr
+```
+
+Or a whole LAN subnet:
+
+```text
+192.168.1.0/24, hydra.lan
+```
+
+Only list hosts you control. Clients that can download the NZB themselves can
+also avoid this path by posting the file with `mode=addfile` instead of
+`addurl`.
+
+The same allowlist can be set with the `TRUSTED_INTERNAL_HOSTS` environment
+variable when the UI setting is empty; see the [setup guide](setup-guide.md).
+
 ## Delete behavior
 
 Queue delete accepts a UUID, comma-separated UUIDs, repeated `value`

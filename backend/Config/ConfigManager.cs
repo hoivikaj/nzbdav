@@ -1209,6 +1209,17 @@ public class ConfigManager
                ?? defaultValue;
     }
 
+    /// <summary>
+    /// Comma/whitespace-separated hostnames, IP literals, CIDRs, or <c>*</c>
+    /// exempted from the addurl SSRF private-address guard. Falls back to
+    /// <c>TRUSTED_INTERNAL_HOSTS</c> when the config value is empty.
+    /// </summary>
+    public string? GetAddUrlTrustedHosts()
+    {
+        return StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.ApiAddUrlTrustedHosts))
+               ?? EnvironmentUtil.GetEnvironmentVariable("TRUSTED_INTERNAL_HOSTS");
+    }
+
     public string GetSearchUserAgent()
     {
         var defaultValue = $"nzbdav/{AppVersion}";
