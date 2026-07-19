@@ -1196,7 +1196,7 @@ public class ConfigManager
 
     public HashSet<string> GetBlocklistedFiles()
     {
-        var defaultValue = "*.nfo, *.par2, *.sfv, *sample.mkv, *unpack.mkv, *.unpack.mp4";
+        var defaultValue = "*.nfo, *.par2, *.sfv, *.jpg, *sample.mkv, *unpack.mkv, *.unpack.mp4";
         return (GetConfigValue(ConfigKeys.ApiDownloadFileBlocklist) ?? defaultValue)
             .Split(',', StringSplitOptions.RemoveEmptyEntries)
             .Select(x => x.Trim())
