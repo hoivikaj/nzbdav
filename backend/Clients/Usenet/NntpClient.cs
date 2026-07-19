@@ -479,6 +479,11 @@ public abstract class NntpClient : INntpClient
             // UsenetUnexpectedResponseException for a buffered 400 goodbye, or
             // UsenetSharp UsenetProtocolException when the connection dies mid-batch):
             // fall back to the concurrent path rather than failing the check.
+            Log.Debug(
+                e,
+                "Pipelined STAT sweep failed after {Processed}/{Total} segments; falling back to concurrent STAT",
+                processed,
+                segmentIds.Count);
             var fallbackProgress = progress == null
                 ? null
                 : new Progress<int>(n => progress.Report(Math.Max(processed, n)));
