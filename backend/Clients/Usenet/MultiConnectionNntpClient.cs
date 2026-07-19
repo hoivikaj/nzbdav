@@ -513,7 +513,9 @@ public class MultiConnectionNntpClient(
 
     public override IAsyncEnumerable<PipelinedStatResult> StatsPipelinedAsync(
         IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken)
-        => RunPipelinedAsync(c => c.StatsPipelinedAsync(segmentIds, depth, cancellationToken), cancellationToken);
+        => RunPipelinedStatAsync(
+            c => c.StatsPipelinedAsync(segmentIds, depth, cancellationToken),
+            cancellationToken);
 
     public override IAsyncEnumerable<PipelinedBodyResult> DecodedBodiesPipelinedAsync(
         IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken)
@@ -522,6 +524,54 @@ public class MultiConnectionNntpClient(
     public override IAsyncEnumerable<PipelinedArticleResult> DecodedArticlesPipelinedAsync(
         IReadOnlyList<string> segmentIds, int depth, CancellationToken cancellationToken)
         => RunPipelinedAsync(c => c.DecodedArticlesPipelinedAsync(segmentIds, depth, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// STAT pipeline lease: low priority, no circuit-breaker updates (matching single
+    /// StatAsync). Still replaces the connection on hard failure because UsenetSharp
+    /// poisons it mid-batch.
+    /// </summary>
+    private async IAsyncEnumerable<PipelinedStatResult> RunPipelinedStatAsync(
+        Func<INntpClient, IAsyncEnumerable<PipelinedStatResult>> batchFactory,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var connectionLock = await connectionPool
+            .GetConnectionLockAsync(SemaphorePriority.Low, cancellationToken)
+            .ConfigureAwait(false);
+        var completed = false;
+        try
+        {
+            await using var enumerator = batchFactory(connectionLock.Connection)
+                .GetAsyncEnumerator(cancellationToken);
+            while (true)
+            {
+                PipelinedStatResult current;
+                try
+                {
+                    if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+                    {
+                        completed = true;
+                        break;
+                    }
+
+                    current = enumerator.Current;
+                }
+                catch (Exception e) when (!e.IsCancellationException())
+                {
+                    // Do not RecordFailure — STAT must not feed the breaker — but the
+                    // connection is poisoned and must not return to the pool.
+                    connectionLock.Replace();
+                    throw;
+                }
+
+                yield return current;
+            }
+        }
+        finally
+        {
+            if (!completed) connectionLock.Replace();
+            connectionLock.Dispose();
+        }
+    }
 
     private async IAsyncEnumerable<T> RunPipelinedAsync<T>(
         Func<INntpClient, IAsyncEnumerable<T>> batchFactory,

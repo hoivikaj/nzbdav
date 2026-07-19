@@ -684,7 +684,8 @@ export function UsenetSettings({ config, setNewConfig }: UsenetSettingsProps) {
                             <span>
                                 <span className="block text-sm font-medium text-base-content">Enable NNTP pipelining</span>
                                 <span className="mt-0.5 block text-xs leading-relaxed text-base-content/50">
-                                    Batch BODY requests during queue imports and benchmarks. WebDAV streaming has its
+                                    Batch BODY requests during queue imports and benchmarks, and pipeline STAT
+                                    existence checks for import health and background repairs. WebDAV streaming has its
                                     own toggle under WebDAV settings.
                                 </span>
                             </span>

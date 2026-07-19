@@ -48,6 +48,69 @@ public class NntpClientCheckAllSegmentsTests
     }
 
     [Fact]
+    public async Task CheckAllSegmentsPipelinedAsync_WithAllExists_SucceedsWithoutFailoverRecheck()
+    {
+        var client = new TrackingPipelinedStatClient(
+            pipelinedExists: [true, true],
+            recheckCodes: []);
+
+        await client.CheckAllSegmentsPipelinedAsync(
+            ["a@example", "b@example"], depth: 8, fallbackConcurrency: 2, progress: null,
+            CancellationToken.None);
+
+        Assert.Equal(0, client.CheckAllSegmentsCallCount);
+        Assert.Empty(client.RecheckedSegmentIds);
+    }
+
+    [Fact]
+    public async Task CheckAllSegmentsPipelinedAsync_RechecksOnlyMisses()
+    {
+        var client = new TrackingPipelinedStatClient(
+            pipelinedExists: [true, false, true, false],
+            recheckCodes: [223, 223]);
+
+        await client.CheckAllSegmentsPipelinedAsync(
+            ["a@example", "b@example", "c@example", "d@example"],
+            depth: 8,
+            fallbackConcurrency: 2,
+            progress: null,
+            CancellationToken.None);
+
+        Assert.Equal(1, client.CheckAllSegmentsCallCount);
+        Assert.Equal(["b@example", "d@example"], client.RecheckedSegmentIds);
+    }
+
+    [Fact]
+    public async Task CheckAllSegmentsPipelinedAsync_MissConfirmedOnFailover_ThrowsArticleNotFound()
+    {
+        var client = new TrackingPipelinedStatClient(
+            pipelinedExists: [true, false],
+            recheckCodes: [430]);
+
+        var exception = await Assert.ThrowsAsync<UsenetArticleNotFoundException>(() =>
+            client.CheckAllSegmentsPipelinedAsync(
+                ["a@example", "b@example"], 8, 1, null, CancellationToken.None));
+
+        Assert.Equal("b@example", exception.SegmentId);
+        Assert.Equal(["b@example"], client.RecheckedSegmentIds);
+    }
+
+    [Fact]
+    public async Task CheckAllSegmentsPipelinedAsync_SweepThrowsUnexpected_FallsBackToFullConcurrentPath()
+    {
+        var client = new TrackingPipelinedStatClient(
+            pipelinedExists: null,
+            recheckCodes: [223, 223],
+            throwUnexpectedOnSweep: true);
+
+        await client.CheckAllSegmentsPipelinedAsync(
+            ["a@example", "b@example"], 8, 2, null, CancellationToken.None);
+
+        Assert.Equal(1, client.CheckAllSegmentsCallCount);
+        Assert.Equal(["a@example", "b@example"], client.RecheckedSegmentIds);
+    }
+
+    [Fact]
     public async Task MapPipelinedBodyResult_With451_ReportsNotFound()
     {
         var client = new BodyCodeClient(451);
@@ -60,6 +123,109 @@ public class NntpClientCheckAllSegmentsTests
         Assert.NotNull(result);
         Assert.False(result.Found);
         Assert.Null(result.Stream);
+    }
+
+    private sealed class TrackingPipelinedStatClient(
+        bool[]? pipelinedExists,
+        int[] recheckCodes,
+        bool throwUnexpectedOnSweep = false) : NntpClient
+    {
+        private int _recheckIndex;
+
+        public int CheckAllSegmentsCallCount { get; private set; }
+        public List<string> RecheckedSegmentIds { get; } = [];
+
+        public override async IAsyncEnumerable<PipelinedStatResult> StatsPipelinedAsync(
+            IReadOnlyList<string> segmentIds,
+            int depth,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            if (throwUnexpectedOnSweep)
+                throw new UsenetUnexpectedResponseException(segmentIds[0], "400 idle timeout");
+
+            for (var i = 0; i < segmentIds.Count; i++)
+            {
+                yield return new PipelinedStatResult
+                {
+                    SegmentId = segmentIds[i],
+                    Exists = pipelinedExists![i],
+                };
+            }
+        }
+
+        public override async Task CheckAllSegmentsAsync(
+            IEnumerable<string> segmentIds,
+            int concurrency,
+            IProgress<int>? progress,
+            CancellationToken cancellationToken)
+        {
+            CheckAllSegmentsCallCount++;
+            var list = segmentIds.ToList();
+            RecheckedSegmentIds.AddRange(list);
+
+            var processed = 0;
+            foreach (var segmentId in list)
+            {
+                progress?.Report(++processed);
+                var code = recheckCodes[_recheckIndex++];
+                if (code == (int)UsenetResponseType.ArticleExists) continue;
+                if (code is 430 or 451)
+                    throw new UsenetArticleNotFoundException(segmentId, $"{code} missing");
+                throw new UsenetUnexpectedResponseException(segmentId, $"{code} unexpected");
+            }
+
+            await Task.CompletedTask;
+        }
+
+        public override Task ConnectAsync(
+            string host, int port, bool useSsl, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public override Task<UsenetResponse> AuthenticateAsync(
+            string user, string pass, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetStatResponse> StatAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetHeadResponse> HeadAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyResponse> DecodedBodyAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
+            IReadOnlyList<SegmentId> segmentIds,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDecodedArticleResponse> DecodedArticleAsync(
+            SegmentId segmentId,
+            Action<ArticleBodyResult>? onConnectionReadyAgain,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override Task<UsenetDateResponse> DateAsync(CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public override void Dispose()
+        {
+        }
     }
 
     private sealed class StatCodeClient(int responseCode) : NntpClient

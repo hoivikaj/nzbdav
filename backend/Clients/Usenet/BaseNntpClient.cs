@@ -1,4 +1,5 @@
-﻿using NzbWebDAV.Clients.Usenet.Models;
+﻿using System.Runtime.CompilerServices;
+using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
 using UsenetSharp.Clients;
@@ -15,6 +16,13 @@ namespace NzbWebDAV.Clients.Usenet;
 /// </summary>
 public class BaseNntpClient : NntpClient
 {
+    /// <summary>
+    /// Sweep chunk size for <see cref="StatsPipelinedAsync"/>. UsenetSharp windows STAT
+    /// internally with a sliding MaxPipelineDepth; this bound is only for progress
+    /// reporting and early-stop-on-miss granularity (not BODY pipelining depth).
+    /// </summary>
+    internal const int StatPipelinedSweepChunkSize = 512;
+
     private readonly IUsenetClient _client;
 
     public BaseNntpClient() : this(new UsenetClient(new UsenetClientOptions
@@ -83,6 +91,59 @@ public class BaseNntpClient : NntpClient
         }
 
         throw CreateConnectionLevelException(segmentId, response);
+    }
+
+    public override async IAsyncEnumerable<PipelinedStatResult> StatsPipelinedAsync(
+        IReadOnlyList<string> segmentIds,
+        int depth,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        // `depth` is BODY-oriented interface baggage; STAT sizing uses the fixed sweep
+        // chunk so UsenetSharp's internal MaxPipelineDepth window stays continuously full.
+        _ = depth;
+        if (segmentIds.Count == 0) yield break;
+
+        for (var batchStart = 0; batchStart < segmentIds.Count; batchStart += StatPipelinedSweepChunkSize)
+        {
+            var batchSize = Math.Min(StatPipelinedSweepChunkSize, segmentIds.Count - batchStart);
+            var batchIds = new SegmentId[batchSize];
+            for (var index = 0; index < batchSize; index++)
+                batchIds[index] = PrepareSegmentId(segmentIds[batchStart + index]);
+
+            var responses = await _client.StatPipelinedAsync(batchIds, cancellationToken)
+                .ConfigureAwait(false);
+
+            for (var index = 0; index < responses.Count; index++)
+            {
+                var segmentId = batchIds[index];
+                var response = responses[index];
+
+                // UsenetSharp returns connection-level codes as ordered ArticleExists=false
+                // results — classify like StatAsync so a stale 400 goodbye never looks
+                // like a missing article (false repair/delete).
+                if (response.ResponseType == UsenetResponseType.ArticleExists)
+                {
+                    yield return new PipelinedStatResult
+                    {
+                        SegmentId = segmentId,
+                        Exists = true,
+                    };
+                    continue;
+                }
+
+                if (UsenetArticleAvailability.IsDefinitiveMissing(response))
+                {
+                    yield return new PipelinedStatResult
+                    {
+                        SegmentId = segmentId,
+                        Exists = false,
+                    };
+                    continue;
+                }
+
+                throw CreateConnectionLevelException(segmentId, response);
+            }
+        }
     }
 
     public override async Task<UsenetHeadResponse> HeadAsync(SegmentId segmentId, CancellationToken cancellationToken)
