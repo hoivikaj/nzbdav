@@ -21,6 +21,14 @@ namespace NzbWebDAV.Services;
 public class HealthCheckService : BackgroundService
 {
     private const int MaximumMissingSegmentIds = 100_000;
+
+    // Files at or below this many segments are checked in full, before any aging taper.
+    public const int SampleFloor = 8000;
+
+    // A release keeps full depth for its first year, then tapers until it stops aging at ten.
+    private const double FullDepthDays = 365;
+    private const double MinDepthDays = 3650;
+
     private readonly ConfigManager _configManager;
     private readonly INntpClient _usenetClient;
     private readonly WebsocketManager _websocketManager;
@@ -166,7 +174,10 @@ public class HealthCheckService : BackgroundService
 
             // sample large files to reduce NNTP load while keeping head/tail/stride coverage
             var totalSegments = segments.Count;
-            var sampled = SampleSegments(segments);
+            var age = _configManager.IsHealthCheckAgingEnabled() && davItem.ReleaseDate is { } posted
+                ? DateTimeOffset.UtcNow - posted
+                : (TimeSpan?)null;
+            var sampled = SampleSegments(segments, _configManager.GetHealthCheckDepth(), age);
 
             // setup progress tracking
             var progressHook = new Progress<int>();
@@ -290,30 +301,62 @@ public class HealthCheckService : BackgroundService
     }
 
     /// <summary>
-    /// For files with more than 4000 segments, returns a stratified sample:
-    /// first 100, last 100, and evenly-spaced middle segments (~4000 total).
-    /// Small files are checked in full.
+    /// How many segments to STAT for one file. Files up to the floor are checked in full,
+    /// larger ones are sampled based on their size, and an optional age scales the result
+    /// down from there. Depth 0 will bypass this and do a full check.
     /// </summary>
-    public static List<string> SampleSegments(List<string> segments)
+    public static int SampleTarget(int segmentCount, double depth, TimeSpan? age = null)
     {
-        const int threshold = 4000;
-        if (segments.Count <= threshold) return segments;
+        if (depth <= 0) return segmentCount;
+        var curve = Math.Max(SampleFloor, depth * Math.Sqrt((double)SampleFloor * segmentCount));
+        return (int)Math.Min(segmentCount, curve * AgeWeight(age));
+    }
+
+    /// <summary>
+    /// Scales coverage down as a release ages with the same square root curve used for size.
+    /// A post that has survived its first year is far less likely to be broken, so it
+    /// gets a lighter check. The taper stops at ten years so nothing decays toward zero.
+    /// </summary>
+    private static double AgeWeight(TimeSpan? age)
+    {
+        if (age is not { } elapsed) return 1.0;
+        return Math.Sqrt(FullDepthDays / Math.Clamp(elapsed.TotalDays, FullDepthDays, MinDepthDays));
+    }
+
+    /// <summary>
+    /// Returns a stratified sample of <paramref name="segments"/>: first 100, last 100, and
+    /// evenly spaced middle segments, sized by <see cref="SampleTarget"/>.
+    /// </summary>
+    public static List<string> SampleSegments(
+        List<string> segments,
+        double depth = ConfigManager.DefaultHealthCheckDepth,
+        TimeSpan? age = null)
+    {
+        var count = segments.Count;
+        var target = SampleTarget(count, depth, age);
+        if (count <= target) return segments;
 
         const int headCount = 100;
         const int tailCount = 100;
-        const int strideTarget = 4000;
 
         var result = new HashSet<int>();
 
-        for (var i = 0; i < Math.Min(headCount, segments.Count); i++)
+        for (var i = 0; i < Math.Min(headCount, count); i++)
             result.Add(i);
 
-        for (var i = Math.Max(0, segments.Count - tailCount); i < segments.Count; i++)
+        for (var i = Math.Max(0, count - tailCount); i < count; i++)
             result.Add(i);
 
-        var stride = Math.Max(1, segments.Count / strideTarget);
-        for (var i = 0; i < segments.Count; i += stride)
+        // Spread `target` picks across the file with a running remainder, so the sample lands
+        // on the target instead of on the nearest whole number stride.
+        var carry = 0L;
+        for (var i = 0; i < count; i++)
+        {
+            carry += target;
+            if (carry < count) continue;
+            carry -= count;
             result.Add(i);
+        }
 
         return result.OrderBy(i => i).Select(i => segments[i]).ToList();
     }

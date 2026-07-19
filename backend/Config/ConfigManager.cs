@@ -14,6 +14,9 @@ public class ConfigManager
 {
     public static readonly string AppVersion = EnvironmentUtil.GetEnvironmentVariable("NZBDAV_VERSION") ?? "0.0.0";
 
+    // Sampling curve multiplier used by a background health check when none is configured.
+    public const double DefaultHealthCheckDepth = 0.5;
+
     private readonly Dictionary<string, string> _config = new();
     private readonly Dictionary<(string Name, Type Type), object?> _deserializedConfig = new();
     // Compiled exclude patterns are cached and rebuilt only when an exclude-related
@@ -235,12 +238,17 @@ public class ConfigManager
                 case ConfigKeys.WardenHideDead:
                 case ConfigKeys.WardenBackboneScope:
                 case ConfigKeys.RepairEnable:
+                case ConfigKeys.RepairHealthcheckAging:
                 case ConfigKeys.RepairAutoRemoveUnlinkedOnly:
                 case ConfigKeys.RcloneRcEnabled:
                 case ConfigKeys.DbIsStartupVacuumEnabled:
                 case ConfigKeys.MaintenanceRemoveOrphanedScheduleEnabled:
                 case ConfigKeys.BackupScheduleEnabled:
                     RequireBool(item.ConfigName, value);
+                    break;
+
+                case ConfigKeys.RepairHealthcheckDepth:
+                    RequireOneOf(item.ConfigName, value, "standard", "enhanced", "deep", "complete");
                     break;
 
                 case ConfigKeys.UsenetProviders:
@@ -273,6 +281,13 @@ public class ConfigManager
         {
             if (!bool.TryParse(value, out _))
                 throw new ArgumentException($"Config value for '{key}' must be 'true' or 'false', but was '{value}'.");
+        }
+
+        static void RequireOneOf(string key, string value, params string[] allowed)
+        {
+            if (!allowed.Contains(value, StringComparer.OrdinalIgnoreCase))
+                throw new ArgumentException(
+                    $"Config value for '{key}' must be one of '{string.Join("', '", allowed)}', but was '{value}'.");
         }
 
         static void RequireJson<T>(string key, string value)
@@ -1101,6 +1116,32 @@ public class ConfigManager
             ?? "50"
         );
         return Math.Clamp(configured, 1, Math.Max(1, poolSize));
+    }
+
+    /// <summary>
+    /// How much of each file a health check reads, as a multiplier on the sampling curve.
+    /// Returns 0 for "complete", which turns sampling off so every segment is checked.
+    /// </summary>
+    public double GetHealthCheckDepth()
+    {
+        var configured = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RepairHealthcheckDepth));
+        return configured?.ToLowerInvariant() switch
+        {
+            "enhanced" => 1.0,
+            "deep" => 2.0,
+            "complete" => 0,
+            _ => DefaultHealthCheckDepth,
+        };
+    }
+
+    /// <summary>
+    /// Whether coverage tapers as a release ages. Off by default, so every release is
+    /// checked at the depth its size earns regardless of how long the post has survived.
+    /// </summary>
+    public bool IsHealthCheckAgingEnabled()
+    {
+        var configValue = StringUtil.EmptyToNull(GetConfigValue(ConfigKeys.RepairHealthcheckAging));
+        return configValue != null && bool.Parse(configValue);
     }
 
     /// <summary>

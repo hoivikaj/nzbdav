@@ -62,6 +62,8 @@ public static class ConfigKeys
     public const string MediaLibraryDir = "media.library-dir";
     public const string RepairEnable = "repair.enable";
     public const string RepairHealthcheckConcurrency = "repair.healthcheck-concurrency";
+    public const string RepairHealthcheckDepth = "repair.healthcheck-depth";
+    public const string RepairHealthcheckAging = "repair.healthcheck-aging";
     public const string RepairAutoRemoveAfterFailures = "repair.auto-remove-after-failures";
     public const string RepairAutoRemoveUnlinkedOnly = "repair.auto-remove-unlinked-only";
     public const string ArrInstances = "arr.instances";
