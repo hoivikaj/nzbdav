@@ -1,6 +1,5 @@
 name: Bug report
 description: Report a reproducible problem in NzbDav
-title: ""
 type: Bug
 body:
   - type: markdown
