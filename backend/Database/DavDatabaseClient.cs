@@ -248,6 +248,47 @@ public sealed class DavDatabaseClient(DavDatabaseContext ctx)
         await CascadeWatchdogEntriesAsync(ids, groupKeys, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Moves the given queue items to the front of the queue by setting
+    /// <see cref="QueueItem.PriorityOption.Force"/> and assigning earlier
+    /// <see cref="QueueItem.CreatedAt"/> values. Preserves the relative order
+    /// of <paramref name="ids"/> (first id becomes the absolute top among
+    /// moved items). Does not preempt an already in-progress download.
+    /// </summary>
+    /// <returns>The ids that were actually updated (unknown ids are skipped).</returns>
+    public async Task<List<Guid>> MoveQueueItemsToTopAsync(List<Guid> ids, CancellationToken ct = default)
+    {
+        if (ids.Count == 0)
+            return [];
+
+        var idSet = ids.ToHashSet();
+        var items = await Ctx.QueueItems
+            .Where(q => idSet.Contains(q.Id))
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        if (items.Count == 0)
+            return [];
+
+        var byId = items.ToDictionary(q => q.Id);
+        var ordered = ids.Where(byId.ContainsKey).Distinct().ToList();
+
+        var earliest = await Ctx.QueueItems
+            .MinAsync(q => q.CreatedAt, ct)
+            .ConfigureAwait(false);
+        // Place moved items strictly before every other queue item.
+        var baseTime = earliest.AddTicks(-ordered.Count);
+
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var item = byId[ordered[i]];
+            item.Priority = QueueItem.PriorityOption.Force;
+            item.CreatedAt = baseTime.AddTicks(i);
+        }
+
+        await Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ordered;
+    }
+
     // Delete watchdog attempts that were tied to the deleted queue/history items.
     // - QueueItemId match: direct link (queue-processor flow).
     // - ContentGroupKey match: orphaned group — no remaining queue or history item

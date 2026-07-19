@@ -77,6 +77,49 @@ public sealed class DavDatabaseClientTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task MoveQueueItemsToTopAsync_BumpsPriorityAndCreatedAt()
+    {
+        var first = CreateQueueItem("first.nzb", DateTime.UtcNow.AddMinutes(-30), QueueItem.PriorityOption.Normal);
+        var second = CreateQueueItem("second.nzb", DateTime.UtcNow.AddMinutes(-20), QueueItem.PriorityOption.Normal);
+        var third = CreateQueueItem("third.nzb", DateTime.UtcNow.AddMinutes(-10), QueueItem.PriorityOption.High);
+
+        _context.QueueItems.AddRange(first, second, third);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var before = await _client.GetQueueItems(null);
+        Assert.Equal([third.Id, first.Id, second.Id], before.Select(q => q.Id));
+
+        var moved = await _client.MoveQueueItemsToTopAsync([second.Id]);
+        Assert.Equal([second.Id], moved);
+        _context.ChangeTracker.Clear();
+
+        var after = await _client.GetQueueItems(null);
+        Assert.Equal([second.Id, third.Id, first.Id], after.Select(q => q.Id));
+        Assert.Equal(QueueItem.PriorityOption.Force, after[0].Priority);
+    }
+
+    [Fact]
+    public async Task MoveQueueItemsToTopAsync_PreservesRelativeOrderOfMovedIds()
+    {
+        var first = CreateQueueItem("first.nzb", DateTime.UtcNow.AddMinutes(-30), QueueItem.PriorityOption.Normal);
+        var second = CreateQueueItem("second.nzb", DateTime.UtcNow.AddMinutes(-20), QueueItem.PriorityOption.Normal);
+        var third = CreateQueueItem("third.nzb", DateTime.UtcNow.AddMinutes(-10), QueueItem.PriorityOption.Normal);
+
+        _context.QueueItems.AddRange(first, second, third);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        // Request order: third then second → third should be absolute top.
+        await _client.MoveQueueItemsToTopAsync([third.Id, second.Id]);
+        _context.ChangeTracker.Clear();
+
+        var after = await _client.GetQueueItems(null);
+        Assert.Equal([third.Id, second.Id, first.Id], after.Select(q => q.Id));
+        Assert.All(after.Take(2), q => Assert.Equal(QueueItem.PriorityOption.Force, q.Priority));
+    }
+
+    [Fact]
     public async Task CompletedSymlinkCategoryChildren_AreDistinctAndOrdered()
     {
         var zetaDirectory = DavItem.New(
@@ -198,6 +241,25 @@ public sealed class DavDatabaseClientTests : IAsyncLifetime
             Category = "movies",
             DownloadStatus = status,
             DownloadDirId = downloadDirId
+        };
+    }
+
+    private static QueueItem CreateQueueItem(
+        string fileName,
+        DateTime createdAt,
+        QueueItem.PriorityOption priority)
+    {
+        return new QueueItem
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = createdAt,
+            FileName = fileName,
+            JobName = Path.GetFileNameWithoutExtension(fileName),
+            NzbFileSize = 100,
+            TotalSegmentBytes = 200,
+            Category = "movies",
+            Priority = priority,
+            PostProcessing = QueueItem.PostProcessingOption.None
         };
     }
 

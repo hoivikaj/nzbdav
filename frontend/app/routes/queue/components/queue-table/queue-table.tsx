@@ -22,7 +22,27 @@ export type QueueTableProps = {
     onIsSelectedChanged: (nzo_ids: Set<string>, isSelected: boolean) => void,
     onIsRemovingChanged: (nzo_ids: Set<string>, isRemoving: boolean) => void,
     onRemoved: (nzo_ids: Set<string>) => void,
+    onMovedToTop: (nzo_ids: Set<string>) => void,
     onUploadClicked?: () => void;
+}
+
+async function moveQueueItemsToTop(nzoIds: string[]): Promise<boolean> {
+    if (nzoIds.length === 0) return false;
+    try {
+        const url = `/api?mode=queue&name=move&value2=0`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json;charset=UTF-8',
+            },
+            body: JSON.stringify({ nzo_ids: nzoIds }),
+        });
+        if (!response.ok) return false;
+        const data = await response.json();
+        return data.status === true;
+    } catch {
+        return false;
+    }
 }
 
 export function QueueTable({
@@ -37,11 +57,16 @@ export function QueueTable({
     onIsSelectedChanged,
     onIsRemovingChanged,
     onRemoved,
+    onMovedToTop,
     onUploadClicked,
 }: QueueTableProps) {
     const [isConfirmingRemoval, setIsConfirmingRemoval] = useState(false);
     const selectedCount = queueSlots.filter(x => !!x.isSelected).length;
     const headerCheckboxState: TriCheckboxState = selectedCount === 0 ? 'none' : selectedCount === queueSlots.length ? 'all' : 'some';
+    const selectedMovableIds = useMemo(
+        () => queueSlots.filter(x => !!x.isSelected && !x.isUploading).map(x => x.nzo_id),
+        [queueSlots],
+    );
 
     // row events
     const onRowIsSelectedChanged = useCallback((id: string, isSelected: boolean) => {
@@ -55,6 +80,11 @@ export function QueueTable({
     const onRowRemoved = useCallback((id: string) => {
         onRemoved(new Set([id]));
     }, [onRemoved]);
+
+    const onRowMovedToTop = useCallback((id: string) => {
+        onMovedToTop(new Set([id]));
+        if (!isLive) onPageSelected(1);
+    }, [onMovedToTop, isLive, onPageSelected]);
 
     // table events
     const onSelectAll = useCallback((isSelected: boolean) => {
@@ -98,6 +128,14 @@ export function QueueTable({
         onIsRemovingChanged(queued_nzo_ids, false);
     }, [queueSlots, setIsConfirmingRemoval, onIsRemovingChanged, onRemoved]);
 
+    const onMoveSelectedToTop = useCallback(async () => {
+        if (selectedMovableIds.length === 0) return;
+        const ok = await moveQueueItemsToTop(selectedMovableIds);
+        if (!ok) return;
+        onMovedToTop(new Set(selectedMovableIds));
+        if (!isLive) onPageSelected(1);
+    }, [selectedMovableIds, onMovedToTop, isLive, onPageSelected]);
+
 
     // view
     const categoryDropdown = useMemo(() => (
@@ -112,7 +150,14 @@ export function QueueTable({
                 Queue
             </h2>
             {headerCheckboxState !== 'none' &&
-                <ActionButton type="delete" onClick={onRemove} />
+                <>
+                    {selectedMovableIds.length > 0 &&
+                        <Tooltip content="Move selected to top of queue">
+                            <ActionButton type="move-top" onClick={onMoveSelectedToTop} />
+                        </Tooltip>
+                    }
+                    <ActionButton type="delete" onClick={onRemove} />
+                </>
             }
             <div className="ml-2.5 hidden min-[450px]:block">
                 {categoryDropdown}
@@ -146,6 +191,7 @@ export function QueueTable({
                             onIsSelectedChanged={onRowIsSelectedChanged}
                             onIsRemovingChanged={onRowIsRemovingChanged}
                             onRemoved={onRowRemoved}
+                            onMovedToTop={onRowMovedToTop}
                         />
                     )}
                 </PageTable>
@@ -165,12 +211,14 @@ type QueueRowProps = {
     slot: PresentationQueueSlot
     onIsSelectedChanged: (nzo_id: string, isSelected: boolean) => void,
     onIsRemovingChanged: (nzo_id: string, isRemoving: boolean) => void,
-    onRemoved: (nzo_id: string) => void
+    onRemoved: (nzo_id: string) => void,
+    onMovedToTop: (nzo_id: string) => void,
 }
 
-export const QueueRow = memo(({ slot, onIsSelectedChanged, onIsRemovingChanged, onRemoved }: QueueRowProps) => {
+export const QueueRow = memo(({ slot, onIsSelectedChanged, onIsRemovingChanged, onRemoved, onMovedToTop }: QueueRowProps) => {
     // state
     const [isConfirmingRemoval, setIsConfirmingRemoval] = useState(false);
+    const [isMoving, setIsMoving] = useState(false);
     const isActivelyUploading = slot.isUploading && slot.status == "uploading";
 
     // events
@@ -207,6 +255,17 @@ export const QueueRow = memo(({ slot, onIsSelectedChanged, onIsRemovingChanged, 
         onIsRemovingChanged(slot.nzo_id, false);
     }, [slot.nzo_id, setIsConfirmingRemoval, onIsRemovingChanged, onRemoved]);
 
+    const onMoveToTop = useCallback(async () => {
+        if (slot.isUploading || isMoving) return;
+        setIsMoving(true);
+        try {
+            const ok = await moveQueueItemsToTop([slot.nzo_id]);
+            if (ok) onMovedToTop(slot.nzo_id);
+        } finally {
+            setIsMoving(false);
+        }
+    }, [slot.isUploading, slot.nzo_id, isMoving, onMovedToTop]);
+
     // view
     return (
         <>
@@ -219,7 +278,20 @@ export const QueueRow = memo(({ slot, onIsSelectedChanged, onIsRemovingChanged, 
                 status={slot.status}
                 percentage={slot.true_percentage}
                 fileSizeBytes={Number(slot.mb) * 1024 * 1024}
-                actions={<ActionButton type="delete" disabled={!!slot.isRemoving || isActivelyUploading} onClick={onRemove} />}
+                actions={
+                    <div className="flex items-center justify-center gap-1">
+                        {!slot.isUploading &&
+                            <Tooltip content="Move to top">
+                                <ActionButton
+                                    type="move-top"
+                                    disabled={!!slot.isRemoving || isMoving}
+                                    onClick={onMoveToTop}
+                                />
+                            </Tooltip>
+                        }
+                        <ActionButton type="delete" disabled={!!slot.isRemoving || isActivelyUploading} onClick={onRemove} />
+                    </div>
+                }
                 onRowSelectionChanged={isSelected => onIsSelectedChanged(slot.nzo_id, isSelected)}
                 error={slot.error}
                 indexer={slot.indexer}
