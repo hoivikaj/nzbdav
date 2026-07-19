@@ -13,6 +13,7 @@ using UsenetSharp.Models;
 
 namespace NzbWebDAV.Tests.Streams;
 
+[Collection(nameof(GlobalLoggerCollection))]
 public class NzbFileStreamTests
 {
     private static readonly byte[][] SegmentBytes =

@@ -107,8 +107,11 @@ public class ProviderCircuitBreaker
     {
         lock (_lock)
         {
+            // Only a circuit that opened can recover. Failures that cleared without tripping
+            // are routine, and announcing a recovery for them implies an outage that never
+            // happened. Matches the transition notification below.
             var wasCircuitActive = _trippedUntilMs > 0 || _halfOpenProbeInFlight != 0;
-            if (_window.Count > 0 || wasCircuitActive)
+            if (wasCircuitActive)
                 Log.Information("Provider {Provider} recovered — circuit breaker reset.", _providerName);
 
             _window.Clear();
