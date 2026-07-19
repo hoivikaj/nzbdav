@@ -8,6 +8,7 @@ const topicNames = {
     queueItemProviders: 'qpv',
     queueItemAdded: 'qa',
     queueItemRemoved: 'qr',
+    queueItemMoved: 'qm',
     historyItemAdded: 'ha',
     historyItemRemoved: 'hr',
 };
@@ -18,6 +19,7 @@ const topicSubscriptions = {
     [topicNames.queueItemProviders]: 'state',
     [topicNames.queueItemAdded]: 'event',
     [topicNames.queueItemRemoved]: 'event',
+    [topicNames.queueItemMoved]: 'event',
     [topicNames.historyItemAdded]: 'event',
     [topicNames.historyItemRemoved]: 'event',
 } as const;
@@ -34,6 +36,9 @@ export function initializeQueueHistoryWebsocket(
         }
         else if (topic == topicNames.queueItemRemoved) {
             if (isQueueLive) queueEvents.onRemoveQueueSlots(new Set<string>(message.split(',')));
+        }
+        else if (topic == topicNames.queueItemMoved) {
+            queueEvents.onMoveQueueSlotsToTop(new Set<string>(message.split(',').filter(Boolean)));
         }
         else if (topic == topicNames.queueItemStatus)
             queueEvents.onChangeQueueSlotStatus(message);

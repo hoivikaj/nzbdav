@@ -84,7 +84,7 @@ export default function Queue(props: Route.ComponentProps) {
         : queueSlots;
 
     // queue/history events
-    const queueEvents = useQueueEvents(setUploadingFiles, setQueueSlots, uploadQueueRef, pageSize);
+    const queueEvents = useQueueEvents(setUploadingFiles, setQueueSlots, uploadQueueRef, pageSize, isQueueLive);
     const historyEvents = useHistoryEvents(setHistorySlots, pageSize);
 
     // websocket
@@ -121,6 +121,7 @@ export default function Queue(props: Route.ComponentProps) {
                         onIsSelectedChanged={queueEvents.onSelectQueueSlots}
                         onIsRemovingChanged={queueEvents.onRemovingQueueSlots}
                         onRemoved={queueEvents.onRemoveQueueSlots}
+                        onMovedToTop={queueEvents.onMoveQueueSlotsToTop}
                         onUploadClicked={dropzone.open}
                     />
                 </div>

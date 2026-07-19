@@ -7,6 +7,7 @@ export type QueueEvents = {
     onSelectQueueSlots: (ids: Set<string>, isSelected: boolean) => void,
     onRemovingQueueSlots: (ids: Set<string>, isRemoving: boolean) => void,
     onRemoveQueueSlots: (ids: Set<string>) => void,
+    onMoveQueueSlotsToTop: (ids: Set<string>) => void,
     onChangeQueueSlotStatus: (message: string) => void,
     onChangeQueueSlotPercentage: (message: string) => void,
     onChangeQueueSlotProviders: (message: string) => void
@@ -23,7 +24,8 @@ export function useQueueEvents(
     setUploadingFiles: (value: React.SetStateAction<UploadingFile[]>) => void,
     setQueueSlots: (value: React.SetStateAction<PresentationQueueSlot[]>) => void,
     uploadQueueRef: React.RefObject<UploadingFile[]>,
-    pageSize: number
+    pageSize: number,
+    isQueueLive: boolean,
 ) {
     const onAddQueueSlot = useCallback((queueSlot: QueueSlot) => {
         uploadQueueRef.current = uploadQueueRef.current.filter(x => x.queueSlot.status === "uploading" || x.queueSlot.filename !== queueSlot.filename);
@@ -45,6 +47,35 @@ export function useQueueEvents(
         setUploadingFiles(files => files.filter(x => x.queueSlot.status === "uploading" || !ids.has(x.queueSlot.nzo_id)));
         setQueueSlots(slots => slots.filter(x => !ids.has(x.nzo_id)));
     }, [setQueueSlots]);
+
+    const onMoveQueueSlotsToTop = useCallback((ids: Set<string>) => {
+        if (ids.size === 0) return;
+
+        // Older pages only show a window of the queue; moved items leave that window.
+        if (!isQueueLive) {
+            setQueueSlots(slots => slots.filter(x => !ids.has(x.nzo_id)));
+            return;
+        }
+
+        setQueueSlots(slots => {
+            const moved: PresentationQueueSlot[] = [];
+            const remaining: PresentationQueueSlot[] = [];
+            for (const slot of slots) {
+                if (ids.has(slot.nzo_id)) moved.push({ ...slot, isSelected: false });
+                else remaining.push(slot);
+            }
+            if (moved.length === 0) return slots;
+
+            // Keep an in-progress download pinned at the front (matches GetQueueController).
+            const insertAt = remaining.findIndex(s => s.status !== "Downloading");
+            const index = insertAt < 0 ? remaining.length : insertAt;
+            return [
+                ...remaining.slice(0, index),
+                ...moved,
+                ...remaining.slice(index),
+            ].slice(0, pageSize);
+        });
+    }, [setQueueSlots, isQueueLive, pageSize]);
 
     const onChangeQueueSlotStatus = useCallback((message: string) => {
         const [nzo_id, status] = message.split('|');
@@ -77,6 +108,7 @@ export function useQueueEvents(
         onSelectQueueSlots,
         onRemovingQueueSlots,
         onRemoveQueueSlots,
+        onMoveQueueSlotsToTop,
         onChangeQueueSlotStatus,
         onChangeQueueSlotPercentage,
         onChangeQueueSlotProviders
