@@ -14,6 +14,7 @@ import {
   isWithinBackendStartupGrace,
 } from "./startup-grace";
 import { applyCanonicalForwardedHeaders } from "./forwarded-headers";
+import { backendProxyTimeoutOptions } from "./backend-proxy-options";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -49,19 +50,14 @@ function logProxyFailure(message: string, error: unknown) {
   }
 }
 
-// Speed tests (and some maintenance tasks) can run for many minutes while the
- // HTTP request stays open. Default intermediary idle/TTFB limits are often ~30s
- // and would abort those calls with a generic UI error.
-const LONG_RUNNING_PROXY_TIMEOUT_MS = 3 * 60 * 60 * 1000; // 3 hours
-
-// Proxy all webdav and api requests to the backend
+// Proxy all webdav and api requests to the backend.
+// Long POSTs (e.g. /api/benchmark-usenet-connection) rely on proxyTimeout here
+// plus server.requestTimeout/headersTimeout in server.ts — not httpxy's inbound
+// `timeout` option, which leaks socket listeners under keep-alive (#486).
 const forwardToBackend = createProxyMiddleware({
   target: process.env.BACKEND_URL,
   changeOrigin: true,
-  // httpxy only enforces these when set; pin them high so long POSTs (e.g.
-  // /api/benchmark-usenet-connection with a 20 GB budget) are not cut off.
-  proxyTimeout: LONG_RUNNING_PROXY_TIMEOUT_MS,
-  timeout: LONG_RUNNING_PROXY_TIMEOUT_MS,
+  ...backendProxyTimeoutOptions,
   on: {
     proxyReq: (proxyReq, req) => {
       applyCanonicalForwardedHeaders(proxyReq, req as express.Request, { trustProxy });
