@@ -131,7 +131,9 @@ public class NntpClientCheckAllSegmentsTests
     public async Task CheckAllSegmentsPipelinedAsync_SweepThrowsAfterProgress_FallbackProgressIsMonotonic()
     {
         var reports = new List<int>();
-        var progress = new Progress<int>(n => reports.Add(n));
+        // Collect synchronously — System.Progress<T> posts via the sync context / thread
+        // pool and races List enumeration in Assert.Equal.
+        var progress = new CollectingProgress(reports);
         var client = new TrackingPipelinedStatClient(
             pipelinedExists: [true, true, true],
             recheckCodes: [223, 223, 223],
@@ -145,6 +147,11 @@ public class NntpClientCheckAllSegmentsTests
         Assert.Equal(["a@example", "b@example", "c@example"], client.RecheckedSegmentIds);
         // Pipelined reports 1,2 then throw; fallback clamps so n=1,2 stay at 2 before advancing to 3.
         Assert.Equal([1, 2, 2, 2, 3], reports);
+    }
+
+    private sealed class CollectingProgress(List<int> reports) : IProgress<int>
+    {
+        public void Report(int value) => reports.Add(value);
     }
 
     [Fact]

@@ -484,9 +484,11 @@ public abstract class NntpClient : INntpClient
                 "Pipelined STAT sweep failed after {Processed}/{Total} segments; falling back to concurrent STAT",
                 processed,
                 segmentIds.Count);
+            // Use a synchronous adapter — Progress<T> posts asynchronously and can
+            // reorder or race progress observers (and tests collecting reports).
             var fallbackProgress = progress == null
                 ? null
-                : new Progress<int>(n => progress.Report(Math.Max(processed, n)));
+                : new MappedProgress(progress, n => Math.Max(processed, n));
             await CheckAllSegmentsAsync(segmentIds, fallbackConcurrency, fallbackProgress, cancellationToken)
                 .ConfigureAwait(false);
             return;
@@ -498,8 +500,13 @@ public abstract class NntpClient : INntpClient
         // Continue progress from the already-reported pipelined count.
         var recheckProgress = progress == null
             ? null
-            : new Progress<int>(n => progress.Report(processed + n));
+            : new MappedProgress(progress, n => processed + n);
         await CheckAllSegmentsAsync(missing, fallbackConcurrency, recheckProgress, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private sealed class MappedProgress(IProgress<int> target, Func<int, int> map) : IProgress<int>
+    {
+        public void Report(int value) => target.Report(map(value));
     }
 }
