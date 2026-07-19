@@ -826,9 +826,11 @@ public class MultiProviderNntpClient(
         using var releasePending = new ScopeReleaser(() => reserved?.ReleasePending());
         var primary = orderedProviders.Count > 0 ? orderedProviders[0] : null;
         if (primary == null) yield break;
-        var effectiveDepth = ResolveDepth(primary, depth);
 
-        await foreach (var result in primary.StatsPipelinedAsync(segmentIds, effectiveDepth, cancellationToken)
+        // Primary-only sweep: STAT chunk sizing is fixed in BaseNntpClient
+        // (UsenetSharp windows internally). Per-provider BODY depth does not apply.
+        // Misses are rechecked with per-STAT failover in CheckAllSegmentsPipelinedAsync.
+        await foreach (var result in primary.StatsPipelinedAsync(segmentIds, depth, cancellationToken)
                            .WithCancellation(cancellationToken).ConfigureAwait(false))
             yield return result;
     }

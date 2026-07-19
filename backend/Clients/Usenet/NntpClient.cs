@@ -455,18 +455,41 @@ public abstract class NntpClient : INntpClient
         CancellationToken cancellationToken
     )
     {
+        if (segmentIds.Count == 0) return;
+
         var processed = 0;
-        var anyMissing = false;
-        await foreach (var result in StatsPipelinedAsync(segmentIds, depth, cancellationToken)
-                           .WithCancellation(cancellationToken).ConfigureAwait(false))
+        var missing = new List<string>();
+        try
         {
-            progress?.Report(++processed);
-            if (result.Exists) continue;
-            anyMissing = true;
-            break;
+            await foreach (var result in StatsPipelinedAsync(segmentIds, depth, cancellationToken)
+                               .WithCancellation(cancellationToken).ConfigureAwait(false))
+            {
+                progress?.Report(++processed);
+                if (result.Exists) continue;
+
+                // Exists=false means a definitive miss on the primary (connection-level
+                // codes throw from BaseNntpClient). Collect every miss so backups can
+                // still satisfy individual segments without skipping the rest of the sample.
+                missing.Add(result.SegmentId);
+            }
+        }
+        catch (UsenetUnexpectedResponseException)
+        {
+            // Session hiccup during the primary-only sweep: fall back to the concurrent
+            // path rather than failing the health check (retryable parity with today).
+            await CheckAllSegmentsAsync(segmentIds, fallbackConcurrency, progress, cancellationToken)
+                .ConfigureAwait(false);
+            return;
         }
 
-        if (anyMissing)
-            await CheckAllSegmentsAsync(segmentIds, fallbackConcurrency, progress, cancellationToken).ConfigureAwait(false);
+        if (missing.Count == 0) return;
+
+        // Recheck only the misses so backups can still satisfy those articles.
+        // Continue progress from the already-reported pipelined count.
+        var recheckProgress = progress == null
+            ? null
+            : new Progress<int>(n => progress.Report(processed + n));
+        await CheckAllSegmentsAsync(missing, fallbackConcurrency, recheckProgress, cancellationToken)
+            .ConfigureAwait(false);
     }
 }
