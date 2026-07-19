@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using NzbWebDAV.Config;
+using NzbWebDAV.Database.Models;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Middlewares;
 using NzbWebDAV.Services;
@@ -36,12 +38,60 @@ public class ExceptionMiddlewareTests
         Assert.False(lifetimeFeature.Aborted);
     }
 
-    private static ExceptionMiddleware CreateMiddleware(RequestDelegate next)
+    [Fact]
+    public async Task CorruptRarAfterResponseStarted_AbortsConnection()
+    {
+        var lifetimeFeature = new TestHttpRequestLifetimeFeature();
+        var context = CreateDavItemContext(hasStarted: true, lifetimeFeature);
+        var middleware = CreateMiddleware(
+            _ => throw new CorruptRarException("missing continuation header"));
+
+        await middleware.InvokeAsync(context);
+
+        Assert.True(lifetimeFeature.Aborted);
+    }
+
+    [Fact]
+    public async Task CorruptRarBeforeResponseStarted_ReturnsNotFoundWithoutAborting()
+    {
+        var lifetimeFeature = new TestHttpRequestLifetimeFeature();
+        var context = CreateDavItemContext(hasStarted: false, lifetimeFeature);
+        var middleware = CreateMiddleware(
+            _ => throw new CorruptRarException("missing continuation header"));
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
+        Assert.False(lifetimeFeature.Aborted);
+    }
+
+    [Fact]
+    public async Task CorruptRarWithDavItem_RecordsStreamingFailure()
+    {
+        var lifetimeFeature = new TestHttpRequestLifetimeFeature();
+        var context = CreateDavItemContext(hasStarted: false, lifetimeFeature);
+        var davItem = Assert.IsType<DavItem>(context.Items["DavItem"]);
+        var failureTracker = new StreamingFailureTracker();
+        var configManager = CreateRepairEnabledConfig();
+        var middleware = CreateMiddleware(
+            _ => throw new CorruptRarException("missing continuation header"),
+            configManager,
+            failureTracker);
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(1, failureTracker.GetFailureCount(davItem.Id));
+    }
+
+    private static ExceptionMiddleware CreateMiddleware(
+        RequestDelegate next,
+        ConfigManager? configManager = null,
+        StreamingFailureTracker? failureTracker = null)
     {
         return new ExceptionMiddleware(
             next,
-            new ConfigManager(),
-            new StreamingFailureTracker());
+            configManager ?? new ConfigManager(),
+            failureTracker ?? new StreamingFailureTracker());
     }
 
     private static DefaultHttpContext CreateContext(
@@ -52,6 +102,53 @@ public class ExceptionMiddlewareTests
         context.Features.Set<IHttpResponseFeature>(new TestHttpResponseFeature(hasStarted));
         context.Features.Set<IHttpRequestLifetimeFeature>(lifetimeFeature);
         return context;
+    }
+
+    private static DefaultHttpContext CreateDavItemContext(
+        bool hasStarted,
+        TestHttpRequestLifetimeFeature lifetimeFeature)
+    {
+        var context = CreateContext(hasStarted, lifetimeFeature);
+        var id = Guid.NewGuid();
+        context.Items["DavItem"] = new DavItem
+        {
+            Id = id,
+            IdPrefix = id.ToString("N")[..DavItem.IdPrefixLength],
+            CreatedAt = DateTime.UtcNow,
+            Name = "video.mkv",
+            Path = "/content/video.mkv",
+            Type = DavItem.ItemType.UsenetFile,
+            SubType = DavItem.ItemSubType.MultipartFile,
+        };
+        return context;
+    }
+
+    private static ConfigManager CreateRepairEnabledConfig()
+    {
+        var arrConfig = new ArrConfig
+        {
+            SonarrInstances =
+            [
+                new ArrConfig.ConnectionDetails
+                {
+                    Host = "http://sonarr.invalid",
+                    ApiKey = "test-api-key",
+                },
+            ],
+        };
+        var configManager = new ConfigManager();
+        configManager.UpdateValues(
+        [
+            new ConfigItem { ConfigName = ConfigKeys.RepairEnable, ConfigValue = "true" },
+            new ConfigItem { ConfigName = ConfigKeys.MediaLibraryDir, ConfigValue = "/tmp/library" },
+            new ConfigItem
+            {
+                ConfigName = ConfigKeys.ArrInstances,
+                ConfigValue = JsonSerializer.Serialize(arrConfig),
+            },
+        ]);
+        Assert.True(configManager.IsRepairJobEnabled());
+        return configManager;
     }
 
     private sealed class TestHttpResponseFeature(bool hasStarted) : IHttpResponseFeature

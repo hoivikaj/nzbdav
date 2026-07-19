@@ -141,6 +141,42 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
             Log.Error("File {FilePath} could not connect to usenet provider: {ErrorMessage}", filePath, e.Message);
             AbortStartedResponse(context);
         }
+        catch (Exception e) when (
+            IsDavItemRequest(context) &&
+            e.TryGetCausingException(out CorruptRarException? corruptRar))
+        {
+            if (!context.Response.HasStarted)
+            {
+                context.Response.Clear();
+                context.Response.StatusCode = 404;
+            }
+
+            var filePath = GetRequestFilePath(context);
+            var seekPosition = context.Request.GetRange()?.Start?.ToString() ?? "0";
+            var reason = corruptRar!.Message;
+            var dedupeKey = $"{filePath}|{seekPosition}|{reason}";
+            LogWithDedup(RecentReadErrors, dedupeKey, suppressed =>
+            {
+                if (suppressed > 0)
+                    Log.Error(
+                        "File {FilePath} contains a corrupt RAR at byte position {SeekPosition}: {Reason} (suppressed {SuppressedCount} duplicates in last 60s)",
+                        filePath,
+                        seekPosition,
+                        reason,
+                        suppressed);
+                else
+                    Log.Error(
+                        "File {FilePath} contains a corrupt RAR at byte position {SeekPosition}: {Reason}",
+                        filePath,
+                        seekPosition,
+                        reason);
+            });
+
+            if (context.Items["DavItem"] is DavItem davItem)
+                ScheduleRepair(davItem.Id);
+
+            AbortStartedResponse(context);
+        }
         catch (Exception e) when (IsDavItemRequest(context))
         {
             if (!context.Response.HasStarted)

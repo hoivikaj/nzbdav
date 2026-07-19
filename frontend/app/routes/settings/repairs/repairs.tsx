@@ -71,7 +71,7 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                     value={autoRemoveAfter}
                     onChange={e => setNewConfig({ ...config, "repair.auto-remove-after-failures": e.target.value })} />
                 <p className="text-[11px] leading-relaxed text-base-content/45" id="auto-remove-after-failures-help">
-                    After this many streaming playback failures (missing articles), urgent repair will
+                    After this many streaming playback failures (missing articles or corrupt archives), urgent repair will
                     auto-remove the broken file. Set to 0 to disable (default). Example: 3 removes an
                     unlinked file on the third failure.
                 </p>

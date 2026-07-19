@@ -147,9 +147,9 @@ public class HealthCheckService : BackgroundService
         CancellationToken ct
     )
     {
-        // Urgent sentinel set by ExceptionMiddleware when streaming hits a missing article.
-        // Streaming already confirmed a BODY miss across providers — skip STAT-only recheck
-        // (STAT can pass while BODY returns 430; see nzbdav-dev#209) and repair immediately.
+        // Urgent sentinel set by ExceptionMiddleware when streaming confirms a permanent failure.
+        // Skip the STAT-only recheck and repair immediately: STAT can pass while BODY returns 430
+        // (see nzbdav-dev#209), and structurally corrupt archives can have every article present.
         var isUrgentRepair = davItem.NextHealthCheck == DateTimeOffset.UnixEpoch;
         if (isUrgentRepair)
         {
@@ -498,7 +498,7 @@ public class HealthCheckService : BackgroundService
                 HealthCheckResult.HealthResult.Unhealthy,
                 HealthCheckResult.RepairAction.ActionNeeded,
                 string.Join(" ", [
-                    "File had missing articles during streaming.",
+                    "File failed during streaming.",
                     $"Streaming failure count: {failureCount}/{threshold}.",
                     "Auto-remove deferred until the failure threshold is reached."
                 ]), ct).ConfigureAwait(false);
@@ -530,7 +530,7 @@ public class HealthCheckService : BackgroundService
                 DeletionAuditLog.Record(
                     "health-repair",
                     davItem,
-                    "missing articles; filename matches blocklist pattern");
+                    "health validation failed; filename matches blocklist pattern");
                 dbClient.Ctx.Items.Remove(davItem);
                 _failureTracker.ClearFailure(davItem.Id);
                 await RecordHealthResult(
@@ -538,7 +538,7 @@ public class HealthCheckService : BackgroundService
                     HealthCheckResult.HealthResult.Unhealthy,
                     HealthCheckResult.RepairAction.Deleted,
                     string.Join(" ", [
-                        "File had missing articles.",
+                        "File failed health validation.",
                         "Filename pattern is marked in settings as an ignored (unwanted) file.",
                         "Deleted file."
                     ]), ct).ConfigureAwait(false);
@@ -555,9 +555,9 @@ public class HealthCheckService : BackgroundService
 
                 var auditReason = forceDelete
                     ? streamingFailureCount is > 0
-                        ? $"missing articles; auto-removed after repeated streaming failures (count={streamingFailureCount})"
-                        : "missing articles; auto-removed after repeated streaming failures"
-                    : "missing articles; orphaned (no library symlink/strm)";
+                        ? $"auto-removed after repeated streaming failures (count={streamingFailureCount})"
+                        : "auto-removed after repeated streaming failures"
+                    : "health validation failed; orphaned (no library symlink/strm)";
                 DeletionAuditLog.Record("health-repair", davItem, auditReason);
 
                 dbClient.Ctx.Items.Remove(davItem);
@@ -571,7 +571,7 @@ public class HealthCheckService : BackgroundService
                 {
                     var forceDeleteLinkType = symlinkOrStrmPath.ToLower().EndsWith("strm") ? "strm-file" : "symlink";
                     deleteMessage = string.Join(" ", [
-                        "File had missing articles.",
+                        "File failed during streaming.",
                         $"Auto-removed after repeated streaming failures.{failureNote}",
                         $"Deleted the webdav-file and {forceDeleteLinkType}."
                     ]);
@@ -579,7 +579,7 @@ public class HealthCheckService : BackgroundService
                 else if (forceDelete)
                 {
                     deleteMessage = string.Join(" ", [
-                        "File had missing articles.",
+                        "File failed during streaming.",
                         $"Auto-removed after repeated streaming failures.{failureNote}",
                         "Deleted file."
                     ]);
@@ -587,7 +587,7 @@ public class HealthCheckService : BackgroundService
                 else
                 {
                     deleteMessage = string.Join(" ", [
-                        "File had missing articles.",
+                        "File failed health validation.",
                         "Could not find corresponding symlink or strm-file within Library Dir.",
                         "Deleted file."
                     ]);
@@ -614,7 +614,7 @@ public class HealthCheckService : BackgroundService
                 DeletionAuditLog.Record(
                     "health-repair",
                     davItem,
-                    "missing articles; Arr remove-and-search triggered");
+                    "health validation failed; Arr remove-and-search triggered");
                 dbClient.Ctx.Items.Remove(davItem);
                 _failureTracker.ClearFailure(davItem.Id);
                 await RecordHealthResult(
@@ -622,7 +622,7 @@ public class HealthCheckService : BackgroundService
                     HealthCheckResult.HealthResult.Unhealthy,
                     HealthCheckResult.RepairAction.Repaired,
                     string.Join(" ", [
-                        "File had missing articles.",
+                        "File failed health validation.",
                         $"Corresponding {linkType} found within Library Dir.",
                         "Triggered new Arr search."
                     ]), ct).ConfigureAwait(false);
@@ -642,7 +642,7 @@ public class HealthCheckService : BackgroundService
                     HealthCheckResult.HealthResult.Unhealthy,
                     HealthCheckResult.RepairAction.ActionNeeded,
                     string.Join(" ", [
-                        "File had missing articles.",
+                        "File failed health validation.",
                         $"Corresponding {linkType} found within Library Dir,",
                         "but at least one Arr instance could not be reached or fully queried, so ownership",
                         "of the file could not be determined. Leaving the file in place rather than deleting it."
@@ -656,7 +656,7 @@ public class HealthCheckService : BackgroundService
             DeletionAuditLog.Record(
                 "health-repair",
                 davItem,
-                "missing articles; library link present but no Arr media-item (confirmed orphan)");
+                "health validation failed; library link present but no Arr media-item (confirmed orphan)");
             dbClient.Ctx.Items.Remove(davItem);
             _failureTracker.ClearFailure(davItem.Id);
             await RecordHealthResult(
@@ -664,7 +664,7 @@ public class HealthCheckService : BackgroundService
                 HealthCheckResult.HealthResult.Unhealthy,
                 HealthCheckResult.RepairAction.Deleted,
                 string.Join(" ", [
-                    "File had missing articles.",
+                    "File failed health validation.",
                     $"Corresponding {linkType} found within Library Dir.",
                     "Could not find corresponding Radarr/Sonarr media-item to trigger a new search.",
                     $"Deleted the webdav-file and {linkType}."
