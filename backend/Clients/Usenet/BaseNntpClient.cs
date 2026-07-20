@@ -42,11 +42,33 @@ public class BaseNntpClient : NntpClient
         _client = client ?? throw new ArgumentNullException(nameof(client));
     }
 
+    // Hard cap on TCP+TLS+welcome-banner time per provider. Without this, a
+    // provider whose hostname resolves but whose TCP layer black-holes (no
+    // SYN/ACK, no RST — e.g. a misconfigured firewall or a DNS round-robin
+    // pointing at a dead host) hangs the calling task for the OS SYN-retry
+    // window (~2 minutes). That pins a threadpool slot per attempt and the
+    // provider circuit breaker never trips, because RecordFailure only fires
+    // after the connect returns.
+    private static readonly TimeSpan ConnectTimeout =
+        int.TryParse(Environment.GetEnvironmentVariable("NNTP_CONNECT_TIMEOUT_SECONDS"), out var v) && v > 0
+            ? TimeSpan.FromSeconds(v)
+            : TimeSpan.FromSeconds(15);
+
     public override async Task ConnectAsync(string host, int port, bool useSsl, CancellationToken cancellationToken)
     {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(ConnectTimeout);
         try
         {
-            await _client.ConnectAsync(host, port, useSsl, cancellationToken);
+            await _client.ConnectAsync(host, port, useSsl, timeoutCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The local timeout fired, not the caller's token. Convert to a
+            // meaningful failure exception so the provider's breaker counts
+            // this as a real failure (vs. a caller-cancel that wouldn't).
+            throw new CouldNotConnectToUsenetException(
+                $"Connection to {host}:{port} timed out after {ConnectTimeout.TotalSeconds:F0}s.");
         }
         catch (Exception e) when (!e.IsCancellationException())
         {
