@@ -272,16 +272,23 @@ public class QueueManager : IDisposable
 
         progressHook.ProgressChanged += (_, progress) =>
         {
-            lock (progressLock)
+            try
             {
-                if (progress > latestProgress) latestProgress = progress;
-                inProgressQueueItem.ProgressPercentage = latestProgress;
-            }
+                lock (progressLock)
+                {
+                    if (progress > latestProgress) latestProgress = progress;
+                    inProgressQueueItem.ProgressPercentage = latestProgress;
+                }
 
-            if (progress is 100 or 200) SendLatestProgress();
-            else debounce(SendLatestProgress);
-            providersDebounce(() => _websocketManager.SendMessage(
-                WebsocketTopic.QueueItemProviders, BuildProvidersMessage(queueItem.Id)));
+                if (progress is 100 or 200) SendLatestProgress();
+                else debounce(SendLatestProgress);
+                providersDebounce(() => _websocketManager.SendMessage(
+                    WebsocketTopic.QueueItemProviders, BuildProvidersMessage(queueItem.Id)));
+            }
+            catch (Exception e)
+            {
+                Log.Warning(e, "Queue progress broadcast failed for {QueueItemId}", queueItem.Id);
+            }
         };
         return inProgressQueueItem;
     }
