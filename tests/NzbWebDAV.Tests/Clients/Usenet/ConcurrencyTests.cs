@@ -375,4 +375,27 @@ public class ConcurrencyTests
 
         await Assert.ThrowsAsync<ObjectDisposedException>(() => waiter);
     }
+
+    [Fact]
+    public void PrioritizedSemaphore_ReleaseAfterDispose_DoesNotThrow()
+    {
+        var semaphore = new PrioritizedSemaphore(initialAllowed: 1, maxAllowed: 1);
+        semaphore.Dispose();
+
+        var exception = Record.Exception(() => semaphore.Release());
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task PrioritizedSemaphore_OverRelease_DoesNotThrow_AndWaitStillWorks()
+    {
+        using var semaphore = new PrioritizedSemaphore(initialAllowed: 1, maxAllowed: 1);
+        semaphore.Release(); // over-release with nobody entered beyond the free permit
+
+        var exception = Record.Exception(() => semaphore.Release());
+        Assert.Null(exception);
+
+        await semaphore.WaitAsync(SemaphorePriority.High);
+        semaphore.Release();
+    }
 }
