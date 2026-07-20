@@ -1,3 +1,5 @@
+using Serilog;
+
 namespace NzbWebDAV.Utils;
 
 public static class DebounceUtil
@@ -42,14 +44,28 @@ public static class DebounceUtil
                                 pendingAction = null;
                             }
 
-                            trailingAction?.Invoke();
+                            try
+                            {
+                                trailingAction?.Invoke();
+                            }
+                            catch (Exception e)
+                            {
+                                Log.Warning(e, "Debounced trailing action failed");
+                            }
                         });
                         flushTimer.Change(delay, Timeout.InfiniteTimeSpan);
                     }
                 }
             }
 
-            invokeNow?.Invoke();
+            try
+            {
+                invokeNow?.Invoke();
+            }
+            catch (Exception e)
+            {
+                Log.Warning(e, "Debounced action failed");
+            }
         };
     }
 
