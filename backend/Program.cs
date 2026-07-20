@@ -98,6 +98,12 @@ class Program
                 return;
             }
 
+            if (args.Contains("--yenc-self-test"))
+            {
+                RunYencNativeSelfTest();
+                return;
+            }
+
             // initialize database
             await using var databaseContext = new DavDatabaseContext();
             await databaseContext.Database
@@ -118,6 +124,8 @@ class Program
             // initialize the config-manager
             var configManager = new ConfigManager();
             await configManager.LoadConfig().ConfigureAwait(false);
+
+            RunYencNativeSelfTest();
 
             // Assign stable ProviderIds (persisting if needed) before the streaming
             // client is built. Cheap and non-fatal; the heavy legacy-metrics remap
@@ -284,6 +292,35 @@ class Program
     private static LogEventLevel AtLeast(LogEventLevel configured, LogEventLevel minimum)
     {
         return configured > minimum ? configured : minimum;
+    }
+
+    /// <summary>
+    /// Exercises P/Invoke into rapidyenc. Managed failures become Log.Fatal; a hard
+    /// native crash still leaves the preceding Information line as a smoking gun.
+    /// </summary>
+    private static void RunYencNativeSelfTest()
+    {
+        Log.Information("Running yEnc native self-test (rapidyenc {Version:X})",
+            RapidYencSharp.Version.GetVersion());
+        try
+        {
+            ReadOnlySpan<byte> sample = "nzbdav rapidyenc startup self-test"u8;
+            var encoded = RapidYencSharp.YencEncoder.Encode(sample);
+            var decoded = RapidYencSharp.YencDecoder.Decode(encoded);
+            if (!decoded.AsSpan().SequenceEqual(sample))
+                throw new InvalidOperationException("yEnc roundtrip mismatch");
+            _ = RapidYencSharp.Crc32.Compute(sample);
+            Log.Information(
+                "yEnc native kernels — encode: 0x{Encode:X}, decode: 0x{Decode:X}, crc32: 0x{Crc:X}",
+                RapidYencSharp.YencEncoder.Kernel,
+                RapidYencSharp.YencDecoder.Kernel,
+                RapidYencSharp.Crc32.Kernel);
+        }
+        catch (Exception e)
+        {
+            Log.Fatal(e, "yEnc native library failed its startup self-test; downloads cannot work on this platform");
+            throw;
+        }
     }
 
     private static void ApplyTrustedProxyCidrs(ForwardedHeadersOptions options)
