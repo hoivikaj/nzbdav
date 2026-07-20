@@ -33,4 +33,17 @@ public class SevenZipUtilTests
         Assert.Equal(expectedEntryBytes, storedEntryBytes);
         Assert.True(archiveStream.CanRead);
     }
+
+    [Fact]
+    public void GetSevenZipEntries_ThrowsInvalidFormatException_OnCorruptSignature()
+    {
+        // Import must fail as a managed InvalidFormatException so the queue marks
+        // the item failed instead of crashing the process (audit F3 / #477).
+        var archiveBytes = Convert.FromBase64String(StoredArchiveBase64);
+        archiveBytes[0] ^= 0xFF;
+        using var archiveStream = new MemoryStream(archiveBytes);
+
+        Assert.Throws<InvalidFormatException>(() =>
+            SevenZipUtil.GetSevenZipEntries(archiveStream));
+    }
 }
