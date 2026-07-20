@@ -113,7 +113,7 @@ const server = http.createServer(app);
 const LONG_RUNNING_REQUEST_TIMEOUT_MS = 3 * 60 * 60 * 1000; // 3 hours
 server.requestTimeout = LONG_RUNNING_REQUEST_TIMEOUT_MS;
 server.headersTimeout = LONG_RUNNING_REQUEST_TIMEOUT_MS + 1000;
-setWebsocketServer(new WebSocketServer({ server, maxPayload: 64 * 1024 }));
+setWebsocketServer(new WebSocketServer({ server, path: "/ws", maxPayload: 64 * 1024 }));
 
 // Begin listening for connections
 server.listen(PORT, () => {

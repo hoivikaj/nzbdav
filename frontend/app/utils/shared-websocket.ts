@@ -15,7 +15,7 @@ type Subscriber = {
 const RECONNECT_MS = 1000;
 
 function websocketUrl(): string {
-    return globalThis.location.origin.replace(/^http/, "ws");
+    return `${globalThis.location.origin.replace(/^http/, "ws")}/ws`;
 }
 
 /**

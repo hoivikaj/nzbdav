@@ -7,6 +7,10 @@ export const MAX_WEBSOCKET_PAYLOAD_BYTES = 64 * 1024;
 export const MAX_TOPICS_PER_SOCKET = 100;
 export const WEBSOCKET_HEARTBEAT_INTERVAL_MS = 30_000;
 export const MAX_CLIENT_BUFFERED_AMOUNT = 1024 * 1024;
+export const WEBSOCKET_BROWSER_PATH = "/ws";
+
+export const BACKEND_RECONNECT_INITIAL_MS = 1_000;
+export const BACKEND_RECONNECT_MAX_MS = 30_000;
 
 export type TopicKind = "state" | "stream" | "event";
 
@@ -40,6 +44,21 @@ export function sendToBrowserClient(client: WebSocket, rawMessage: string): void
     client.send(rawMessage);
 }
 
+/**
+ * Exponential backoff with full jitter for the frontend→backend relay.
+ * Attempt 0 → ~1s, then doubles up to BACKEND_RECONNECT_MAX_MS.
+ */
+export function nextBackendReconnectDelayMs(
+    attempt: number,
+    random: () => number = Math.random,
+): number {
+    const exp = Math.min(
+        BACKEND_RECONNECT_MAX_MS,
+        BACKEND_RECONNECT_INITIAL_MS * 2 ** Math.max(0, attempt),
+    );
+    return Math.floor(random() * (exp + 1));
+}
+
 function initializeWebsocketServer(wss: WebSocketServer) {
     // keep track of socket subscriptions
     const websockets = new Map<TrackedSocket, Record<string, TopicKind>>();
@@ -67,6 +86,7 @@ function initializeWebsocketServer(wss: WebSocketServer) {
         // browser's immediate onopen subscription is not dropped.
         let authenticated = false;
         let closed = false;
+        const remote = request.socket.remoteAddress ?? "unknown IP";
         const pendingMessages: WebSocket.MessageEvent[] = [];
         ws.isAlive = true;
         ws.on("pong", () => {
@@ -107,7 +127,7 @@ function initializeWebsocketServer(wss: WebSocketServer) {
             applySubscription(event);
         };
 
-        ws.onclose = () => {
+        ws.onclose = (event: WebSocket.CloseEvent) => {
             closed = true;
             pendingMessages.length = 0;
             const topics = websockets.get(ws);
@@ -118,17 +138,23 @@ function initializeWebsocketServer(wss: WebSocketServer) {
                     if (topicSubscriptions) topicSubscriptions.delete(ws);
                 }
             }
+            if (authenticated) {
+                logger.info(
+                    `Browser websocket closed from ${remote} (code ${event.code}, reason: ${event.reason || "none"})`,
+                );
+            }
         };
 
         void (async () => {
             try {
                 if (!await isAuthenticated(request)) {
-                    logger.debug(`Rejected unauthenticated websocket connection from ${request.socket.remoteAddress ?? "unknown IP"}`);
+                    logger.warn(`Rejected unauthenticated websocket connection from ${remote}`);
                     ws.close(1008, "Unauthorized");
                     return;
                 }
                 if (closed) return;
                 authenticated = true;
+                logger.info(`Browser websocket connected from ${remote}`);
                 for (const event of pendingMessages.splice(0)) {
                     applySubscription(event);
                 }
@@ -141,7 +167,6 @@ function initializeWebsocketServer(wss: WebSocketServer) {
 }
 
 export function initializeWebsocketClient(subscriptions: Map<string, Set<WebSocket>>, lastMessage: Map<string, string>) {
-    let reconnectRetryDelay = 1000;
     let reconnectTimeout: NodeJS.Timeout | null = null;
     let connected = false;
     let connectionFailures = 0;
@@ -151,7 +176,7 @@ export function initializeWebsocketClient(subscriptions: Map<string, Set<WebSock
     const startupGraceMs = 30_000;
     const url = getBackendWebsocketUrl();
 
-    function logConnectionFailure(message: string, error?: unknown) {
+    function logConnectionFailure(message: string, retryDelayMs: number, error?: unknown) {
         const now = Date.now();
         connectionFailures += 1;
 
@@ -168,7 +193,7 @@ export function initializeWebsocketClient(subscriptions: Map<string, Set<WebSock
         }
 
         if (connectionFailures === 1 || now - lastFailureLogAt >= 60_000) {
-            logger.warn(`${message}; retrying in ${reconnectRetryDelay} ms`, error);
+            logger.warn(`${message}; retrying in ${retryDelayMs} ms`, error);
             lastFailureLogAt = now;
         }
     }
@@ -177,9 +202,8 @@ export function initializeWebsocketClient(subscriptions: Map<string, Set<WebSock
         const socket = new WebSocket(url);
 
         socket.on('error', (error: Error) => {
-            if (!connected) {
-                logConnectionFailure(`Could not connect to backend websocket at ${url}`, error);
-            } else {
+            // Failed-connect errors are logged from onclose to avoid double-counting.
+            if (connected) {
                 logger.warn("Backend websocket error", error);
             }
         });
@@ -218,42 +242,34 @@ export function initializeWebsocketClient(subscriptions: Map<string, Set<WebSock
         };
 
         socket.onclose = (event: WebSocket.CloseEvent) => {
-            if (connected) {
-                connected = false;
+            // Keep browser sockets open and preserve lastMessage. Overview uses
+            // live-stats age for the soft stale banner; when the relay returns,
+            // the backend replays state topics and fan-out resumes without a
+            // mass browser reconnect (see #515).
+            const wasConnected = connected;
+            connected = false;
+            const retryDelayMs = nextBackendReconnectDelayMs(connectionFailures);
+            if (wasConnected) {
                 logConnectionFailure(
                     `Backend websocket closed (code ${event.code}, reason: ${event.reason || "none"})`,
+                    retryDelayMs,
                 );
-            } else if (connectionFailures === 0) {
-                logConnectionFailure(`Could not connect to backend websocket at ${url}`);
+            } else {
+                logConnectionFailure(`Could not connect to backend websocket at ${url}`, retryDelayMs);
             }
-            disconnectBrowserClients(subscriptions, lastMessage);
-            scheduleReconnect();
+            scheduleReconnect(retryDelayMs);
         };
     }
 
-    function scheduleReconnect() {
+    function scheduleReconnect(delayMs: number) {
         if (reconnectTimeout) clearTimeout(reconnectTimeout);
 
         reconnectTimeout = setTimeout(() => {
             connect();
-        }, reconnectRetryDelay);
+        }, delayMs);
     }
 
     connect();
-}
-
-export function disconnectBrowserClients(
-    subscriptions: Map<string, Set<WebSocket>>,
-    lastMessage: Map<string, string>,
-) {
-    lastMessage.clear();
-    const clients = new Set<WebSocket>();
-    subscriptions.forEach(topicClients => topicClients.forEach(client => clients.add(client)));
-    clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.close(1012, "Backend websocket reconnecting");
-        }
-    });
 }
 
 function getBackendWebsocketUrl() {

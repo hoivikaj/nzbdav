@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import {
-    disconnectBrowserClients,
+    BACKEND_RECONNECT_INITIAL_MS,
+    BACKEND_RECONNECT_MAX_MS,
     MAX_CLIENT_BUFFERED_AMOUNT,
     MAX_TOPICS_PER_SOCKET,
+    nextBackendReconnectDelayMs,
     parseSubscriptionTopics,
     sendToBrowserClient,
 } from "./websocket.server";
@@ -58,26 +60,54 @@ describe("sendToBrowserClient", () => {
     });
 });
 
-describe("disconnectBrowserClients", () => {
-    it("clears stale state and reconnects each browser once", () => {
+describe("nextBackendReconnectDelayMs", () => {
+    it("stays within the exponential cap for early attempts", () => {
+        // random() is treated as [0, 1); 0.999… yields the inclusive upper bound.
+        const almostOne = () => 0.999999;
+        expect(nextBackendReconnectDelayMs(0, almostOne)).toBe(BACKEND_RECONNECT_INITIAL_MS);
+        expect(nextBackendReconnectDelayMs(1, almostOne)).toBe(BACKEND_RECONNECT_INITIAL_MS * 2);
+        expect(nextBackendReconnectDelayMs(2, almostOne)).toBe(BACKEND_RECONNECT_INITIAL_MS * 4);
+    });
+
+    it("caps at BACKEND_RECONNECT_MAX_MS", () => {
+        expect(nextBackendReconnectDelayMs(20, () => 0.999999)).toBe(BACKEND_RECONNECT_MAX_MS);
+    });
+
+    it("uses full jitter so a zero draw yields zero delay", () => {
+        expect(nextBackendReconnectDelayMs(3, () => 0)).toBe(0);
+    });
+});
+
+describe("relay reconnect preserves browser clients", () => {
+    it("fans out backend state to existing subscribers without closing them", () => {
+        const send = vi.fn();
         const close = vi.fn();
         const client = {
             readyState: WebSocket.OPEN,
+            bufferedAmount: 0,
+            send,
             close,
         } as unknown as WebSocket;
-        const subscriptions = new Map([
+
+        const subscriptions = new Map<string, Set<WebSocket>>([
             ["ls", new Set([client])],
             ["cxs", new Set([client])],
         ]);
-        const lastMessage = new Map([
-            ["ls", "live"],
-            ["cxs", "connections"],
+        const lastMessage = new Map<string, string>([
+            ["ls", JSON.stringify({ Topic: "ls", Message: "old" })],
         ]);
 
-        disconnectBrowserClients(subscriptions, lastMessage);
+        // Simulate the hub onmessage path: update cache and fan out.
+        // Browser sockets must remain open across a backend relay reconnect.
+        const rawMessage = JSON.stringify({ Topic: "ls", Message: "fresh" });
+        const topicMessage = JSON.parse(rawMessage) as { Topic: string; Message: string };
+        lastMessage.set(topicMessage.Topic, rawMessage);
+        for (const subscriber of subscriptions.get(topicMessage.Topic) ?? []) {
+            sendToBrowserClient(subscriber, rawMessage);
+        }
 
-        expect(lastMessage.size).toBe(0);
-        expect(close).toHaveBeenCalledOnce();
-        expect(close).toHaveBeenCalledWith(1012, "Backend websocket reconnecting");
+        expect(close).not.toHaveBeenCalled();
+        expect(lastMessage.get("ls")).toBe(rawMessage);
+        expect(send).toHaveBeenCalledWith(rawMessage);
     });
 });

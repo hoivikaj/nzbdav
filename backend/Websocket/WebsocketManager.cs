@@ -74,7 +74,7 @@ public class WebsocketManager
         {
             if (session.TryEnqueue(topic, bytes)) continue;
 
-            Log.Debug("Disconnecting websocket client because its outbound event queue is full");
+            Log.Warning("Disconnecting websocket client because its outbound event queue is full");
             AbortSocket(session);
         }
 
