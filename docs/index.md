@@ -141,6 +141,8 @@ Then open `http://localhost:3000`, create your admin account, and head to the **
 
     Port `3000` serves plain HTTP. If NzbDav will be reachable outside your trusted network, put it behind an HTTPS reverse proxy and do not expose the container port directly to the internet. WebDAV uses Basic authentication, so TLS is essential for remote access. When the proxy runs on the Docker host, bind the port to localhost with `127.0.0.1:3000:3000`.
 
+    Live Overview/Queue updates use a same-origin WebSocket at `/ws`. Ensure your reverse proxy allows HTTP Upgrade on that path (see [setup guide](setup-guide.md)).
+
 
 You'll also want to set a username and password for the WebDAV server itself.
 

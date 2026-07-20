@@ -137,6 +137,8 @@ The image runs two processes: the frontend and public proxy on port `3000`, and 
 
     Frontend session cookies: set `SECURE_COOKIES=true` when the UI is only served over HTTPS. Optionally set `SESSION_KEY` to a long random secret (otherwise a stable key is persisted under `CONFIG_PATH/session.key` so restarts do not log everyone out). Optionally set `SESSION_MAX_AGE` in seconds (default one year).
 
+    Live UI updates (Overview, Queue, Connections) use a WebSocket on the **same origin** at path `/ws` (for example `wss://nzbdav.example.com/ws`). Reverse proxies such as Traefik, Caddy, nginx, or Pangolin must allow HTTP Upgrade on that path — not only on the backend's internal `:8080/ws`. When the UI is HTTPS-only, also set `SECURE_COOKIES=true` so the session cookie is sent with the WebSocket handshake.
+
 
 !!! note "Note"
 
