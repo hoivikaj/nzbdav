@@ -116,3 +116,32 @@ jobs:
           name: backend-coverage
           path: TestResults/**/coverage.cobertura.xml
           if-no-files-found: ignore
+
+  alpine-yenc:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish backend for linux-musl-x64
+        run: |
+          dotnet publish backend/NzbWebDAV.csproj \
+            -c Release \
+            -r linux-musl-x64 \
+            --self-contained false \
+            -o ./publish-musl
+
+      - name: yEnc native self-test on Alpine
+        run: |
+          docker run --rm \
+            -v "$PWD/publish-musl:/app:ro" \
+            -w /app \
+            mcr.microsoft.com/dotnet/aspnet:10.0-alpine \
+            sh -c 'apk add --no-cache libc6-compat >/dev/null && ./NzbWebDAV --yenc-self-test'

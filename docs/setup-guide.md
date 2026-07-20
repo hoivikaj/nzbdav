@@ -142,6 +142,8 @@ The image runs two processes: the frontend and public proxy on port `3000`, and 
 
     Small, memory-constrained deployments can override the backend thread-pool limits with `THREADPOOL_MIN_THREADS` and `THREADPOOL_MAX_THREADS` in the container environment. When unset, NzbDav retains the existing defaults: `max(2 × processor count, 50)` minimum threads and `max(50 × processor count, 1000)` maximum threads. Lowering the minimum may reduce reserved stack memory but can also reduce streaming responsiveness under load; restart the container after changing either value.
 
+    If a native yEnc CRC fault is suspected after a UsenetSharp upgrade, set `USENET_DISABLE_CRC_VALIDATION=1` as an emergency escape hatch. Decode still uses the native library; only CRC validation is skipped. Remove the variable once the underlying issue is fixed.
+
 
 ### 2. Core configuration
 

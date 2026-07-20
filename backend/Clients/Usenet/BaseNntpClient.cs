@@ -2,6 +2,7 @@
 using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
+using NzbWebDAV.Utils;
 using UsenetSharp.Clients;
 using UsenetSharp.Models;
 
@@ -28,7 +29,9 @@ public class BaseNntpClient : NntpClient
 
     public BaseNntpClient() : this(new UsenetClient(new UsenetClientOptions
     {
-        CrcValidation = YencCrcValidationMode.WhenPresent,
+        CrcValidation = EnvironmentUtil.GetEnvironmentVariable("USENET_DISABLE_CRC_VALIDATION") == "1"
+            ? YencCrcValidationMode.Off
+            : YencCrcValidationMode.WhenPresent,
     }))
     {
     }
