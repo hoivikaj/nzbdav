@@ -176,11 +176,23 @@ while true; do
         continue
     fi
 
-    # Determine which process exited
+    # Determine which process exited. Exit codes >128 encode a fatal signal
+    # (128+N) — log it so native crashes (SIGSEGV/SIGILL) are diagnosable.
+    SIGNAL_HINT=""
+    if [ "$EXIT_CODE" -gt 128 ] 2>/dev/null; then
+        SIG=$((EXIT_CODE - 128))
+        case "$SIG" in
+            4)  SIGNAL_HINT=" (SIGILL: illegal instruction — broken native library or unsupported CPU)" ;;
+            6)  SIGNAL_HINT=" (SIGABRT: abort — native assertion or runtime failure)" ;;
+            9)  SIGNAL_HINT=" (SIGKILL: killed — often the OOM killer)" ;;
+            11) SIGNAL_HINT=" (SIGSEGV: segmentation fault — native crash)" ;;
+            *)  SIGNAL_HINT=" (terminated by signal $SIG)" ;;
+        esac
+    fi
     if [ "$EXITED_PID" -eq "$FRONTEND_PID" ]; then
-        echo "The web-frontend has exited. Shutting down the web-backend..."
+        echo "The web-frontend has exited with code $EXIT_CODE$SIGNAL_HINT. Shutting down the web-backend..."
     else
-        echo "The web-backend has exited. Shutting down the web-frontend..."
+        echo "The web-backend has exited with code $EXIT_CODE$SIGNAL_HINT. Shutting down the web-frontend..."
     fi
 
     # Kill the remaining process

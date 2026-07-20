@@ -635,6 +635,21 @@ docker compose logs --tail=200 -f nzbdav
 docker compose logs --tail=200 -f nzbdav_rclone
 ```
 
+When the backend or frontend process exits, the entrypoint logs the exit code. Values above `128` encode a fatal signal (`128+N`) — for example `139` is SIGSEGV (native crash) and `132` is SIGILL (illegal instruction). Use that hint when reporting unexpected container shutdowns.
+
+### Capture a .NET crash dump (opt-in)
+
+Minidumps are **not** enabled by default (they can be large and may contain downloaded-article data). To capture a dump on the next backend crash, add these environment variables to the NzbDav service and reproduce once:
+
+```yaml
+environment:
+  - DOTNET_DbgEnableMiniDump=1
+  - DOTNET_DbgMiniDumpType=2
+  - DOTNET_DbgMiniDumpName=/config/dump.%p
+```
+
+Inspect the dump under `/config` with `dotnet-dump analyze` after the crash, then remove the env vars and any dump files you no longer need.
+
 If the Rclone mount fails, first verify that `/dev/fuse` exists on the host, the sidecar has started after NzbDav became healthy, and the WebDAV username/password in `rclone.conf` match `Settings` → `WebDAV`. If Rclone specifically rejects `--allow-other`, enable `user_allow_other` in the FUSE configuration available inside the sidecar. If **Test Conn** on `Settings` → `Rclone Server` fails, confirm the sidecar has the `--rc*` flags, the host is `http://nzbdav_rclone:5572`, and the RC user/password match.
 
 ### Korean / Japanese (CJK) filenames
