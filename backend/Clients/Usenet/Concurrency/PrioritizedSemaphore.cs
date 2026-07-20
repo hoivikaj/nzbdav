@@ -1,4 +1,5 @@
-﻿using UsenetSharp.Concurrency;
+﻿using Serilog;
+using UsenetSharp.Concurrency;
 
 namespace NzbWebDAV.Clients.Usenet.Concurrency;
 
@@ -86,8 +87,8 @@ public class PrioritizedSemaphore : IDisposable
         TaskCompletionSource<bool>? toRelease;
         lock (_lock)
         {
-            if (_disposed)
-                throw new ObjectDisposedException(nameof(AsyncSemaphore));
+            // Release runs inside NNTP completion callbacks; never throw.
+            if (_disposed) return;
 
             if (_enteredCount > _maxAllowed)
             {
@@ -132,7 +133,9 @@ public class PrioritizedSemaphore : IDisposable
                 _enteredCount--;
                 if (_enteredCount < 0)
                 {
-                    throw new InvalidOperationException("The semaphore cannot be further released.");
+                    _enteredCount = 0;
+                    Log.Error("PrioritizedSemaphore over-released; permit accounting bug upstream");
+                    return;
                 }
 
                 return;
