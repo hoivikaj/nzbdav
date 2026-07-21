@@ -240,6 +240,11 @@ export async function runUiMutation(
     }
 }
 
+export function beginLatestRequest(generation: { current: number }): () => boolean {
+    const requestGeneration = ++generation.current;
+    return () => requestGeneration === generation.current;
+}
+
 export function useAltmountMigration() {
     const [status, setStatus] = useState<StatusResponse | null>(null);
     const [summary, setSummary] = useState<SummaryResponse | null>(null);
@@ -250,6 +255,7 @@ export function useAltmountMigration() {
     const [symlinkRestoreResult, setSymlinkRestoreResult] = useState<SymlinkRestoreSummary | null>(null);
     const [migrationData, setMigrationData] = useState<MigrationDataSummary | null>(null);
     const mounted = useRef(true);
+    const refreshGeneration = useRef(0);
 
     useEffect(() => {
         mounted.current = true;
@@ -259,17 +265,19 @@ export function useAltmountMigration() {
     }, []);
 
     const refresh = useCallback(async () => {
+        const isLatest = beginLatestRequest(refreshGeneration);
         try {
             const [s, sum] = await Promise.all([
                 apiJson<StatusResponse>(`${BASE}/status`),
                 apiJson<SummaryResponse>(`${BASE}/summary`),
             ]);
-            if (!mounted.current) return;
+            if (!mounted.current || !isLatest()) return;
             setStatus(s);
             setSummary(sum);
             setError(null);
         } catch (e) {
-            if (mounted.current) setError((e as Error).message);
+            if (mounted.current && isLatest())
+                setError(e instanceof Error ? e.message : String(e));
         }
     }, []);
 

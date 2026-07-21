@@ -1,11 +1,32 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+    beginLatestRequest,
     canEditCategoryMappings,
     canEditReleaseSelection,
     isMigrationWorkActive,
     runUiMutation,
     type SessionStatus,
 } from "./use-altmount-migration";
+
+describe("beginLatestRequest", () => {
+    it("invalidates older request tickets when a newer refresh starts", () => {
+        const generation = { current: 0 };
+        const firstIsLatest = beginLatestRequest(generation);
+        const secondIsLatest = beginLatestRequest(generation);
+
+        expect(firstIsLatest()).toBe(false);
+        expect(secondIsLatest()).toBe(true);
+    });
+
+    it("keeps the current request ticket valid until another request starts", () => {
+        const generation = { current: 7 };
+        const isLatest = beginLatestRequest(generation);
+
+        expect(isLatest()).toBe(true);
+        expect(isLatest()).toBe(true);
+        expect(generation.current).toBe(8);
+    });
+});
 
 describe("isMigrationWorkActive", () => {
     it.each<SessionStatus>(["scanning", "running", "paused", "linking", "applying"])(
