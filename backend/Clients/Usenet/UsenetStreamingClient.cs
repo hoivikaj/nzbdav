@@ -2,6 +2,8 @@
 using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database.Models.Metrics;
+using NzbWebDAV.Exceptions;
+using NzbWebDAV.Extensions;
 using NzbWebDAV.Services;
 using NzbWebDAV.Services.Metrics;
 using NzbWebDAV.Services.StreamTrace;
@@ -253,16 +255,40 @@ public class UsenetStreamingClient : WrappingNntpClient
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(ConnectTimeout);
-            await connection.ConnectAsync(
-                connectionDetails.Host, connectionDetails.Port, connectionDetails.UseSsl,
-                timeoutCts.Token).ConfigureAwait(false);
+            try
+            {
+                await connection.ConnectAsync(
+                    connectionDetails.Host, connectionDetails.Port, connectionDetails.UseSsl,
+                    timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (Exception e) when (e.IsCancellationException() && !ct.IsCancellationRequested)
+            {
+                // Local handshake timeout, not caller abort — typed so Test Connection /
+                // middleware / breaker paths see a connect failure rather than bare OCE.
+                throw new CouldNotConnectToUsenetException(
+                    $"Connection to {connectionDetails.Host}:{connectionDetails.Port} " +
+                    $"timed out after {ConnectTimeout.TotalSeconds:F0}s.",
+                    e);
+            }
+
             if (!string.IsNullOrEmpty(connectionDetails.User) ||
                 !string.IsNullOrEmpty(connectionDetails.Pass))
             {
-                await connection.AuthenticateAsync(
-                    connectionDetails.User, connectionDetails.Pass,
-                    timeoutCts.Token).ConfigureAwait(false);
+                try
+                {
+                    await connection.AuthenticateAsync(
+                        connectionDetails.User, connectionDetails.Pass,
+                        timeoutCts.Token).ConfigureAwait(false);
+                }
+                catch (Exception e) when (e.IsCancellationException() && !ct.IsCancellationRequested)
+                {
+                    throw new CouldNotLoginToUsenetException(
+                        $"Authentication to {connectionDetails.Host}:{connectionDetails.Port} " +
+                        $"timed out after {ConnectTimeout.TotalSeconds:F0}s.",
+                        e);
+                }
             }
+
             return connection;
         }
         catch
