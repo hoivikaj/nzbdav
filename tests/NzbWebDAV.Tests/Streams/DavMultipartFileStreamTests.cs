@@ -3,8 +3,6 @@ using NzbWebDAV.Exceptions;
 using NzbWebDAV.Models;
 using NzbWebDAV.Streams;
 using NzbWebDAV.Tests.Fakes;
-using NzbWebDAV.Tests.TestUtils;
-using UsenetSharp.Streams;
 
 namespace NzbWebDAV.Tests.Streams;
 
@@ -21,16 +19,14 @@ public class DavMultipartFileStreamTests
         Assert.Equal(16, DavMultipartFileStream.GetEffectivePartLength(part));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadAsync_HealsUnderestimatedVolumeLength()
     {
-        Skip.IfNot(RapidYenc.IsAvailable, "rapidyenc native library not available on this platform");
-
         var volumeBytes = Enumerable.Range(0, 16).Select(x => (byte)x).ToArray();
         using var client = new FakeNntpClient(new Dictionary<string, byte[]>
         {
             ["segment"] = volumeBytes,
-        });
+        }, useCachedYencStreams: true);
         var multipart = MultipartFile(
             segmentRange: LongRange.FromStartAndSize(0, 8),
             fileRange: LongRange.FromStartAndSize(4, 12));
