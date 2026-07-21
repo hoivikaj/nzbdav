@@ -3,6 +3,7 @@ import {
     beginLatestRequest,
     canEditCategoryMappings,
     canEditReleaseSelection,
+    canResetMigration,
     isMigrationWorkActive,
     loadTableRetainingLastGood,
     runUiMutation,
@@ -42,6 +43,19 @@ describe("isMigrationWorkActive", () => {
 
     it("treats an unloaded status as inactive", () => {
         expect(isMigrationWorkActive(undefined)).toBe(false);
+    });
+});
+
+describe("canResetMigration", () => {
+    it.each<SessionStatus>(["scanning", "running", "paused", "linking", "applying"])(
+        "blocks Reset Wizard while status is %s",
+        (status) => expect(canResetMigration(status, null)).toBe(false),
+    );
+
+    it("allows reset only after status has loaded and no mutation is busy", () => {
+        expect(canResetMigration("scanned", null)).toBe(true);
+        expect(canResetMigration(undefined, null)).toBe(false);
+        expect(canResetMigration("scanned", "reset")).toBe(false);
     });
 });
 

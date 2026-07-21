@@ -34,6 +34,10 @@ public sealed class SubmissionWorkerPool(
     /// <summary>Test seam for the live NzbDAV context; production leaves it null.</summary>
     internal Func<DavDatabaseContext>? DavContextFactory { get; set; }
 
+    /// <summary>Test seams around the external submission boundary.</summary>
+    internal Func<MigrationRelease, CancellationToken, Task<byte[]>>? BuildNzbOverride { get; set; }
+    internal Func<MigrationRelease, Guid, byte[], CancellationToken, Task>? SubmitPreparedReleaseOverride { get; set; }
+
     /// <summary>
     /// Submits as many pending releases as the queue-depth gate allows, oldest
     /// first. A pause/cancel token stops before the next external submission;
@@ -91,8 +95,9 @@ public sealed class SubmissionWorkerPool(
             byte[] nzbBytes;
             try
             {
-                nzbBytes = await BuildNzbAsync(release, session, ctx, ct)
-                    .ConfigureAwait(false);
+                nzbBytes = BuildNzbOverride is null
+                    ? await BuildNzbAsync(release, session, ctx, ct).ConfigureAwait(false)
+                    : await BuildNzbOverride(release, ct).ConfigureAwait(false);
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
@@ -124,8 +129,10 @@ public sealed class SubmissionWorkerPool(
 
             try
             {
-                await SubmitPreparedReleaseAsync(release, claimedId, nzbBytes, ct)
-                    .ConfigureAwait(false);
+                if (SubmitPreparedReleaseOverride is null)
+                    await SubmitPreparedReleaseAsync(release, claimedId, nzbBytes, ct).ConfigureAwait(false);
+                else
+                    await SubmitPreparedReleaseOverride(release, claimedId, nzbBytes, ct).ConfigureAwait(false);
 
                 // Persist each success immediately. If the process stops between
                 // AddFile and this save, the durable claim above is recovered by id.

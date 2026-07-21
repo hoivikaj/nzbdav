@@ -21,6 +21,7 @@ import {
     type SymlinkRow,
     canEditCategoryMappings,
     canEditReleaseSelection,
+    canResetMigration,
     isMigrationWorkActive,
     loadTableRetainingLastGood,
     useAltmountMigration,
@@ -1183,7 +1184,7 @@ function ResetFooter({ m }: { m: Hook }) {
     const [manage, setManage] = useState(false);
     const [confirmForget, setConfirmForget] = useState(false);
     const resetActive = isMigrationWorkActive(m.status?.sessionStatus);
-    const resetDisabled = !m.status || resetActive || m.busy !== null;
+    const resetDisabled = !canResetMigration(m.status?.sessionStatus, m.busy);
 
     const openManage = () => {
         setManage(true);

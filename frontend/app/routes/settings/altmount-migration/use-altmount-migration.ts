@@ -22,6 +22,10 @@ export function isMigrationWorkActive(status: SessionStatus | undefined): boolea
         || status === "linking" || status === "applying";
 }
 
+export function canResetMigration(status: SessionStatus | undefined, busy: string | null): boolean {
+    return status !== undefined && !isMigrationWorkActive(status) && busy === null;
+}
+
 export function canEditCategoryMappings(status: SessionStatus | undefined): boolean {
     return status === "connected" || status === "mapped" || status === "scanned";
 }
