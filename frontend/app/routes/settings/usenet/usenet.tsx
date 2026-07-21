@@ -552,9 +552,7 @@ export function UsenetSettings({ config, setNewConfig }: UsenetSettingsProps) {
                                                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                                                     <span className="text-[10px] font-medium uppercase tracking-wide text-base-content/50">Connections</span>
                                                     <span className="break-all text-sm font-medium text-base-content">
-                                                        {connections[index]
-                                                            ? `${connections[index].live} / ${provider.MaxConnections} max`
-                                                            : `${provider.MaxConnections} max`}
+                                                        {`${connections[index]?.live ?? 0} / ${provider.MaxConnections} max`}
                                                     </span>
                                                 </div>
                                             </div>
