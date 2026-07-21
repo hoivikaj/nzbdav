@@ -30,7 +30,10 @@ public class RarProcessor(
                 .Select(x => new StoredFileSegment()
                 {
                     NzbFile = fileInfo.NzbFile,
-                    PartSize = stream.Length,
+                    PartSize = ResolvePartSize(
+                        stream.Length,
+                        x.DataStartPosition,
+                        x.AdditionalDataSize),
                     ArchiveName = archiveName,
                     PartNumber = partNumber,
                     PathWithinArchive = x.FileName,
@@ -45,6 +48,9 @@ public class RarProcessor(
                 }).ToArray(),
         };
     }
+
+    internal static long ResolvePartSize(long declaredSize, long dataStart, long dataSize) =>
+        Math.Max(declaredSize, checked(dataStart + dataSize));
 
     private string GetArchiveName()
     {

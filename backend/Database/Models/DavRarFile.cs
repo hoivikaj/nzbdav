@@ -45,7 +45,9 @@ public partial class DavRarFile
             FileParts = RarParts.Select(x => new DavMultipartFile.FilePart()
             {
                 SegmentIds = x.SegmentIds,
-                SegmentIdByteRange = LongRange.FromStartAndSize(0, x.PartSize),
+                SegmentIdByteRange = LongRange.FromStartAndSize(
+                    0,
+                    Math.Max(x.PartSize, checked(x.Offset + x.ByteCount))),
                 FilePartByteRange = LongRange.FromStartAndSize(x.Offset, x.ByteCount),
                 SegmentByteRanges = x.SegmentByteRanges,
                 SegmentFallbackIds = x.SegmentFallbackIds,

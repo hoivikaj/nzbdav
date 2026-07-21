@@ -236,9 +236,30 @@ public class DavMultipartFileStream : Stream
 
     private Stream OpenPart(DavMultipartFile.FilePart part, long extraOffset)
     {
+        if (part.SegmentIdByteRange.StartInclusive != 0 ||
+            part.SegmentIdByteRange.Count < 0 ||
+            part.FilePartByteRange.StartInclusive < 0 ||
+            part.FilePartByteRange.Count < 0 ||
+            extraOffset < 0 ||
+            extraOffset > part.FilePartByteRange.Count)
+        {
+            throw new SeekPositionNotFoundException(
+                $"Corrupt file. Invalid multipart ranges while reading {_fileName ?? "unknown"}.");
+        }
+
+        var effectivePartLength = GetEffectivePartLength(part);
+        if (effectivePartLength > part.SegmentIdByteRange.Count)
+        {
+            Log.Debug(
+                "Multipart volume length {DeclaredLength} was too small for packed range ending at {RequiredLength} while reading {FileName}; using packed range as the length.",
+                part.SegmentIdByteRange.Count,
+                effectivePartLength,
+                _fileName ?? "unknown");
+        }
+
         var stream = _usenetClient.GetFileStream(
             part.SegmentIds,
-            part.SegmentIdByteRange.Count,
+            effectivePartLength,
             _articleBufferSize,
             part.SegmentByteRanges,
             _usePipelinedBodyRequests,
@@ -250,6 +271,9 @@ public class DavMultipartFileStream : Stream
                      ?? $"range:{part.FilePartByteRange.StartInclusive}-{part.FilePartByteRange.EndExclusive}";
         return new PaddedLengthStream(stream, expectedLength, partId, _fileName);
     }
+
+    internal static long GetEffectivePartLength(DavMultipartFile.FilePart part) =>
+        Math.Max(part.SegmentIdByteRange.Count, part.FilePartByteRange.EndExclusive);
 
     private async Task<Stream> ResolveAndOpenAsync(int targetIndex, CancellationToken ct)
     {

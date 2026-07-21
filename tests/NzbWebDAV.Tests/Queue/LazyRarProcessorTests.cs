@@ -102,6 +102,34 @@ public class LazyRarProcessorTests
     }
 
     [Fact]
+    public async Task ProcessAsync_UnderestimatedFirstVolumeSize_ContainsPackedRange()
+    {
+        const int packed = 1_000;
+        const int uncompressed = 3_000;
+        var volumeBytes = BuildRar4SplitFirstVolume("movie.mkv", packed, uncompressed);
+        var underestimatedSize = volumeBytes.Length - 100;
+        var first = FileInfoFor(
+            "vol.rar",
+            "first@example.com",
+            volumeBytes.Length,
+            underestimatedSize);
+        var trailing = FileInfoFor("vol.r00", "r00@example.com", encodedBytes: 2_100, fileSize: null);
+
+        using var client = new MemoryServingNntpClient(new Dictionary<string, byte[]>
+        {
+            ["first@example.com"] = volumeBytes,
+        });
+
+        var result = await new LazyRarProcessor([first, trailing], client, password: null, CancellationToken.None)
+            .ProcessAsync() as LazyRarProcessor.Result;
+
+        Assert.NotNull(result);
+        Assert.True(result.FirstPart.SegmentIdByteRange.Contains(result.FirstPart.FilePartByteRange));
+        Assert.Equal(result.FirstPart.FilePartByteRange.EndExclusive, result.FirstPart.SegmentIdByteRange.Count);
+        Assert.True(result.FirstPart.SegmentIdByteRange.Count > underestimatedSize);
+    }
+
+    [Fact]
     public async Task BuildRar4SplitFirstVolume_IsFirstVolumeStoredSplit()
     {
         var bytes = BuildRar4SplitFirstVolume("movie.mkv", packedSize: 100, uncompressedSize: 500);
