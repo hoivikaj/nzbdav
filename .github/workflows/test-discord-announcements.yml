@@ -1,0 +1,36 @@
+name: Test Discord Announcements
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: Message to post to the announcements Discord channel
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test-announcements-webhook:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post test message to Discord announcements
+        env:
+          DISCORD_ANNOUNCEMENTS_WEBHOOK_URL: ${{ secrets.DISCORD_ANNOUNCEMENTS_WEBHOOK_URL }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_ANNOUNCEMENTS_WEBHOOK_URL}" ]; then
+            echo "DISCORD_ANNOUNCEMENTS_WEBHOOK_URL secret is not set" >&2
+            exit 1
+          fi
+          if [ -z "${MESSAGE}" ]; then
+            echo "message input is empty" >&2
+            exit 1
+          fi
+
+          ESCAPED_BODY=$(printf '%s' "$MESSAGE" | jq -Rsa .)
+          curl --fail-with-body -sS -H "Content-Type: application/json" \
+            -d "{\"content\": ${ESCAPED_BODY}, \"flags\": 4}" \
+            "$DISCORD_ANNOUNCEMENTS_WEBHOOK_URL"
