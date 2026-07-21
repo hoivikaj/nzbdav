@@ -2,13 +2,15 @@ using System.Text;
 using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Exceptions;
+using NzbWebDAV.Streams;
 using UsenetSharp.Models;
 using UsenetSharp.Streams;
 
 namespace NzbWebDAV.Tests.Fakes;
 
 internal sealed class FakeNntpClient(
-    IReadOnlyDictionary<string, byte[]> segments) : NntpClient
+    IReadOnlyDictionary<string, byte[]> segments,
+    bool useCachedYencStreams = false) : NntpClient
 {
     public int BatchRequestCount { get; private set; }
     public int BodyRequestCount { get; private set; }
@@ -133,12 +135,26 @@ internal sealed class FakeNntpClient(
         if (!segments.TryGetValue(key, out var bytes))
             throw new UsenetArticleNotFoundException(key, "430 No such article");
 
+        YencStream stream = useCachedYencStreams
+            ? new CachedYencStream(
+                new UsenetYencHeader
+                {
+                    FileName = "fake.bin",
+                    FileSize = bytes.Length,
+                    LineLength = 128,
+                    PartNumber = 1,
+                    TotalParts = 1,
+                    PartOffset = 0,
+                    PartSize = bytes.Length,
+                },
+                new MemoryStream(bytes, writable: false))
+            : new YencStream(new MemoryStream(EncodeYenc(bytes), writable: false));
         return new UsenetDecodedBodyResponse
         {
             SegmentId = key,
             ResponseCode = (int)UsenetResponseType.ArticleRetrievedBodyFollows,
             ResponseMessage = "222 fake body",
-            Stream = new YencStream(new MemoryStream(EncodeYenc(bytes), writable: false))
+            Stream = stream,
         };
     }
 

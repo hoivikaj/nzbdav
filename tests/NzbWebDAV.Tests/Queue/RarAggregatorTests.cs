@@ -8,6 +8,15 @@ namespace NzbWebDAV.Tests.Queue;
 public class RarAggregatorTests
 {
     [Fact]
+    public void ResolvePartSize_ExpandsUnderestimatedSizeToPackedRangeEnd()
+    {
+        Assert.Equal(120, RarProcessor.ResolvePartSize(
+            declaredSize: 100,
+            dataStart: 20,
+            dataSize: 100));
+    }
+
+    [Fact]
     public void SortByPartNumber_NormalizesFilenameNumbersAgainstHeaders()
     {
         var second = Segment(headerPart: 1, filenamePart: 2, start: 5, length: 5);

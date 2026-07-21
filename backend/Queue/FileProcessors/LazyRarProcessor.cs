@@ -149,7 +149,9 @@ public class LazyRarProcessor(
         var firstPart = new DavMultipartFile.FilePart
         {
             SegmentIds = firstInfo.NzbFile.GetSegmentIds(),
-            SegmentIdByteRange = LongRange.FromStartAndSize(0, firstFileSize),
+            SegmentIdByteRange = LongRange.FromStartAndSize(
+                0,
+                Math.Max(firstFileSize, firstPartByteRange.EndExclusive)),
             FilePartByteRange = firstPartByteRange,
             SegmentFallbackIds = firstInfo.NzbFile.GetSegmentFallbackIds(),
         };
