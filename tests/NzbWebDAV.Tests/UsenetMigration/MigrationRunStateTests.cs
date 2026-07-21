@@ -42,4 +42,20 @@ public class MigrationRunStateTests
         Assert.False(UsenetMigrationController.CanCancelMigration("scanned"));
         Assert.False(UsenetMigrationController.CanCancelMigration("complete"));
     }
+
+    [Theory]
+    [InlineData("scanning", true)]
+    [InlineData("running", true)]
+    [InlineData("paused", true)]
+    [InlineData("linking", true)]
+    [InlineData("applying", true)]
+    [InlineData("idle", false)]
+    [InlineData("connected", false)]
+    [InlineData("mapped", false)]
+    [InlineData("scanned", false)]
+    [InlineData("complete", false)]
+    [InlineData("cancelled", false)]
+    [InlineData("linked", false)]
+    public void DestructiveActions_AreBlockedUntilWorkIsTerminal(string status, bool expected) =>
+        Assert.Equal(expected, UsenetMigrationController.IsMigrationWorkActive(status));
 }

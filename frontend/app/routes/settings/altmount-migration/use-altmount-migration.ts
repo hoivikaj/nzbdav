@@ -17,6 +17,11 @@ export type SessionStatus =
     | "linked"
     | "applying";
 
+export function isMigrationWorkActive(status: SessionStatus | undefined): boolean {
+    return status === "scanning" || status === "running" || status === "paused"
+        || status === "linking" || status === "applying";
+}
+
 export type CategoryMapRow = {
     altmountCategory: string;
     altmountDir?: string | null;
@@ -265,9 +270,7 @@ export function useAltmountMigration() {
     // Poll while background work is in progress (scan, run, or Step 6 link/apply).
     const sessionStatus = status?.sessionStatus;
     useEffect(() => {
-        const active = sessionStatus === "scanning" || sessionStatus === "running" || sessionStatus === "paused"
-            || sessionStatus === "linking" || sessionStatus === "applying";
-        if (!active) return;
+        if (!isMigrationWorkActive(sessionStatus)) return;
         const interval = window.setInterval(() => void refresh(), 2500);
         return () => window.clearInterval(interval);
     }, [sessionStatus, refresh]);

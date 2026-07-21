@@ -19,6 +19,7 @@ import {
     type SymlinkBackupInfo,
     type SymlinkPlanForm,
     type SymlinkRow,
+    isMigrationWorkActive,
     useAltmountMigration,
 } from "./use-altmount-migration";
 
@@ -1105,6 +1106,8 @@ function ResetFooter({ m }: { m: Hook }) {
     const [confirmReset, setConfirmReset] = useState(false);
     const [manage, setManage] = useState(false);
     const [confirmForget, setConfirmForget] = useState(false);
+    const resetActive = isMigrationWorkActive(m.status?.sessionStatus);
+    const resetDisabled = !m.status || resetActive || m.busy !== null;
 
     const openManage = () => {
         setManage(true);
@@ -1114,11 +1117,13 @@ function ResetFooter({ m }: { m: Hook }) {
     return (
         <div className="border-t border-base-content/10 pt-4">
             <div className="flex flex-wrap items-center gap-2">
-                <Button variant="ghost" size="small" onClick={() => setConfirmReset(true)}>
+                <Button variant="ghost" size="small" disabled={resetDisabled} onClick={() => setConfirmReset(true)}>
                     <Icon name="restart_alt" className="!text-[16px]" /> Reset Wizard
                 </Button>
                 <span className="text-xs text-base-content/45">
-                    Clears this wizard session while preserving completed migration mappings.
+                    {resetActive
+                        ? "Finish or cancel the active task before resetting the wizard."
+                        : "Clears this wizard session while preserving completed migration mappings."}
                 </span>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">

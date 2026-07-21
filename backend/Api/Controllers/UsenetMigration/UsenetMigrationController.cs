@@ -643,6 +643,11 @@ public sealed class UsenetMigrationController(UsenetMigrationStore store) : Usen
     [HttpPost("api/altmount-migration/reset")]
     public Task<IActionResult> Reset() => GuardedAsync(async () =>
     {
+        var session = await store.GetSessionAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+        if (IsMigrationWorkActive(session.Status))
+            throw new BadHttpRequestException(
+                "Wait for the active migration task to finish, or cancel the migration, before resetting the wizard.");
+
         await store.ResetAsync(HttpContext.RequestAborted).ConfigureAwait(false);
         return Ok(new { status = true });
     });
@@ -662,7 +667,7 @@ public sealed class UsenetMigrationController(UsenetMigrationStore store) : Usen
             throw new BadHttpRequestException("Forgetting all migration records requires explicit confirmation.");
 
         var session = await store.GetSessionAsync(HttpContext.RequestAborted).ConfigureAwait(false);
-        if (session.Status is "scanning" or "running" or "linking" or "applying")
+        if (IsMigrationWorkActive(session.Status))
             throw new BadHttpRequestException("Wait for the active migration task to finish before forgetting its records.");
 
         await store.ForgetAllMigrationRecordsAsync(HttpContext.RequestAborted).ConfigureAwait(false);
@@ -672,6 +677,9 @@ public sealed class UsenetMigrationController(UsenetMigrationStore store) : Usen
     // --- helpers -----------------------------------------------------------
 
     internal static bool CanStartMigration(string sessionStatus) => sessionStatus == "scanned";
+
+    internal static bool IsMigrationWorkActive(string sessionStatus) =>
+        sessionStatus is "scanning" or "running" or "paused" or "linking" or "applying";
 
     internal static async Task<List<SubmissionIssueDto>> LoadSubmissionIssuesAsync(
         UsenetMigrationDbContext context, CancellationToken ct = default)
