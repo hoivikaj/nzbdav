@@ -127,5 +127,5 @@ public sealed class SymlinkRewriter(UsenetMigrationStore store)
         string.Equals(
             a.Replace('\\', '/').TrimEnd('/'),
             b.Replace('\\', '/').TrimEnd('/'),
-            StringComparison.OrdinalIgnoreCase);
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 }

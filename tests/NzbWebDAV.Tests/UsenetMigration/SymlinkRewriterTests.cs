@@ -143,6 +143,45 @@ public class SymlinkRewriterTests
     }
 
     [Fact]
+    public async Task Apply_DriftGuard_UsesOperatingSystemCaseSemantics()
+    {
+        await using var h = await MigrationTestHarness.CreateAsync();
+        var backupDir = Path.Combine(Path.GetTempPath(), $"altmig-{Guid.NewGuid():N}");
+        await h.Store.UpdateSessionAsync(s => s.SymlinkBackupDir = backupDir);
+        await SeedPlanAsync(h, Row(
+            "rewrite",
+            "/lib/a.mkv",
+            "/mnt/Altmount/tv/a.mkv",
+            "/mnt/nzbdav/.ids/1/2/3/4/5/aaa"));
+
+        // This is the same target on Windows, but distinct drift on Linux/macOS.
+        var caseChangedTarget = "/mnt/altmount/tv/a.mkv";
+        var ops = new FakeSymlinkOps { Links = { ["/lib/a.mkv"] = caseChangedTarget } };
+
+        var summary = await new SymlinkRewriter(h.Store) { Ops = ops }.ApplyAsync();
+
+        await using var mig = h.Mig();
+        var row = await mig.SymlinkRewrites.SingleAsync();
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Equal(1, summary.Applied);
+            Assert.Equal(0, summary.Failed);
+            Assert.Equal("applied", row.Status);
+            Assert.Equal("/mnt/nzbdav/.ids/1/2/3/4/5/aaa", ops.Links["/lib/a.mkv"]);
+        }
+        else
+        {
+            Assert.Equal(0, summary.Applied);
+            Assert.Equal(1, summary.Failed);
+            Assert.Equal("failed", row.Status);
+            Assert.Contains("changed since plan", row.Error);
+            Assert.Equal(caseChangedTarget, ops.Links["/lib/a.mkv"]);
+        }
+
+        try { Directory.Delete(backupDir, recursive: true); } catch { /* best effort */ }
+    }
+
+    [Fact]
     public void RealOps_NeverDeletesRealFile_RefusesNonSymlink()
     {
         // The never-delete invariant, tested on the real filesystem without needing
