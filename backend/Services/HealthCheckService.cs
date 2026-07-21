@@ -290,14 +290,27 @@ public class HealthCheckService : BackgroundService
     /// <summary>
     /// How many segments to STAT for one file. Files up to the floor are checked in full,
     /// larger ones are sampled based on their size, and an optional age scales the result
-    /// down from there. Depth 0 will bypass this and do a full check.
+    /// down from there. <see cref="HealthCheckDepth.Complete"/> skips all of it.
     /// </summary>
-    public static int SampleTarget(int segmentCount, double depth, TimeSpan? age = null)
+    public static int SampleTarget(int segmentCount, HealthCheckDepth depth, TimeSpan? age = null)
     {
-        if (depth <= 0) return segmentCount;
-        var curve = Math.Max(SampleFloor, depth * Math.Sqrt((double)SampleFloor * segmentCount));
+        if (depth == HealthCheckDepth.Complete) return segmentCount;
+        var multiplier = CurveMultiplier(depth);
+        var curve = Math.Max(SampleFloor, multiplier * Math.Sqrt((double)SampleFloor * segmentCount));
         return (int)Math.Min(segmentCount, curve * AgeWeight(age));
     }
+
+    /// <summary>
+    /// What each depth multiplies the sampling curve by. Complete has no multiplier because
+    /// it never reaches the curve.
+    /// </summary>
+    private static double CurveMultiplier(HealthCheckDepth depth) => depth switch
+    {
+        HealthCheckDepth.Standard => 0.5,
+        HealthCheckDepth.Enhanced => 1.0,
+        HealthCheckDepth.Deep => 2.0,
+        _ => throw new ArgumentOutOfRangeException(nameof(depth), depth, "Depth has no curve multiplier."),
+    };
 
     /// <summary>
     /// Scales coverage down as a release ages with the same square root curve used for size.
@@ -316,7 +329,7 @@ public class HealthCheckService : BackgroundService
     /// </summary>
     public static List<string> SampleSegments(
         List<string> segments,
-        double depth = ConfigManager.DefaultHealthCheckDepth,
+        HealthCheckDepth depth = ConfigManager.DefaultHealthCheckDepth,
         TimeSpan? age = null)
     {
         var count = segments.Count;

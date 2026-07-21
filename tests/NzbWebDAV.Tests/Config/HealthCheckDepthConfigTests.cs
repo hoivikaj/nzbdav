@@ -7,15 +7,15 @@ public class HealthCheckDepthConfigTests
 {
     [Theory]
     [InlineData("standard", ConfigManager.DefaultHealthCheckDepth)]
-    [InlineData("enhanced", 1.0)]
-    [InlineData("deep", 2.0)]
-    [InlineData("complete", 0)]
+    [InlineData("enhanced", HealthCheckDepth.Enhanced)]
+    [InlineData("deep", HealthCheckDepth.Deep)]
+    [InlineData("complete", HealthCheckDepth.Complete)]
     // Validation accepts any casing, so the getter has to resolve it the same way
     // rather than falling through to the default and quietly under-checking.
-    [InlineData("Deep", 2.0)]
-    [InlineData("COMPLETE", 0)]
+    [InlineData("Deep", HealthCheckDepth.Deep)]
+    [InlineData("COMPLETE", HealthCheckDepth.Complete)]
     [InlineData("nonsense", ConfigManager.DefaultHealthCheckDepth)]
-    public void GetHealthCheckDepth_ResolvesRegardlessOfCasing(string value, double expected)
+    public void GetHealthCheckDepth_ResolvesRegardlessOfCasing(string value, HealthCheckDepth expected)
     {
         var config = new ConfigManager();
         config.UpdateValues(

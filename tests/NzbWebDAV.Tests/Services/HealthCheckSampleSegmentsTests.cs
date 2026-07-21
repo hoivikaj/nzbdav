@@ -5,9 +5,9 @@ namespace NzbWebDAV.Tests.Services;
 
 public class HealthCheckSampleSegmentsTests
 {
-    private const double Standard = ConfigManager.DefaultHealthCheckDepth;
-    private const double Enhanced = 1.0;
-    private const double Deep = 2.0;
+    // Named for the default rather than the member, so these cases keep testing whatever
+    // depth ships as the default.
+    private const HealthCheckDepth Standard = ConfigManager.DefaultHealthCheckDepth;
 
     private static List<string> Segments(int count) =>
         Enumerable.Range(0, count).Select(i => $"seg-{i}").ToList();
@@ -38,11 +38,11 @@ public class HealthCheckSampleSegmentsTests
     }
 
     [Fact]
-    public void SampleSegments_ZeroDepthChecksEverySegment()
+    public void SampleSegments_CompleteChecksEverySegment()
     {
         var segments = Segments(50_000);
 
-        Assert.Same(segments, HealthCheckService.SampleSegments(segments, depth: 0));
+        Assert.Same(segments, HealthCheckService.SampleSegments(segments, HealthCheckDepth.Complete));
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public class HealthCheckSampleSegmentsTests
     {
         const int count = 20_000;
 
-        var ancient = HealthCheckService.SampleTarget(count, depth: 0, TimeSpan.FromDays(7300));
+        var ancient = HealthCheckService.SampleTarget(count, HealthCheckDepth.Complete, TimeSpan.FromDays(7300));
 
         Assert.Equal(count, ancient);
     }
@@ -132,7 +132,7 @@ public class HealthCheckSampleSegmentsTests
     {
         var segments = Segments(50_000);
 
-        var sampled = HealthCheckService.SampleSegments(segments, depth: 0, TimeSpan.FromDays(7300));
+        var sampled = HealthCheckService.SampleSegments(segments, HealthCheckDepth.Complete, TimeSpan.FromDays(7300));
 
         Assert.Same(segments, sampled);
     }
@@ -168,8 +168,8 @@ public class HealthCheckSampleSegmentsTests
         var segments = Segments(count);
 
         var standard = HealthCheckService.SampleSegments(segments, Standard).Count;
-        var enhanced = HealthCheckService.SampleSegments(segments, Enhanced).Count;
-        var deep = HealthCheckService.SampleSegments(segments, Deep).Count;
+        var enhanced = HealthCheckService.SampleSegments(segments, HealthCheckDepth.Enhanced).Count;
+        var deep = HealthCheckService.SampleSegments(segments, HealthCheckDepth.Deep).Count;
 
         Assert.True(standard < enhanced, $"standard {standard} !< enhanced {enhanced}");
         Assert.True(enhanced < deep, $"enhanced {enhanced} !< deep {deep}");
