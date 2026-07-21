@@ -131,7 +131,7 @@ function circuitLabel(state: ProviderCircuitState, cooldownRemainingSeconds?: nu
             ? `Tripped · ${cooldownRemainingSeconds}s`
             : "Tripped";
     }
-    if (state === "halfOpen") return "Probing";
+    if (state === "halfOpen") return "Recovering";
     return "Healthy";
 }
 
@@ -142,7 +142,7 @@ function buildProviderTooltip(p: ProviderRow, state: ProviderCircuitState) {
         if (p.cooldownRemainingSeconds != null && p.cooldownRemainingSeconds > 0)
             lines.push(`Retry in about ${p.cooldownRemainingSeconds}s.`);
     } else if (state === "halfOpen") {
-        lines.push("Circuit half-open — one probe request may test recovery.");
+        lines.push("Circuit half-open. Tried after the healthy providers of its tier until a request confirms it.");
     } else {
         lines.push("Circuit closed — provider is healthy.");
     }

@@ -759,13 +759,29 @@ public class MultiProviderNntpClient(
                 .Where(x => !IsOverLimit(x))
                 .ToList();
 
-            var healthy = enabled.Where(x => !x.IsTripped).ToList();
-            var pool = healthy.Count > 0 ? healthy : enabled;
+            // Reading state here must not claim the half-open probe slot. IsTripped claims
+            // it, so one selection ends up holding a probe it may never dispatch while
+            // every other selection treats the provider as tripped.
+            var circuitStates = new Dictionary<MultiConnectionNntpClient, ProviderCircuitState>(enabled.Count);
+            foreach (var provider in enabled)
+                circuitStates[provider] = provider.GetCircuitBreakerSnapshot().State;
 
+            var selectable = enabled
+                .Where(x => circuitStates[x] != ProviderCircuitState.Open)
+                .ToList();
+            var pool = selectable.Count > 0 ? selectable : enabled;
+
+            // Half-open sorts behind the healthy providers of its own tier and keeps that
+            // tier, so a recovering primary is still tried ahead of a backup or block
+            // account. A provider that may still be down should not stall a request a
+            // healthy peer would serve. The failover walk reaches it and any command it
+            // completes resets the breaker.
             var byTier = pool.OrderBy(x => x.ProviderType);
+            var byRecovery = byTier.ThenBy(x =>
+                circuitStates[x] == ProviderCircuitState.HalfOpen ? 1 : 0);
             var prioritized = cascadeEnabled?.Invoke() == true
-                ? byTier.ThenBy(EffectivePriority)
-                : byTier;
+                ? byRecovery.ThenBy(EffectivePriority)
+                : byRecovery;
             var ordered = prioritized
                 .ThenByDescending(x => GetRemainingBytes(x))
                 .ThenBy(EstimatedDeliveryScore)

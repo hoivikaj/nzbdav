@@ -84,6 +84,10 @@ public class MultiConnectionNntpClient(
     // this provider should be skipped when it has exhausted its block.
     public long? ByteLimit { get; } = byteLimit;
     public long BytesUsedOffset { get; } = bytesUsedOffset;
+    /// <summary>
+    /// Claims the half-open probe slot as a side effect of being read. Use
+    /// <see cref="GetCircuitBreakerSnapshot"/> to inspect state without altering it.
+    /// </summary>
     public bool IsTripped => circuitBreaker.IsTripped;
     public ProviderCircuitBreakerSnapshot GetCircuitBreakerSnapshot() => circuitBreaker.GetSnapshot();
     public int LiveConnections => connectionPool.LiveConnections;

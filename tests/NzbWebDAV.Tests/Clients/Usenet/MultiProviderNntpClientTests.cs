@@ -589,19 +589,204 @@ public class MultiProviderNntpClientTests
         Assert.False(backupProvider.IsTripped);
     }
 
+    [Fact]
+    public async Task Selection_DoesNotSpendTheHalfOpenProbeSlot()
+    {
+        var recovering = HalfOpenBreaker("a.example");
+        var healthyConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 223,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(
+                new ScriptedNntpClient
+                {
+                    BatchResponseCode = 223,
+                    SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+                },
+                host: "a.example", circuitBreaker: recovering),
+            CreateProvider(healthyConnection, host: "b.example"),
+        ]);
+
+        for (var i = 0; i < 5; i++)
+            await client.StatAsync($"segment-{i}", CancellationToken.None);
+
+        // Selection must leave the slot unclaimed, otherwise the one admission the
+        // recovering provider gets is burned by a request served elsewhere.
+        Assert.Equal(ProviderCircuitState.HalfOpen, recovering.GetSnapshot().State);
+        Assert.False(recovering.IsTripped);
+    }
+
+    [Fact]
+    public async Task Selection_PrefersAHealthyProviderOverAHalfOpenOne()
+    {
+        var recoveringConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 223,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        var healthyConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 223,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(recoveringConnection, host: "a.example",
+                circuitBreaker: HalfOpenBreaker("a.example")),
+            CreateProvider(healthyConnection, host: "b.example"),
+        ]);
+
+        var response = await client.StatAsync("segment", CancellationToken.None);
+
+        Assert.True(response.ArticleExists);
+        Assert.Equal(0, recoveringConnection.SingularRequests);
+        Assert.True(healthyConnection.SingularRequests >= 1);
+    }
+
+    [Fact]
+    public async Task Selection_StillUsesAHalfOpenProviderWhenItIsTheOnlyOne()
+    {
+        var recoveringConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 223,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(recoveringConnection, host: "a.example",
+                circuitBreaker: HalfOpenBreaker("a.example")),
+        ]);
+
+        var response = await client.StatAsync("segment", CancellationToken.None);
+
+        Assert.True(response.ArticleExists);
+        Assert.True(recoveringConnection.SingularRequests >= 1);
+    }
+
+    [Fact]
+    public async Task Selection_SkipsAProviderStillInsideItsCooldown()
+    {
+        var openConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 223,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        var healthyConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 223,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(openConnection, host: "a.example", circuitBreaker: OpenBreaker("a.example")),
+            CreateProvider(healthyConnection, host: "b.example"),
+        ]);
+
+        await client.StatAsync("segment", CancellationToken.None);
+
+        Assert.Equal(0, openConnection.SingularRequests);
+        Assert.True(healthyConnection.SingularRequests >= 1);
+    }
+
+    [Fact]
+    public async Task Selection_KeepsAHalfOpenPrimaryAheadOfAHealthyBackup()
+    {
+        var recoveringPrimary = new ScriptedNntpClient
+        {
+            BatchResponseCode = 223,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        var healthyBackup = new ScriptedNntpClient
+        {
+            BatchResponseCode = 223,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(recoveringPrimary, host: "a.example",
+                circuitBreaker: HalfOpenBreaker("a.example")),
+            CreateProvider(healthyBackup, host: "b.example",
+                providerType: ProviderType.BackupOnly),
+        ]);
+
+        await client.StatAsync("segment", CancellationToken.None);
+
+        // Demotion must not invert the tiers. A recovering primary is still a better
+        // first choice than a metered block account.
+        Assert.True(recoveringPrimary.SingularRequests >= 1);
+        Assert.Equal(0, healthyBackup.SingularRequests);
+    }
+
+    [Fact]
+    public async Task Selection_HalfOpenProviderClosesItsBreakerOnceTheFailoverWalkReachesIt()
+    {
+        var recovering = HalfOpenBreaker("b.example");
+        var failingConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 400,
+            SingularException = segmentId =>
+                new UsenetUnexpectedResponseException(segmentId, "400 idle timeout"),
+        };
+        var recoveredConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 223,
+            SingularResponseCode = (int)UsenetResponseType.ArticleExists,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(failingConnection, host: "a.example"),
+            CreateProvider(recoveredConnection, host: "b.example", circuitBreaker: recovering),
+        ]);
+
+        var response = await client.StatAsync("segment", CancellationToken.None);
+
+        // Pins that a half-open provider stays in the pool rather than being excluded,
+        // which is the shape a naive fix gets wrong. It does not discriminate the
+        // demotion ordering, since the probe slot admits the provider either way.
+        Assert.True(response.ArticleExists);
+        Assert.True(recoveredConnection.SingularRequests >= 1);
+        Assert.Equal(ProviderCircuitState.Closed, recovering.GetSnapshot().State);
+    }
+
     private static MultiConnectionNntpClient CreateProvider(
         INntpClient connection,
         string host = "test",
-        string storageGroup = "")
+        string storageGroup = "",
+        ProviderCircuitBreaker? circuitBreaker = null,
+        ProviderType providerType = ProviderType.Pooled)
     {
         var pool = new ConnectionPool<INntpClient>(
             maxConnections: 1, _ => ValueTask.FromResult(connection));
         return new MultiConnectionNntpClient(
             pool,
-            ProviderType.Pooled,
-            new ProviderCircuitBreaker(host),
+            providerType,
+            circuitBreaker ?? new ProviderCircuitBreaker(host),
             host,
             storageGroup: storageGroup);
+    }
+
+    /// <summary>Trips a breaker and lets its cooldown lapse so it lands half-open.</summary>
+    private static ProviderCircuitBreaker HalfOpenBreaker(string host)
+    {
+        var breaker = new ProviderCircuitBreaker(host);
+        breaker.RecordFailure();
+        breaker.RecordFailure();
+        breaker.RecordFailure();
+        breaker.ExpireCooldownForTests();
+        return breaker;
+    }
+
+    /// <summary>Trips a breaker and leaves it inside its cooldown, fully open.</summary>
+    private static ProviderCircuitBreaker OpenBreaker(string host)
+    {
+        var breaker = new ProviderCircuitBreaker(host);
+        breaker.RecordFailure();
+        breaker.RecordFailure();
+        breaker.RecordFailure();
+        return breaker;
     }
 
     private sealed class ScriptedNntpClient : NntpClient

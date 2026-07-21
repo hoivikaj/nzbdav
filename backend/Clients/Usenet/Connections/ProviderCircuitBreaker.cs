@@ -12,11 +12,13 @@ namespace NzbWebDAV.Clients.Usenet.Connections;
 /// clears the window and fully resets the cooldown ladder (same recovery
 /// semantics as the former consecutive-failure breaker). After tripping, the
 /// provider enters a cooldown during which it is skipped and additional
-/// failures are ignored (latched). When the cooldown expires, exactly one
-/// half-open probe is admitted; other callers keep seeing the provider as
-/// tripped until that probe records success or failure. A failed probe
-/// re-trips with the doubled cooldown. An abandoned probe (no outcome within
-/// <see cref="ProbeAbandonTimeout"/>) can be retaken.
+/// failures are ignored (latched). When the cooldown expires the trip stays
+/// latched and the provider is half-open. Any recorded failure then re-trips
+/// immediately with the doubled cooldown and any recorded success closes the
+/// circuit. <see cref="GetSnapshot"/> reports that state without altering it.
+/// <see cref="IsTripped"/> reports it while also admitting exactly one half-open
+/// probe per cooldown lapse, and an abandoned probe with no outcome within
+/// <see cref="ProbeAbandonTimeout"/> can be retaken.
 /// </para>
 /// </summary>
 public class ProviderCircuitBreaker
@@ -181,22 +183,20 @@ public class ProviderCircuitBreaker
             if (_trippedUntilMs > 0 && now < _trippedUntilMs)
                 return;
 
-            // Half-open probe failed → re-trip immediately with the current
-            // (already doubled from the previous trip) cooldown, then advance ladder.
-            if (Volatile.Read(ref _halfOpenProbeInFlight) == 1)
+            // Half-open once a probe is claimed or once the cooldown lapses with the trip
+            // still latched. A failure here reopens on the current cooldown rather than
+            // joining the sampling window below, which would return a provider that is
+            // still down to normal rotation until that window tripped again.
+            if (Volatile.Read(ref _halfOpenProbeInFlight) == 1 || _trippedUntilMs > 0)
             {
                 Volatile.Write(ref _halfOpenProbeInFlight, 0);
                 Volatile.Write(ref _probeStartedMs, 0);
+                Interlocked.Increment(ref _failureCount);
                 Trip(now, reason is null
-                    ? "half-open probe failure"
-                    : $"half-open probe failure ({reason})");
+                    ? "half-open failure"
+                    : $"half-open failure ({reason})");
                 return;
             }
-
-            // Cooldown expired (or never tripped); clear a stale trip marker so
-            // success recovery logging stays accurate.
-            if (_trippedUntilMs > 0)
-                _trippedUntilMs = 0;
 
             EvictOldEntries(now);
             _window.Enqueue((now, true));
