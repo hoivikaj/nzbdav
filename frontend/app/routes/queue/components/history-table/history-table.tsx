@@ -10,6 +10,7 @@ import { PageSection } from "../page-section/page-section"
 import { Pagination } from "../pagination/pagination"
 import { DropdownOptions } from "~/routes/explore/dropdown-options/dropdown-options"
 import { ExportNzb, Remove } from "~/routes/explore/item-menu/item-menu"
+import { canRetryHistorySlot, retryHistoryItem, shouldAcceptRetryClick } from "./history-retry"
 
 export type HistoryTableProps = {
     historySlots: PresentationHistorySlot[],
@@ -143,6 +144,8 @@ type HistoryRowProps = {
 export function HistoryRow({ slot, onIsSelectedChanged, onIsRemovingChanged, onRemoved }: HistoryRowProps) {
     // state
     const [isConfirmingRemoval, setIsConfirmingRemoval] = useState(false);
+    const [isRetrying, setIsRetrying] = useState(false);
+    const [retryError, setRetryError] = useState<string | null>(null);
 
     // events
     const onRemove = useCallback(() => {
@@ -172,6 +175,20 @@ export function HistoryRow({ slot, onIsSelectedChanged, onIsRemovingChanged, onR
         onIsRemovingChanged(slot.nzo_id, false);
     }, [slot.nzo_id, setIsConfirmingRemoval, onIsRemovingChanged, onRemoved]);
 
+    const onRetry = useCallback(async () => {
+        if (!shouldAcceptRetryClick(isRetrying, slot.isRemoving)) return;
+        setRetryError(null);
+        setIsRetrying(true);
+        try {
+            const result = await retryHistoryItem(slot.nzo_id);
+            if (!result.ok) {
+                setRetryError(result.error);
+            }
+        } finally {
+            setIsRetrying(false);
+        }
+    }, [isRetrying, slot.isRemoving, slot.nzo_id]);
+
     const folderLink = getExploreContentLink(slot.storage, slot.category);
     const nameHref = folderLink && !slot.isRemoving && !slot.fail_message ? folderLink : null;
 
@@ -189,7 +206,23 @@ export function HistoryRow({ slot, onIsSelectedChanged, onIsRemovingChanged, onR
                 fileSizeBytes={slot.bytes}
                 completed={slot.completed}
                 showCompleted
-                actions={<Actions slot={slot} onRemove={onRemove} />}
+                actions={
+                    <div className="flex flex-col items-end gap-1">
+                        <div className="flex flex-col items-end justify-center gap-2.5 min-[410px]:flex-row min-[410px]:items-center">
+                            <Actions
+                                slot={slot}
+                                isRetrying={isRetrying}
+                                onRemove={onRemove}
+                                onRetry={onRetry}
+                            />
+                        </div>
+                        {retryError &&
+                            <span role="alert" className="max-w-[180px] text-left text-xs text-error">
+                                {retryError}
+                            </span>
+                        }
+                    </div>
+                }
                 onRowSelectionChanged={isSelected => onIsSelectedChanged(slot.nzo_id, isSelected)}
                 indexer={slot.indexer}
                 providers={slot.providers}
@@ -206,7 +239,17 @@ export function HistoryRow({ slot, onIsSelectedChanged, onIsRemovingChanged, onR
     )
 }
 
-export function Actions({ slot, onRemove }: { slot: PresentationHistorySlot, onRemove: () => void }) {
+export function Actions({
+    slot,
+    isRetrying = false,
+    onRemove,
+    onRetry,
+}: {
+    slot: PresentationHistorySlot,
+    isRetrying?: boolean,
+    onRemove: () => void,
+    onRetry?: () => void,
+}) {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
     const folderLink = getExploreContentLink(slot.storage, slot.category);
@@ -218,6 +261,7 @@ export function Actions({ slot, onRemove }: { slot: PresentationHistorySlot, onR
 
     // determine whether explore action should be disabled
     const isFolderDisabled = !folderLink || !!slot.isRemoving || !!slot.fail_message;
+    const showRetry = canRetryHistorySlot(slot);
 
     const onMenuClick = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
@@ -229,8 +273,20 @@ export function Actions({ slot, onRemove }: { slot: PresentationHistorySlot, onR
         onRemove?.();
     }, [onRemove]);
 
+    const onRetryClick = useCallback((e: React.MouseEvent) => {
+        e.stopPropagation();
+        onRetry?.();
+    }, [onRetry]);
+
     return (
         <>
+            {showRetry &&
+                <ActionButton
+                    type="retry"
+                    disabled={!!slot.isRemoving || isRetrying}
+                    onClick={onRetryClick}
+                />
+            }
             {!isFolderDisabled && folderLink &&
                 <Link to={folderLink} discover="none">
                     <ActionButton type="explore" />
@@ -242,7 +298,7 @@ export function Actions({ slot, onRemove }: { slot: PresentationHistorySlot, onR
             <div className="relative">
                 <ActionButton
                     type="menu"
-                    disabled={!!slot.isRemoving}
+                    disabled={!!slot.isRemoving || isRetrying}
                     selected={isMenuOpen}
                     onClick={onMenuClick} />
                 <DropdownOptions

@@ -12,6 +12,7 @@ using NzbWebDAV.Api.SabControllers.GetVersion;
 using NzbWebDAV.Api.SabControllers.MoveInQueue;
 using NzbWebDAV.Api.SabControllers.RemoveFromHistory;
 using NzbWebDAV.Api.SabControllers.RemoveFromQueue;
+using NzbWebDAV.Api.SabControllers.RetryHistory;
 using NzbWebDAV.Auth;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
@@ -111,6 +112,10 @@ public class SabApiController(
             case "history":
                 return new GetHistoryController(
                     HttpContext, dbClient, configManager, providerUsageTracker);
+
+            case "retry":
+                return new RetryHistoryController(
+                    HttpContext, dbClient, queueManager, configManager, websocketManager);
 
             default:
                 throw new BadHttpRequestException("Invalid mode");
