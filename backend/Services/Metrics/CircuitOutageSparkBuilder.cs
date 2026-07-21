@@ -23,11 +23,19 @@ public static class CircuitOutageSparkBuilder
                 _ => new long[bucketCount],
                 StringComparer.Ordinal);
 
+        var tripBuckets = providerKeys
+            .Distinct(StringComparer.Ordinal)
+            .ToDictionary(
+                key => key,
+                _ => new bool[bucketCount],
+                StringComparer.Ordinal);
+
         foreach (var group in events
                      .Where(item => result.ContainsKey(item.Provider))
                      .GroupBy(item => item.Provider, StringComparer.Ordinal))
         {
             var outageMs = result[group.Key];
+            var trips = tripBuckets[group.Key];
             long? openAt = null;
             long openUntil = 0;
 
@@ -38,6 +46,7 @@ public static class CircuitOutageSparkBuilder
                     if (openAt is { } previousOpen)
                         AddInterval(outageMs, previousOpen, Math.Min(openUntil, item.At));
 
+                    MarkTripBucket(trips, item.At);
                     openAt = item.At;
                     openUntil = item.At + Math.Max(0, item.CooldownMs ?? 0);
                     continue;
@@ -74,16 +83,36 @@ public static class CircuitOutageSparkBuilder
                         Math.Min(end, bucketEnd) - Math.Max(start, bucketStart));
                 }
             }
+
+            void MarkTripBucket(bool[] buckets, long at)
+            {
+                if (at < sparkStart || at >= sparkStart + bucketSize * bucketCount)
+                    return;
+                var index = (int)((at - sparkStart) / bucketSize);
+                if (index >= 0 && index < bucketCount)
+                    buckets[index] = true;
+            }
         }
 
         return result.ToDictionary(
             pair => pair.Key,
-            pair => pair.Value
-                .Select(duration => (int)Math.Clamp(
-                    Math.Round(duration * 100d / bucketSize),
-                    0,
-                    100))
-                .ToList(),
+            pair =>
+            {
+                var trips = tripBuckets[pair.Key];
+                return pair.Value
+                    .Select((duration, index) =>
+                    {
+                        var percent = (int)Math.Clamp(
+                            Math.Round(duration * 100d / bucketSize),
+                            0,
+                            100);
+                        // Keep recorded trips visible when occupancy rounds below 1%.
+                        if (percent == 0 && trips[index])
+                            return 1;
+                        return percent;
+                    })
+                    .ToList();
+            },
             StringComparer.Ordinal);
     }
 }

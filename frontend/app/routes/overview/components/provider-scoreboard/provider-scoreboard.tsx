@@ -30,7 +30,7 @@ export function ProviderScoreboard({ providers, window }: ProviderScoreboardProp
                                     <th className="w-[120px]">Activity</th>
                                     <th
                                         className="w-[120px]"
-                                        title="Percentage of each interval that the provider circuit was open and skipped">
+                                        title="Relative circuit-open history for each interval (scaled to the window’s peak)">
                                         Outages
                                     </th>
                                     <th>Articles</th>
@@ -65,11 +65,10 @@ export function ProviderScoreboard({ providers, window }: ProviderScoreboardProp
                                             <td>
                                                 <Sparkline values={p.spark} tone="success" />
                                             </td>
-                                            <td title="Provider circuit-open time">
+                                            <td title="Relative provider circuit-open history">
                                                 <Sparkline
                                                     values={p.outageSpark ?? []}
-                                                    tone="error"
-                                                    fixedMax={100} />
+                                                    tone="error" />
                                             </td>
                                             <td className="font-mono tabular-nums">{formatNumber(p.articles)}</td>
                                             <td className="font-mono tabular-nums">{formatBytes(p.bytesFetched)}</td>
