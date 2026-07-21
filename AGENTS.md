@@ -330,6 +330,15 @@ When a task that changed the repo is done (unless the user explicitly said not t
 3. **Open a PR** to `main` with `gh pr create` (short summary + test plan). Report the PR URL in the final response.
 4. **Reset the workspace** for the next agent: `git checkout main` && `git pull`, then confirm a clean working tree on `main`.
 
+### Never merge pull requests
+
+**Agents must never merge a pull request** — not with `gh pr merge`, the GitHub UI/API, auto-merge, squash/rebase merge, or any equivalent — **in this repository or any sibling NzbDAV ecosystem repo** (including `sharpcompress`, `UsenetSharp`, and related packages).
+
+- Opening a PR and reporting its URL is the end of the handoff.
+- Do **not** merge even if CI is green, the user seems impatient, a release is blocked on the merge, or merging would unblock downstream work.
+- Do **not** enable auto-merge.
+- Only a human maintainer merges. If a merge is needed, stop and ask the user to merge.
+
 ### PR titles
 
 PR titles use the same `<type>(<scope>): <description>` format as commits, but write the description for **end users, not maintainers**: say what is fixed or introduced from the user's perspective, not how it was implemented. Commit messages carry the technical detail; the PR title is what people skim in the PR list and release notes.
