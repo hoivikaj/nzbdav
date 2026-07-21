@@ -33,9 +33,13 @@ public sealed class SubmissionWorkerPool(
 {
     /// <summary>
     /// Submits as many pending releases as the queue-depth gate allows, oldest
-    /// first. Returns the number submitted this pass.
+    /// first. A pause/cancel token stops before the next external submission;
+    /// the host token controls I/O and shutdown. Returns the number submitted
+    /// this pass.
     /// </summary>
-    public async Task<int> SubmitBatchAsync(CancellationToken ct = default)
+    public async Task<int> SubmitBatchAsync(
+        CancellationToken submissionToken,
+        CancellationToken ct = default)
     {
         var session = await store.GetSessionAsync(ct).ConfigureAwait(false);
         var maxDepth = Math.Max(1, session.MaxQueueDepth);
@@ -56,8 +60,9 @@ public sealed class SubmissionWorkerPool(
         var submitted = 0;
         foreach (var sub in pending)
         {
-            ct.ThrowIfCancellationRequested();
             if (depth >= maxDepth)
+                break;
+            if (!await CanSubmitNextAsync(store, submissionToken, ct).ConfigureAwait(false))
                 break;
 
             var release = await ctx.Releases
@@ -73,7 +78,11 @@ public sealed class SubmissionWorkerPool(
 
             try
             {
-                var nzoId = await SubmitReleaseAsync(release, session, ctx, ct).ConfigureAwait(false);
+                var nzoId = await SubmitReleaseAsync(release, session, ctx, submissionToken, ct)
+                    .ConfigureAwait(false);
+                if (nzoId is null)
+                    break;
+
                 sub.NzoId = nzoId;
                 sub.State = "submitted";
                 sub.SubmittedAt = DateTime.UtcNow;
@@ -97,10 +106,11 @@ public sealed class SubmissionWorkerPool(
         return submitted;
     }
 
-    private async Task<string> SubmitReleaseAsync(
+    private async Task<string?> SubmitReleaseAsync(
         MigrationRelease release,
         MigrationSessionState session,
         UsenetMigrationDbContext ctx,
+        CancellationToken submissionToken,
         CancellationToken ct)
     {
         var storePath = StoreLocator.Resolve(release.StoreRef, session.AltmountStoreRoot)
@@ -122,6 +132,11 @@ public sealed class SubmissionWorkerPool(
         var controller = new AddFileController(
             new DefaultHttpContext(), dbClient, queueManager, configManager, websocketManager);
 
+        // Store decoding can take time. Re-check immediately before crossing the
+        // external queue boundary so pause/cancel cannot drain the old snapshot.
+        if (!await CanSubmitNextAsync(store, submissionToken, ct).ConfigureAwait(false))
+            return null;
+
         var request = new AddFileRequest
         {
             // QueueFileName already carries the resolved ".nzb" filename that lands
@@ -139,6 +154,18 @@ public sealed class SubmissionWorkerPool(
             throw new InvalidOperationException("AddFileAsync returned no nzo id.");
 
         return response.NzoIds[0];
+    }
+
+    internal static async Task<bool> CanSubmitNextAsync(
+        UsenetMigrationStore store,
+        CancellationToken submissionToken,
+        CancellationToken ct = default)
+    {
+        if (submissionToken.IsCancellationRequested)
+            return false;
+
+        var current = await store.GetSessionAsync(ct).ConfigureAwait(false);
+        return !submissionToken.IsCancellationRequested && current.Status is "running";
     }
 
     /// <summary>

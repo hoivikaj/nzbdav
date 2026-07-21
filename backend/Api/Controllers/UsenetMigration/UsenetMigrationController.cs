@@ -26,7 +26,9 @@ namespace NzbWebDAV.Api.Controllers.UsenetMigration;
 /// <c>plan</c> flips Status to <c>linking</c> and <c>apply</c> (confirm-gated) to
 /// <c>applying</c>; the runner performs the work and returns to <c>linked</c>.
 /// </summary>
-public sealed class UsenetMigrationController(UsenetMigrationStore store) : UsenetMigrationBaseController
+public sealed class UsenetMigrationController(
+    UsenetMigrationStore store,
+    UsenetMigrationRunner runner) : UsenetMigrationBaseController
 {
     // --- connect -----------------------------------------------------------
 
@@ -390,6 +392,7 @@ public sealed class UsenetMigrationController(UsenetMigrationStore store) : Usen
                 throw new BadHttpRequestException("Only a running or paused migration can be cancelled.");
 
             await store.CancelRunAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+            runner.InterruptSubmissionBatch();
             return Ok(new { status = true, state = "cancelled" });
         }
 
@@ -402,6 +405,7 @@ public sealed class UsenetMigrationController(UsenetMigrationStore store) : Usen
         {
             if (s.Status is "running") s.Status = "paused";
         }, HttpContext.RequestAborted).ConfigureAwait(false);
+        runner.InterruptSubmissionBatch();
         return Ok(new { status = true, state = "paused" });
     });
 

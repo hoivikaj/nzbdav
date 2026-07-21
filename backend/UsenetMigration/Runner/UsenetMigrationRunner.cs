@@ -11,9 +11,10 @@ namespace NzbWebDAV.UsenetMigration.Runner;
 
 /// <summary>
 /// The migration's single <see cref="BackgroundService"/> — the state machine that
-/// drives the wizard forward from the session's <c>Status</c>. The API only
-/// flips <c>Status</c>; this loop performs the actual work, so a process restart
-/// resumes wherever the status left off:
+/// drives the wizard forward from the session's <c>Status</c>. The API advances
+/// that status and interrupts the current submission epoch on pause/cancel;
+/// this loop performs the actual work, so a process restart resumes wherever
+/// the status left off:
 /// <list type="bullet">
 /// <item><c>scanning</c> → runs a full scan (idempotent; rebuilds all artifacts).</item>
 /// <item><c>running</c> → submits up to the queue-depth gate, then reconciles;
@@ -34,6 +35,7 @@ public sealed class UsenetMigrationRunner : BackgroundService
     private readonly SubmissionReconciler _reconciler;
     private readonly SymlinkPlanner _symlinkPlanner;
     private readonly SymlinkRewriter _symlinkRewriter;
+    private readonly SubmissionOperationGate _submissionGate = new();
 
     public UsenetMigrationRunner(
         UsenetMigrationStore store,
@@ -49,6 +51,13 @@ public sealed class UsenetMigrationRunner : BackgroundService
         _symlinkPlanner = new SymlinkPlanner(store, configManager);
         _symlinkRewriter = new SymlinkRewriter(store);
     }
+
+    /// <summary>
+    /// Stops the current submit batch before it can begin another external
+    /// <c>AddFileAsync</c>. The current individual submission is allowed to finish
+    /// so its NzbDAV queue id can still be persisted by the worker.
+    /// </summary>
+    internal void InterruptSubmissionBatch() => _submissionGate.Interrupt();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -149,9 +158,17 @@ public sealed class UsenetMigrationRunner : BackgroundService
             return;
         }
 
-        await _store.BeginRunAsync(ct).ConfigureAwait(false);
+        using var submissionOperation = _submissionGate.Begin(ct);
 
-        await _workerPool.SubmitBatchAsync(ct).ConfigureAwait(false);
+        // A pause/cancel can land after TickAsync read "running" but before this
+        // batch begins. Re-read after publishing the operation token so the API
+        // can either cancel this operation or make this check fail.
+        var session = await _store.GetSessionAsync(ct).ConfigureAwait(false);
+        if (session.Status is not "running")
+            return;
+
+        await _store.BeginRunAsync(ct).ConfigureAwait(false);
+        await _workerPool.SubmitBatchAsync(submissionOperation.Token, ct).ConfigureAwait(false);
         await _reconciler.ReconcileAsync(ct).ConfigureAwait(false);
         await MaybeCompleteAsync(ct).ConfigureAwait(false);
     }
@@ -182,5 +199,65 @@ public sealed class UsenetMigrationRunner : BackgroundService
         await _store.CompleteRunAsync(ct).ConfigureAwait(false);
 
         Log.Information("Usenet migration complete: no submissions remain in flight.");
+    }
+}
+
+/// <summary>
+/// Owns the cancellation epoch for one runner submit batch. Interrupting an
+/// epoch cancels its token; a later resume starts a distinct, uncancelled epoch.
+/// </summary>
+internal sealed class SubmissionOperationGate
+{
+    private readonly object _lock = new();
+    private CancellationTokenSource? _active;
+    private long _epoch;
+
+    internal SubmissionOperation Begin(CancellationToken hostStoppingToken)
+    {
+        lock (_lock)
+        {
+            if (_active is not null)
+                throw new InvalidOperationException("A migration submission batch is already active.");
+
+            var source = CancellationTokenSource.CreateLinkedTokenSource(hostStoppingToken);
+            _active = source;
+            return new SubmissionOperation(this, source, ++_epoch);
+        }
+    }
+
+    internal void Interrupt()
+    {
+        lock (_lock)
+        {
+            _epoch++;
+            _active?.Cancel();
+        }
+    }
+
+    private void End(CancellationTokenSource source)
+    {
+        lock (_lock)
+        {
+            if (ReferenceEquals(_active, source))
+                _active = null;
+            source.Dispose();
+        }
+    }
+
+    internal sealed class SubmissionOperation(
+        SubmissionOperationGate owner,
+        CancellationTokenSource source,
+        long epoch) : IDisposable
+    {
+        private int _disposed;
+
+        internal CancellationToken Token => source.Token;
+        internal long Epoch { get; } = epoch;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                owner.End(source);
+        }
     }
 }
