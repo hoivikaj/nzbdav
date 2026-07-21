@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.8.1](https://github.com/nzbdav/nzbdav/compare/v0.8.0...v0.8.1) (2026-07-21)
+
+
+### Features
+
+* **ui:** add 35 GB and 50 GB options to the Usenet speed test ([54de9e4](https://github.com/nzbdav/nzbdav/commit/54de9e40b8b5401efb07c964d7f538bfb3d43a8e))
+* **ui:** add 35 GB and 50 GB speed-test data budgets ([f65f7cd](https://github.com/nzbdav/nzbdav/commit/f65f7cdcfdfd1ed96ff74038ef5bd6279ad33d34))
+* **ui:** add retry button for failed history items ([78de4b1](https://github.com/nzbdav/nzbdav/commit/78de4b158f10722da59257e0c967e6f101e2a9e3))
+* **ui:** retry failed history items from the queue page ([76b2c89](https://github.com/nzbdav/nzbdav/commit/76b2c89efbc46d4a169be862e3bbce6c0ae72b26))
+* **ui:** show queue totals and selectable page sizes ([906cf72](https://github.com/nzbdav/nzbdav/commit/906cf72ea012dec2a23d8b437c5ae123b8ba5ef4))
+* **ui:** show queue totals and selectable page sizes on the Queue page ([8a54639](https://github.com/nzbdav/nzbdav/commit/8a546399e8a72b6354a7b796263f9dbf0ef8de0d))
+
+
+### Bug Fixes
+
+* **nntp:** tighten handshake timeout filters and Test Connection logs ([c3aae89](https://github.com/nzbdav/nzbdav/commit/c3aae89c0ec23e544134cdde65ecafacf6953aca))
+* **nntp:** timed-out provider handshakes report as connect or login failures ([f5eea1e](https://github.com/nzbdav/nzbdav/commit/f5eea1ef760c956a02c0f07094244d66b62c29c7))
+* **nntp:** type handshake timeouts as connect or login failures ([a9c8e2f](https://github.com/nzbdav/nzbdav/commit/a9c8e2fc54c1ac32a37172bab87bac27eb4435fd))
+* **queue:** stop advertising huge sentinel sizes for multipart RAR files ([3a74b4d](https://github.com/nzbdav/nzbdav/commit/3a74b4d765ab8ebbd17479d5ef3f57374d4f0a0f))
+* **queue:** stop advertising Int64.MaxValue as multipart RAR FileSize ([e5eb704](https://github.com/nzbdav/nzbdav/commit/e5eb70410a82e40160ad7c71699d500853f25dc7))
+* **ui:** always show live/max on usenet provider connection tiles ([#547](https://github.com/nzbdav/nzbdav/issues/547)) ([e3cd265](https://github.com/nzbdav/nzbdav/commit/e3cd2653f187083ae10158cd5e0205accf0e7c9e))
+* **ui:** Apply recommendation populates Max Connections and pipelining depth ([73a6a28](https://github.com/nzbdav/nzbdav/commit/73a6a28d28d5e541db4f736bebe159674f7188ae))
+* **ui:** keep short provider circuit trips visible on Outages spark ([17720ca](https://github.com/nzbdav/nzbdav/commit/17720cadd0c1328c95fe3ae953d83bea9a87fdf5)), closes [#526](https://github.com/nzbdav/nzbdav/issues/526)
+* **ui:** keep speed-test Apply recommendation from resetting the form ([dbb82d5](https://github.com/nzbdav/nzbdav/commit/dbb82d5102ca04528636b5e2b77604c16450f992))
+* **ui:** Outages sparkline no longer hides brief provider circuit trips ([524dd24](https://github.com/nzbdav/nzbdav/commit/524dd247ce578820c5c3338cfcc96ff952e9db88))
+* **usenet:** log yEnc CRC mismatches without stack dumps ([53fda2f](https://github.com/nzbdav/nzbdav/commit/53fda2faa281d313b7fd0fa403f5a8bc98b32333))
+* **usenet:** stop dumping stacks for known yEnc CRC mismatches ([d2b2e1a](https://github.com/nzbdav/nzbdav/commit/d2b2e1a3748a0fb3e2bad6d7724fba32d338a313))
+* **webdav:** heal underestimated multipart volume lengths ([57089a5](https://github.com/nzbdav/nzbdav/commit/57089a5e3405e0fa3686602688eb40772ec7fad2))
+* **webdav:** prevent multipart playback failures from understated volume sizes ([3b42112](https://github.com/nzbdav/nzbdav/commit/3b421128d03e15721bb567dd8313bf7d40915c29))
+
+
+### Documentation
+
+* add since-version pills for 0.8.0 features ([075a0ac](https://github.com/nzbdav/nzbdav/commit/075a0ac9b4f0f19bd9ceca8b92d5faef1c188cdd))
+* **docker:** explain how to change the published port ([7527c09](https://github.com/nzbdav/nzbdav/commit/7527c0944b66bf084f392575d490ad6b873f217a))
+* **docker:** explain port mapping and listener overrides ([29b7393](https://github.com/nzbdav/nzbdav/commit/29b73931e196e4e21d5529dd679afd52f009b079))
+* forbid agents from merging pull requests ([6114927](https://github.com/nzbdav/nzbdav/commit/611492746fbedd8beada84494333f1408745d24c))
+* migrate Discord invite and document July 21 transition ([a955a6e](https://github.com/nzbdav/nzbdav/commit/a955a6e0b74d7f28a34ac66a6e290fb5596c450b))
+* point community Discord at the new server ([20ef599](https://github.com/nzbdav/nzbdav/commit/20ef5998073e970be1a7d3c57978147630952333))
+* show when features shipped with since-version pills ([3764bd9](https://github.com/nzbdav/nzbdav/commit/3764bd916f7e59090320e52b9c5520304c2ff1ec))
+
+
+### Refactors
+
+* **health:** resolve depth to an enum instead of a sentinel double ([faf441a](https://github.com/nzbdav/nzbdav/commit/faf441a28a88ed216934997f332a24107277f598))
+* **health:** resolve depth to an enum instead of a sentinel double ([3ebbb01](https://github.com/nzbdav/nzbdav/commit/3ebbb016abced73f679cb0a48364858ab96135e4))
+
 ## [0.8.0](https://github.com/nzbdav/nzbdav/compare/v0.7.25...v0.8.0) (2026-07-20)
 
 
