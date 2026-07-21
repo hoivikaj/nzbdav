@@ -115,9 +115,23 @@ export const requestLogger: RequestHandler = (req, res, next) => {
     }
 
     const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+    // On error lines, identify the client: without this, a stream of 4xx
+    // (an rclone mount retrying MKCOL/PUT against the read-only tree, a
+    // misconfigured player hammering a dead URL) gives method/url/status
+    // but no way to tell WHICH downstream client is responsible. `req.ip`
+    // honors trust-proxy; the raw socket address is included when it
+    // differs (i.e. behind a reverse proxy), plus the User-Agent.
+    const clientInfo = () => {
+      const socketAddr = req.socket?.remoteAddress ?? "-";
+      const ip = req.ip ?? socketAddr;
+      const via = ip === socketAddr ? ip : `${ip} (via ${socketAddr})`;
+      const userAgent = req.headers["user-agent"] ?? "-";
+      return color.dim(`${via} "${userAgent}"`);
+    };
     const message =
       `${colorMethod(req.method)} ${req.originalUrl} `
-      + `${colorStatus(res.statusCode)} ${color.dim(`${elapsedMs.toFixed(1)} ms`)}`;
+      + `${colorStatus(res.statusCode)} ${color.dim(`${elapsedMs.toFixed(1)} ms`)}`
+      + (res.statusCode >= 400 ? ` ${clientInfo()}` : "");
 
     // During Docker's frontend-first startup window, proxied 502s are expected
     // while the backend is still binding. Downgrade so they are not double-logged
