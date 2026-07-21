@@ -219,6 +219,19 @@ function jsonInit(method: string, payload: unknown): FetchInit {
     };
 }
 
+export async function runUiMutation(
+    fn: () => Promise<void>,
+    recordError: (message: string) => void,
+): Promise<boolean> {
+    try {
+        await fn();
+        return true;
+    } catch (e) {
+        recordError(e instanceof Error ? e.message : String(e));
+        return false;
+    }
+}
+
 export function useAltmountMigration() {
     const [status, setStatus] = useState<StatusResponse | null>(null);
     const [summary, setSummary] = useState<SummaryResponse | null>(null);
@@ -279,9 +292,9 @@ export function useAltmountMigration() {
         setBusy(key);
         setError(null);
         try {
-            await fn();
-        } catch (e) {
-            if (mounted.current) setError((e as Error).message);
+            return await runUiMutation(fn, (message) => {
+                if (mounted.current) setError(message);
+            });
         } finally {
             if (mounted.current) setBusy(null);
         }

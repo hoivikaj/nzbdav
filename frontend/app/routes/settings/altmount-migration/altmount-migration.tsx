@@ -245,7 +245,9 @@ function CategoriesStep({ m, onDone }: { m: Hook; onDone: () => void }) {
                 targetCategory: r.targetCategory ?? null,
                 action: r.action,
             })),
-        ).then(onDone);
+        ).then((succeeded) => {
+            if (succeeded) onDone();
+        });
 
     return (
         <Section
@@ -369,7 +371,9 @@ function ReviewStep({ m, onRun }: { m: Hook; onRun: () => void }) {
 
     const doRun = () => {
         setConfirmRun(false);
-        void m.startRun().then(onRun);
+        void m.startRun().then((succeeded) => {
+            if (succeeded) onRun();
+        });
     };
 
     return (
@@ -483,7 +487,8 @@ function ReleaseGrid({ m, onChanged }: { m: Hook; onChanged: () => void }) {
     useEffect(() => { void load(filters); }, [load, filters]);
 
     const toggleInclude = (row: ReleaseRow) =>
-        void m.setInclude([row.storeRef], !row.included).then(() => {
+        void m.setInclude([row.storeRef], !row.included).then((succeeded) => {
+            if (!succeeded) return;
             void load(filters);
             onChanged();
         });
@@ -934,7 +939,8 @@ function SymlinkRestoreAction({ m, onRestored }: { m: Hook; onRestored: () => vo
     const restore = () => {
         if (!selected) return;
         setConfirm(false);
-        void m.restoreSymlinks(selected).then(() => {
+        void m.restoreSymlinks(selected).then((succeeded) => {
+            if (!succeeded) return;
             onRestored();
             void load();
         });
