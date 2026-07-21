@@ -50,6 +50,12 @@ Precedence for fallbacks: **saved Settings value wins** over env, which wins ove
 | `NZBDAV_VERSION` | `0.0.0` | Reported app version |
 | `DOTNET_DbgEnableMiniDump` | off | Opt-in crash dumps — [Logs](../operations/logs-crash-dumps.md) |
 
+`PORT` and `ASPNETCORE_URLS` control listeners inside the container; they do not
+change Docker's published host port. For normal Compose deployments, leave the
+internal ports unchanged and use a `HOST_PORT:CONTAINER_PORT` mapping. See
+[Change the published port](../getting-started/docker.md#change-the-published-port)
+for bridge networking, host networking, healthcheck, and DUMB examples.
+
 ## Settings fallbacks (when UI empty)
 
 | Variable | Related setting | Default if both empty |
