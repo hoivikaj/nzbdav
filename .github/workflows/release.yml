@@ -152,7 +152,15 @@ jobs:
             exit 1
           fi
 
-          RELEASE_NOTES=$(sed -n '/^## \[[0-9]\+\.[0-9]\+\.[0-9]\+\](/,$p' CHANGELOG.md | sed -n '1!{/^## \[/q;p}')
+          # Single-process extract: a sed|sed pipeline SIGPIPEs under pipefail when the
+          # second sed quits at the next ## [version] heading on a large CHANGELOG.
+          RELEASE_NOTES=$(awk '
+            /^## \[[0-9]+\.[0-9]+\.[0-9]+\]\(/ {
+              if (seen++) exit
+              next
+            }
+            seen { print }
+          ' CHANGELOG.md)
           RELEASE_URL="https://github.com/${REPO}/releases/tag/v${VERSION}"
           ANNOUNCEMENT_BODY=$(printf '**New Release: v%s**\n%s\n\n%s' "${VERSION}" "${RELEASE_NOTES}" "${RELEASE_URL}")
 
