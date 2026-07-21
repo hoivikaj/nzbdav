@@ -20,18 +20,20 @@ public class TestUsenetConnectionController(ConfigManager configManager) : BaseA
         }
         catch (CouldNotConnectToUsenetException e)
         {
-            var inner = e.InnerException?.Message ?? e.Message;
+            // Prefer known outer/cause messages; InnerException alone is often a bare OCE
+            // ("A task was canceled") when CreateNewConnection wraps a handshake timeout.
+            var error = e.TryGetKnownErrorMessage(out var reason) ? reason : e.Message;
             Log.Warning(
                 "Test connection failed for {Host}:{Port} (ssl={UseSsl}, user={User}): connect error: {Error}",
-                request.Host, request.Port, request.UseSsl, request.User, inner);
+                request.Host, request.Port, request.UseSsl, request.User, error);
             return new TestUsenetConnectionResponse { Status = true, Connected = false };
         }
         catch (CouldNotLoginToUsenetException e)
         {
-            var inner = e.InnerException?.Message ?? e.Message;
+            var error = e.TryGetKnownErrorMessage(out var reason) ? reason : e.Message;
             Log.Warning(
                 "Test connection failed for {Host}:{Port} (ssl={UseSsl}, user={User}): login error: {Error}",
-                request.Host, request.Port, request.UseSsl, request.User, inner);
+                request.Host, request.Port, request.UseSsl, request.User, error);
             return new TestUsenetConnectionResponse { Status = true, Connected = false };
         }
         catch (Exception e) when (!e.IsCancellationException())

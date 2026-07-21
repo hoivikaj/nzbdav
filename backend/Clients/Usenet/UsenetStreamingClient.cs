@@ -261,10 +261,13 @@ public class UsenetStreamingClient : WrappingNntpClient
                     connectionDetails.Host, connectionDetails.Port, connectionDetails.UseSsl,
                     timeoutCts.Token).ConfigureAwait(false);
             }
-            catch (Exception e) when (e.IsCancellationException() && !ct.IsCancellationRequested)
+            catch (Exception e) when (e.IsCancellationException() &&
+                                      timeoutCts.IsCancellationRequested &&
+                                      !ct.IsCancellationRequested)
             {
-                // Local handshake timeout, not caller abort — typed so Test Connection /
-                // middleware / breaker paths see a connect failure rather than bare OCE.
+                // Only the CancelAfter deadline — not an unrelated internal cancel, and
+                // not caller abort. Typed so Test Connection / middleware / breaker paths
+                // see a connect failure rather than bare OCE.
                 throw new CouldNotConnectToUsenetException(
                     $"Connection to {connectionDetails.Host}:{connectionDetails.Port} " +
                     $"timed out after {ConnectTimeout.TotalSeconds:F0}s.",
@@ -280,7 +283,9 @@ public class UsenetStreamingClient : WrappingNntpClient
                         connectionDetails.User, connectionDetails.Pass,
                         timeoutCts.Token).ConfigureAwait(false);
                 }
-                catch (Exception e) when (e.IsCancellationException() && !ct.IsCancellationRequested)
+                catch (Exception e) when (e.IsCancellationException() &&
+                                          timeoutCts.IsCancellationRequested &&
+                                          !ct.IsCancellationRequested)
                 {
                     throw new CouldNotLoginToUsenetException(
                         $"Authentication to {connectionDetails.Host}:{connectionDetails.Port} " +

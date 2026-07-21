@@ -102,6 +102,31 @@ public class CreateNewConnectionTests
     }
 
     [Fact]
+    public async Task CreateNewConnection_DoesNotTypeUnrelatedCancellationAsConnectTimeout()
+    {
+        var previous = UsenetStreamingClient.ConnectTimeout;
+        UsenetStreamingClient.ConnectTimeout = TimeSpan.FromSeconds(30);
+        try
+        {
+            var fake = new HandshakeNntpClient
+            {
+                ConnectException = new OperationCanceledException("internal cancel"),
+            };
+            var details = MakeDetails();
+
+            var ex = await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+                await UsenetStreamingClient.CreateNewConnection(details, () => fake, CancellationToken.None));
+
+            Assert.Equal("internal cancel", ex.Message);
+            Assert.Equal(1, fake.DisposeCount);
+        }
+        finally
+        {
+            UsenetStreamingClient.ConnectTimeout = previous;
+        }
+    }
+
+    [Fact]
     public async Task CreateNewConnection_ReturnsLiveConnectionOnSuccess()
     {
         var fake = new HandshakeNntpClient();
@@ -180,6 +205,7 @@ public class CreateNewConnectionTests
     {
         public bool HangConnect { get; init; }
         public bool HangAuthenticate { get; init; }
+        public Exception? ConnectException { get; init; }
         public Exception? AuthenticateException { get; init; }
         public bool Connected { get; private set; }
         public int DisposeCount { get; private set; }
@@ -195,6 +221,9 @@ public class CreateNewConnectionTests
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
                 return;
             }
+
+            if (ConnectException is not null)
+                throw ConnectException;
 
             cancellationToken.ThrowIfCancellationRequested();
             Connected = true;
