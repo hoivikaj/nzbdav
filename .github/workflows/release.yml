@@ -124,3 +124,44 @@ jobs:
       contents: write
     with:
       ref: ${{ needs.resolve-version.outputs.ref }}
+
+  announce:
+    if: github.event_name == 'push' && needs.release-please.outputs.release_created == 'true'
+    needs:
+      - release-please
+      - deploy
+      - tag-dev
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+
+      - name: Post announcement to Discord
+        env:
+          DISCORD_ANNOUNCEMENTS_WEBHOOK_URL: ${{ secrets.DISCORD_ANNOUNCEMENTS_WEBHOOK_URL }}
+          VERSION: ${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }}.${{ needs.release-please.outputs.patch }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_ANNOUNCEMENTS_WEBHOOK_URL}" ]; then
+            echo "DISCORD_ANNOUNCEMENTS_WEBHOOK_URL secret is not set" >&2
+            exit 1
+          fi
+
+          RELEASE_NOTES=$(sed -n '/^## \[[0-9]\+\.[0-9]\+\.[0-9]\+\](/,$p' CHANGELOG.md | sed -n '1!{/^## \[/q;p}')
+          RELEASE_URL="https://github.com/${REPO}/releases/tag/v${VERSION}"
+          ANNOUNCEMENT_BODY=$(printf '**New Release: v%s**\n%s\n\n%s' "${VERSION}" "${RELEASE_NOTES}" "${RELEASE_URL}")
+
+          MAX_LEN=1900
+          if [ "${#ANNOUNCEMENT_BODY}" -gt "${MAX_LEN}" ]; then
+            ANNOUNCEMENT_BODY="${ANNOUNCEMENT_BODY:0:$((MAX_LEN - 3))}..."
+          fi
+
+          ESCAPED_BODY=$(printf '%s' "$ANNOUNCEMENT_BODY" | jq -Rsa .)
+          curl --fail-with-body -sS -H "Content-Type: application/json" \
+            -d "{\"content\": ${ESCAPED_BODY}, \"flags\": 4}" \
+            "$DISCORD_ANNOUNCEMENTS_WEBHOOK_URL"

@@ -26,3 +26,30 @@ jobs:
       contents: write
     with:
       ref: ${{ github.sha }}
+
+  announce-dev:
+    needs:
+      - build
+      - tag-dev
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Post :dev refresh to Discord
+        env:
+          DISCORD_DEVELOPMENT_WEBHOOK_URL: ${{ secrets.DISCORD_DEVELOPMENT_WEBHOOK_URL }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_DEVELOPMENT_WEBHOOK_URL}" ]; then
+            echo "DISCORD_DEVELOPMENT_WEBHOOK_URL secret is not set" >&2
+            exit 1
+          fi
+
+          SHORT_SHA="${SHA:0:7}"
+          ANNOUNCEMENT_BODY=$(printf '**Dev image refreshed**\n`ghcr.io/%s:dev` and git tag `dev` now point to `%s`.\nRun: %s' "${REPO}" "${SHORT_SHA}" "${RUN_URL}")
+          ESCAPED_BODY=$(printf '%s' "$ANNOUNCEMENT_BODY" | jq -Rsa .)
+          curl --fail-with-body -sS -H "Content-Type: application/json" \
+            -d "{\"content\": ${ESCAPED_BODY}, \"flags\": 4}" \
+            "$DISCORD_DEVELOPMENT_WEBHOOK_URL"
