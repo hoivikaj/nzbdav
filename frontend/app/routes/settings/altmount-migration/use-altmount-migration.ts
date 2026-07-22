@@ -7,6 +7,7 @@ export type SessionStatus =
     | "connected"
     | "mapped"
     | "scanning"
+    | "scan_cancelling"
     | "scanned"
     | "running"
     | "paused"
@@ -16,11 +17,23 @@ export type SessionStatus =
     // Step 6 uses transient linking/applying states and rests at linked.
     | "linking"
     | "linked"
-    | "applying";
+    | "applying"
+    | "restoring";
 
 export function isMigrationWorkActive(status: SessionStatus | undefined): boolean {
-    return status === "scanning" || status === "running" || status === "paused" || status === "cancelling"
-        || status === "linking" || status === "applying";
+    return status === "scanning" || status === "scan_cancelling"
+        || status === "running" || status === "paused" || status === "cancelling"
+        || status === "linking" || status === "applying" || status === "restoring";
+}
+
+export function canConnectMigration(status: SessionStatus | undefined): boolean {
+    return status === "idle" || status === "connected" || status === "mapped" || status === "scanned"
+        || status === "complete" || status === "cancelled" || status === "linked";
+}
+
+export function canStartScanMigration(status: SessionStatus | undefined): boolean {
+    return status === "connected" || status === "mapped" || status === "scanned"
+        || status === "complete" || status === "cancelled" || status === "linked";
 }
 
 export function canResetMigration(status: SessionStatus | undefined, busy: string | null): boolean {

@@ -49,6 +49,7 @@ internal enum MigrationSessionTransition
     MapCategories,
     StartScan,
     CancelScan,
+    CompleteScanCancellation,
     CompleteScan,
     StartRun,
     CompleteEmptyRun,
@@ -133,8 +134,11 @@ internal static class MigrationSessionStateMachine
                     MigrationSessionStatus.Linked,
                 ]),
             MigrationSessionTransition.CancelScan => new(
-                MigrationSessionStatus.Mapped,
+                MigrationSessionStatus.ScanCancelling,
                 [MigrationSessionStatus.Scanning]),
+            MigrationSessionTransition.CompleteScanCancellation => new(
+                MigrationSessionStatus.Mapped,
+                [MigrationSessionStatus.ScanCancelling]),
             MigrationSessionTransition.CompleteScan => new(
                 MigrationSessionStatus.Scanned,
                 [MigrationSessionStatus.Scanning]),

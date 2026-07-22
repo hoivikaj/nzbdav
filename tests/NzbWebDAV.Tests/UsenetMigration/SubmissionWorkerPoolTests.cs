@@ -10,6 +10,7 @@ using NzbWebDAV.Queue;
 using NzbWebDAV.Services;
 using NzbWebDAV.Services.Metrics;
 using NzbWebDAV.Services.StreamTrace;
+using NzbWebDAV.UsenetMigration;
 using NzbWebDAV.UsenetMigration.Runner;
 using NzbWebDAV.Websocket;
 
@@ -125,6 +126,83 @@ public sealed class SubmissionWorkerPoolTests
         await using var reset = h.Mig();
         Assert.Equal("idle", (await reset.SessionState.SingleAsync()).Status);
         Assert.Empty(await reset.Submissions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CancelDuringBlockedScan_BlocksResetAndDiscardsUncommittedResults()
+    {
+        await using var h = await MigrationTestHarness.CreateAsync();
+        var metadataRoot = Directory.CreateTempSubdirectory("altmig-scan-");
+        try
+        {
+            await h.Store.UpdateSessionAsync(s =>
+            {
+                s.Status = "scanning";
+                s.AltmountMetadataRoot = metadataRoot.FullName;
+            });
+            await using (var seed = h.Mig())
+            {
+                seed.Releases.Add(new MigrationRelease
+                {
+                    StoreRef = "previous-scan",
+                    StoreBasename = "previous-scan",
+                    SubmitFileName = "previous-scan.nzb",
+                    QueueFileName = "previous-scan.nzb",
+                    JobName = "previous-scan",
+                    Verdict = "green",
+                    VerdictReasons = "[]",
+                    ScannedAt = DateTime.UtcNow,
+                });
+                await seed.SaveChangesAsync();
+            }
+
+            using var queueManager = CreateQueueManager();
+            var runner = new UsenetMigrationRunner(
+                h.Store, queueManager, new ConfigManager(), new WebsocketManager());
+            runner.ScanRunnerForTests.DavContextFactory = h.DavFactory;
+            var scanReachedCommitBoundary = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseScan = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            runner.ScanRunnerForTests.BeforePersistOverride = async _ =>
+            {
+                scanReachedCommitBoundary.TrySetResult(true);
+                await releaseScan.Task;
+            };
+
+            var activeTick = runner.TickOnceForTestsAsync();
+            await scanReachedCommitBoundary.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var cancellation = await h.Store.TryTransitionSessionAsync(
+                MigrationSessionTransition.CancelScan);
+            Assert.Equal(MigrationSessionTransitionOutcome.Applied, cancellation.Outcome);
+            runner.InterruptScan();
+
+            await Assert.ThrowsAsync<BadHttpRequestException>(
+                () => UsenetMigrationController.ResetWizardAsync(h.Store));
+            await using (var blocked = h.Mig())
+            {
+                Assert.Equal("scan_cancelling", (await blocked.SessionState.SingleAsync()).Status);
+                Assert.Single(await blocked.Releases.ToListAsync());
+            }
+
+            releaseScan.TrySetResult(true);
+            await activeTick.WaitAsync(TimeSpan.FromSeconds(5));
+
+            await using (var cancelled = h.Mig())
+            {
+                var session = await cancelled.SessionState.SingleAsync();
+                Assert.Equal("mapped", session.Status);
+                Assert.Null(session.ScanCompletedAt);
+                Assert.Equal("previous-scan", (await cancelled.Releases.SingleAsync()).StoreRef);
+            }
+
+            await UsenetMigrationController.ResetWizardAsync(h.Store);
+        }
+        finally
+        {
+            metadataRoot.Delete(recursive: true);
+        }
     }
 
     [Fact]

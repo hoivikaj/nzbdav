@@ -1,4 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.UsenetMigration;
+using NzbWebDAV.UsenetMigration.Model;
 
 namespace NzbWebDAV.Tests.UsenetMigration;
 
@@ -13,7 +15,8 @@ public sealed class MigrationSessionStateMachineTests
                 "connected", "mapped", "scanned"),
             [MigrationSessionTransition.StartScan] = new("scanning",
                 "connected", "mapped", "scanned", "complete", "cancelled", "linked"),
-            [MigrationSessionTransition.CancelScan] = new("mapped", "scanning"),
+            [MigrationSessionTransition.CancelScan] = new("scan_cancelling", "scanning"),
+            [MigrationSessionTransition.CompleteScanCancellation] = new("mapped", "scan_cancelling"),
             [MigrationSessionTransition.CompleteScan] = new("scanned", "scanning"),
             [MigrationSessionTransition.StartRun] = new("running", "scanned"),
             [MigrationSessionTransition.CompleteEmptyRun] = new("complete", "scanned"),
@@ -104,6 +107,79 @@ public sealed class MigrationSessionStateMachineTests
         Assert.Equal(MigrationSessionTransitionOutcome.AlreadyApplied, repeated.Outcome);
         Assert.True(repeated.Succeeded);
         Assert.Equal("running", repeated.CurrentStatus);
+    }
+
+    [Fact]
+    public async Task ApplyConnectionAsync_RejectsActiveOperationWithoutMutatingConnectionData()
+    {
+        await using var h = await MigrationTestHarness.CreateAsync();
+        await h.Store.UpdateSessionAsync(s =>
+        {
+            s.Status = "applying";
+            s.AltmountMetadataRoot = "old-root";
+        });
+
+        var result = await h.Store.ApplyConnectionAsync(
+            new MigrationConnectionValues("new-root", "new-config", "new-store", 99, 4),
+            [new AltmountCategory { Name = "tv", Dir = "tv", Type = "sonarr" }]);
+
+        Assert.Equal(MigrationSessionTransitionOutcome.Rejected, result.Outcome);
+        await using var check = h.Mig();
+        var session = await check.SessionState.SingleAsync();
+        Assert.Equal("applying", session.Status);
+        Assert.Equal("old-root", session.AltmountMetadataRoot);
+        Assert.Empty(await check.Preferences.ToListAsync());
+        Assert.Empty(await check.CategoryMap.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ConnectAndScanRace_NeverStartsScanWithPartiallyAppliedRoots()
+    {
+        await using var h = await MigrationTestHarness.CreateAsync();
+        await h.Store.UpdateSessionAsync(s =>
+        {
+            s.Status = "connected";
+            s.AltmountMetadataRoot = "old-root";
+        });
+
+        var results = await Task.WhenAll(
+            h.Store.ApplyConnectionAsync(
+                new MigrationConnectionValues("new-root", null, null, null, null),
+                []),
+            h.Store.TryTransitionSessionAsync(MigrationSessionTransition.StartScan));
+
+        var connect = results[0];
+        var scan = results[1];
+        Assert.True(scan.Succeeded);
+
+        await using var check = h.Mig();
+        var session = await check.SessionState.SingleAsync();
+        Assert.Equal("scanning", session.Status);
+        Assert.Equal(
+            connect.Succeeded ? "new-root" : "old-root",
+            session.AltmountMetadataRoot);
+    }
+
+    [Fact]
+    public async Task ResetAndScanRace_HasOneDestructiveWinner()
+    {
+        await using var h = await MigrationTestHarness.CreateAsync();
+        await h.Store.UpdateSessionAsync(s =>
+        {
+            s.Status = "connected";
+            s.AltmountMetadataRoot = "metadata-root";
+        });
+
+        var resetTask = h.Store.ResetAsync();
+        var scanTask = h.Store.TryTransitionSessionAsync(MigrationSessionTransition.StartScan);
+        await Task.WhenAll(resetTask, scanTask);
+
+        var reset = await resetTask;
+        var scan = await scanTask;
+        Assert.NotEqual(reset, scan.Succeeded);
+
+        var session = await h.Store.GetSessionAsync();
+        Assert.Equal(reset ? "idle" : "scanning", session.Status);
     }
 
     private sealed record ExpectedRule(string TargetStatus, params string[] SourceStatuses);

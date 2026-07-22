@@ -7,6 +7,18 @@ namespace NzbWebDAV.UsenetMigration;
 
 public sealed record MigrationDataSummary(int Runs, int Releases, int Files);
 
+internal sealed record MigrationConnectionValues(
+    string MetadataRoot,
+    string? ConfigPath,
+    string? StoreRoot,
+    int? MaxQueueDepth,
+    int? SubmitWorkers);
+
+internal sealed record MigrationCategoryMappingChange(
+    string AltmountCategory,
+    string? TargetCategory,
+    string Action);
+
 /// <summary>
 /// Owns the <see cref="UsenetMigrationDbContext"/>
 /// singleton session row's lifecycle, applies the migration on first use, and
@@ -91,6 +103,63 @@ public sealed class UsenetMigrationStore
         return preferences;
     }
 
+    /// <summary>
+    /// Applies a validated Step 1 connection as one transaction. The guarded
+    /// status write is the transaction's first mutation, so a competing active
+    /// operation either wins before any roots/categories change or observes the
+    /// fully committed connection.
+    /// </summary>
+    internal async Task<MigrationSessionTransitionResult> ApplyConnectionAsync(
+        MigrationConnectionValues values,
+        IReadOnlyList<AltmountCategory> categories,
+        CancellationToken ct = default)
+    {
+        await using var ctx = ContextFactory();
+        await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
+        ctx.ChangeTracker.Clear();
+        await using var transaction = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+        var transition = await TryTransitionSessionAsync(
+                ctx, MigrationSessionTransition.Connect, ct)
+            .ConfigureAwait(false);
+        if (!transition.Succeeded)
+        {
+            await transaction.RollbackAsync(ct).ConfigureAwait(false);
+            return transition;
+        }
+
+        var now = DateTime.UtcNow;
+        var session = await ctx.SessionState.SingleAsync(s => s.Id == SessionId, ct)
+            .ConfigureAwait(false);
+        session.AltmountMetadataRoot = values.MetadataRoot;
+        session.AltmountConfigPath = values.ConfigPath;
+        session.AltmountStoreRoot = values.StoreRoot;
+        if (values.MaxQueueDepth is > 0) session.MaxQueueDepth = values.MaxQueueDepth.Value;
+        if (values.SubmitWorkers is > 0) session.SubmitWorkers = values.SubmitWorkers.Value;
+        session.UpdatedAt = now;
+
+        var preferences = await ctx.Preferences
+            .FirstOrDefaultAsync(p => p.Id == SessionId, ct)
+            .ConfigureAwait(false);
+        if (preferences is null)
+        {
+            preferences = new MigrationPreferences { Id = SessionId };
+            ctx.Preferences.Add(preferences);
+        }
+
+        preferences.AltmountMetadataRoot = values.MetadataRoot;
+        preferences.AltmountConfigPath = values.ConfigPath;
+        preferences.AltmountStoreRoot = values.StoreRoot;
+        if (values.MaxQueueDepth is > 0) preferences.MaxQueueDepth = values.MaxQueueDepth.Value;
+        if (values.SubmitWorkers is > 0) preferences.SubmitWorkers = values.SubmitWorkers.Value;
+        preferences.UpdatedAt = now;
+
+        await SeedCategoryMapFromConfigAsync(ctx, categories, now, ct).ConfigureAwait(false);
+        await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+        return transition;
+    }
+
     // --- session -----------------------------------------------------------
 
     /// <summary>Loads the singleton session, creating it (Id=1) on first call.</summary>
@@ -127,7 +196,15 @@ public sealed class UsenetMigrationStore
     {
         await using var ctx = ContextFactory();
         await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
+        ctx.ChangeTracker.Clear();
+        return await TryTransitionSessionAsync(ctx, transition, ct).ConfigureAwait(false);
+    }
 
+    private static async Task<MigrationSessionTransitionResult> TryTransitionSessionAsync(
+        UsenetMigrationDbContext ctx,
+        MigrationSessionTransition transition,
+        CancellationToken ct)
+    {
         var rule = MigrationSessionStateMachine.GetRule(transition);
         var sourceStatuses = rule.SourceStatuses.ToArray();
         var now = DateTime.UtcNow;
@@ -150,6 +227,61 @@ public sealed class UsenetMigrationStore
                 ? MigrationSessionTransitionOutcome.AlreadyApplied
                 : MigrationSessionTransitionOutcome.Rejected;
         return new MigrationSessionTransitionResult(outcome, currentStatus);
+    }
+
+    /// <summary>Captures scan settings only while the claimed scan is still active.</summary>
+    internal async Task<bool> CaptureScanStartAsync(
+        bool lazyRarEnabled,
+        bool windowsSafePaths,
+        CancellationToken ct = default)
+    {
+        await using var ctx = ContextFactory();
+        var now = DateTime.UtcNow;
+        var changed = await ctx.SessionState
+            .Where(s => s.Id == SessionId && s.Status == MigrationSessionStatus.Scanning)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(s => s.ScanStartedAt, now)
+                .SetProperty(s => s.ScanCompletedAt, (DateTime?)null)
+                .SetProperty(s => s.ScanLazyRarEnabled, lazyRarEnabled)
+                .SetProperty(s => s.ScanWindowsSafePaths, windowsSafePaths)
+                .SetProperty(s => s.UpdatedAt, now), ct)
+            .ConfigureAwait(false);
+        return changed == 1;
+    }
+
+    internal async Task CompleteScanCancellationAsync(CancellationToken ct = default)
+    {
+        await TryTransitionSessionAsync(
+                MigrationSessionTransition.CompleteScanCancellation, ct)
+            .ConfigureAwait(false);
+    }
+
+    internal async Task<MigrationSessionTransitionResult> CompleteEmptyRunAsync(
+        CancellationToken ct = default)
+    {
+        await using var ctx = ContextFactory();
+        await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
+        ctx.ChangeTracker.Clear();
+        await using var transaction = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+        var transition = await TryTransitionSessionAsync(
+                ctx, MigrationSessionTransition.CompleteEmptyRun, ct)
+            .ConfigureAwait(false);
+        if (!transition.Succeeded)
+        {
+            await transaction.RollbackAsync(ct).ConfigureAwait(false);
+            return transition;
+        }
+
+        var now = DateTime.UtcNow;
+        await ctx.SessionState
+            .Where(s => s.Id == SessionId && s.Status == MigrationSessionStatus.Complete)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(s => s.RunCompletedAt, now)
+                .SetProperty(s => s.UpdatedAt, now), ct)
+            .ConfigureAwait(false);
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+        return transition;
     }
 
     /// <summary>
@@ -191,13 +323,24 @@ public sealed class UsenetMigrationStore
     public async Task CompleteRunAsync(CancellationToken ct = default)
     {
         await using var ctx = ContextFactory();
-        var session = await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
-        // A pause/cancel may arrive while the runner is finishing its current
-        // tick. Only the active running state is allowed to win that race.
-        if (session.Status is not "running")
+        await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
+        ctx.ChangeTracker.Clear();
+        await using var transaction = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+        // This guarded write is the transaction's first mutation. Pause/cancel
+        // and completion therefore cannot both publish a terminal outcome.
+        var transition = await TryTransitionSessionAsync(
+                ctx, MigrationSessionTransition.CompleteRun, ct)
+            .ConfigureAwait(false);
+        if (transition.Outcome != MigrationSessionTransitionOutcome.Applied)
+        {
+            await transaction.RollbackAsync(ct).ConfigureAwait(false);
             return;
+        }
 
         var now = DateTime.UtcNow;
+        var session = await ctx.SessionState.SingleAsync(s => s.Id == SessionId, ct)
+            .ConfigureAwait(false);
         if (session.CurrentRunId is { } runId)
         {
             var run = await ctx.MigrationRuns.FirstOrDefaultAsync(r => r.Id == runId, ct)
@@ -209,10 +352,10 @@ public sealed class UsenetMigrationStore
             }
         }
 
-        session.Status = "complete";
         session.RunCompletedAt = now;
         session.UpdatedAt = now;
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -236,12 +379,22 @@ public sealed class UsenetMigrationStore
     public async Task CompleteCancellationAsync(CancellationToken ct = default)
     {
         await using var ctx = ContextFactory();
+        await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
+        ctx.ChangeTracker.Clear();
         await using var transaction = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
-        var session = await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
-        if (session.Status is not "cancelling")
+
+        var transition = await TryTransitionSessionAsync(
+                ctx, MigrationSessionTransition.CompleteCancellation, ct)
+            .ConfigureAwait(false);
+        if (transition.Outcome != MigrationSessionTransitionOutcome.Applied)
+        {
+            await transaction.RollbackAsync(ct).ConfigureAwait(false);
             return;
+        }
 
         var now = DateTime.UtcNow;
+        var session = await ctx.SessionState.SingleAsync(s => s.Id == SessionId, ct)
+            .ConfigureAwait(false);
 
         if (session.CurrentRunId is { } runId)
         {
@@ -254,7 +407,6 @@ public sealed class UsenetMigrationStore
             }
         }
 
-        session.Status = "cancelled";
         session.RunCompletedAt = now;
         session.UpdatedAt = now;
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -347,6 +499,17 @@ public sealed class UsenetMigrationStore
         IReadOnlyList<AltmountCategory> categories, CancellationToken ct = default)
     {
         await using var ctx = ContextFactory();
+        await SeedCategoryMapFromConfigAsync(ctx, categories, DateTime.UtcNow, ct)
+            .ConfigureAwait(false);
+        await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    private static async Task SeedCategoryMapFromConfigAsync(
+        UsenetMigrationDbContext ctx,
+        IReadOnlyList<AltmountCategory> categories,
+        DateTime now,
+        CancellationToken ct)
+    {
         var existing = await ctx.CategoryMap
             .ToDictionaryAsync(c => c.AltmountCategory, c => c, ct)
             .ConfigureAwait(false);
@@ -357,7 +520,7 @@ public sealed class UsenetMigrationStore
             {
                 row.AltmountDir = cat.Dir;
                 row.AltmountType = cat.Type;
-                row.UpdatedAt = DateTime.UtcNow;
+                row.UpdatedAt = now;
             }
             else
             {
@@ -369,12 +532,58 @@ public sealed class UsenetMigrationStore
                     TargetCategory = null,
                     Action = "migrate",
                     DiscoveredBy = "config",
-                    UpdatedAt = DateTime.UtcNow,
+                    UpdatedAt = now,
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// Applies the Step 2 mapping batch and its transition back to mapped in one
+    /// transaction, preventing a scan from observing a partially saved batch.
+    /// </summary>
+    internal async Task<MigrationSessionTransitionResult> ApplyCategoryMappingsAsync(
+        IReadOnlyList<MigrationCategoryMappingChange> mappings,
+        CancellationToken ct = default)
+    {
+        await using var ctx = ContextFactory();
+        await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
+        ctx.ChangeTracker.Clear();
+        await using var transaction = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+        var transition = await TryTransitionSessionAsync(
+                ctx, MigrationSessionTransition.MapCategories, ct)
+            .ConfigureAwait(false);
+        if (!transition.Succeeded)
+        {
+            await transaction.RollbackAsync(ct).ConfigureAwait(false);
+            return transition;
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var mapping in mappings)
+        {
+            var row = await ctx.CategoryMap
+                .FirstOrDefaultAsync(c => c.AltmountCategory == mapping.AltmountCategory, ct)
+                .ConfigureAwait(false);
+            if (row is null)
+            {
+                row = new MigrationCategoryMap
+                {
+                    AltmountCategory = mapping.AltmountCategory,
+                    DiscoveredBy = "scan",
+                };
+                ctx.CategoryMap.Add(row);
+            }
+
+            row.TargetCategory = mapping.TargetCategory;
+            row.Action = mapping.Action;
+            row.UpdatedAt = now;
+        }
 
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+        return transition;
     }
 
     /// <summary>
@@ -417,10 +626,20 @@ public sealed class UsenetMigrationStore
     /// plan, and session row — while retaining completed migration provenance.
     /// NEVER touches <c>DavItems</c>, SAB history, or migrated content.
     /// </summary>
-    public async Task ResetAsync(CancellationToken ct = default)
+    public async Task<bool> ResetAsync(CancellationToken ct = default)
     {
         await using var ctx = ContextFactory();
-        var current = await ctx.SessionState.FirstOrDefaultAsync(s => s.Id == SessionId, ct)
+        await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
+        ctx.ChangeTracker.Clear();
+        await using var transaction = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+        if (!await TryClaimInactiveSessionAsync(ctx, ct).ConfigureAwait(false))
+        {
+            await transaction.RollbackAsync(ct).ConfigureAwait(false);
+            return false;
+        }
+
+        var current = await ctx.SessionState.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == SessionId, ct)
             .ConfigureAwait(false);
         if (current?.CurrentRunId is { } runId)
         {
@@ -441,6 +660,8 @@ public sealed class UsenetMigrationStore
         ctx.ChangeTracker.Clear();
 
         await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+        return true;
     }
 
     /// <summary>
@@ -448,10 +669,17 @@ public sealed class UsenetMigrationStore
     /// metadata-only reset: mounted DAV content and SAB history live in other
     /// stores and are never modified here.
     /// </summary>
-    public async Task ForgetAllMigrationRecordsAsync(CancellationToken ct = default)
+    public async Task<bool> ForgetAllMigrationRecordsAsync(CancellationToken ct = default)
     {
         await using var ctx = ContextFactory();
+        await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
+        ctx.ChangeTracker.Clear();
         await using var transaction = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+        if (!await TryClaimInactiveSessionAsync(ctx, ct).ConfigureAwait(false))
+        {
+            await transaction.RollbackAsync(ct).ConfigureAwait(false);
+            return false;
+        }
 
         await ClearScanArtifactsAsync(ctx, ct).ConfigureAwait(false);
         await ctx.SymlinkRewrites.ExecuteDeleteAsync(ct).ConfigureAwait(false);
@@ -464,6 +692,22 @@ public sealed class UsenetMigrationStore
 
         await GetOrCreateSessionAsync(ctx, ct).ConfigureAwait(false);
         await transaction.CommitAsync(ct).ConfigureAwait(false);
+        return true;
+    }
+
+    private static async Task<bool> TryClaimInactiveSessionAsync(
+        UsenetMigrationDbContext ctx,
+        CancellationToken ct)
+    {
+        var inactiveStatuses = MigrationSessionStatus.All
+            .Where(status => !MigrationSessionStateMachine.IsWorkActive(status))
+            .ToArray();
+        var changed = await ctx.SessionState
+            .Where(s => s.Id == SessionId && inactiveStatuses.Contains(s.Status))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(s => s.UpdatedAt, DateTime.UtcNow), ct)
+            .ConfigureAwait(false);
+        return changed == 1;
     }
 
     // --- submissions -------------------------------------------------------

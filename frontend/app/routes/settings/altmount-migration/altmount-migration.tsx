@@ -19,9 +19,11 @@ import {
     type SymlinkBackupInfo,
     type SymlinkPlanForm,
     type SymlinkRow,
+    canConnectMigration,
     canEditCategoryMappings,
     canEditReleaseSelection,
     canResetMigration,
+    canStartScanMigration,
     isMigrationWorkActive,
     loadTableRetainingLastGood,
     useAltmountMigration,
@@ -74,7 +76,8 @@ const MATCH_METHODS: Record<string, { label: string; help: string }> = {
 
 /** True once the migration has finished, so the optional Links step is available. */
 function canLinkStep(status: SessionStatus | undefined): boolean {
-    return status === "complete" || status === "linking" || status === "linked" || status === "applying";
+    return status === "complete" || status === "linking" || status === "linked"
+        || status === "applying" || status === "restoring";
 }
 
 function stepForStatus(status: SessionStatus | undefined): number {
@@ -82,6 +85,7 @@ function stepForStatus(status: SessionStatus | undefined): number {
         case "connected": return 1;
         case "mapped": return 2;
         case "scanning": return 2;
+        case "scan_cancelling": return 2;
         case "scanned": return 3;
         case "running":
         case "paused":
@@ -92,7 +96,8 @@ function stepForStatus(status: SessionStatus | undefined): number {
         // user enters it the linking/applying/linked statuses live on the Links step.
         case "linking":
         case "linked":
-        case "applying": return LINK_STEP;
+        case "applying":
+        case "restoring": return LINK_STEP;
         default: return 0; // idle
     }
 }
@@ -179,7 +184,9 @@ function ConnectStep({ m }: { m: Hook }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [m.status?.sessionStatus]);
 
-    const canSubmit = form.metadataRoot.trim().length > 0 && m.busy !== "connect";
+    const canSubmit = form.metadataRoot.trim().length > 0
+        && canConnectMigration(m.status?.sessionStatus)
+        && m.busy !== "connect";
 
     return (
         <Section icon="link" title="Connect to Altmount" subtitle="Point NzbDAV at the Altmount config volume it can read.">
@@ -327,13 +334,20 @@ function CategoriesStep({ m, onDone }: { m: Hook; onDone: () => void }) {
 function ScanStep({ m, onReview }: { m: Hook; onReview: () => void }) {
     const status = m.status?.sessionStatus;
     const scanning = status === "scanning";
-    const runActive = status === "running" || status === "paused" || status === "cancelling";
+    const scanCancelling = status === "scan_cancelling";
+    const conflictingWork = isMigrationWorkActive(status) && !scanning && !scanCancelling;
+    const canStart = canStartScanMigration(status);
     const scanned = status === "scanned" || status === "running" || status === "paused"
         || status === "cancelling" || status === "complete";
 
     return (
         <Section icon="search" title="Scan the library" subtitle="Read every release, triage it, and detect collisions. No network traffic yet.">
-            {scanning ? (
+            {scanCancelling ? (
+                <div className="flex items-center gap-3 text-sm text-base-content/70">
+                    <Spinner className="h-5 w-5" />
+                    <span>Cancelling scan... waiting for the active filesystem read to drain.</span>
+                </div>
+            ) : scanning ? (
                 <div className="flex items-center gap-3 text-sm text-base-content/70">
                     <Spinner className="h-5 w-5" />
                     <span>Scanning… this reads the metadata tree and decodes each store. It updates automatically.</span>
@@ -343,7 +357,7 @@ function ScanStep({ m, onReview }: { m: Hook; onReview: () => void }) {
                 <div className="space-y-4">
                     {m.summary && scanned && <SummaryTiles summary={m.summary} />}
                     <div className="flex flex-wrap items-center gap-3">
-                        <Button variant="primary" disabled={m.busy === "scan" || runActive} onClick={() => void m.startScan()}>
+                        <Button variant="primary" disabled={m.busy === "scan" || !canStart} onClick={() => void m.startScan()}>
                             {m.busy === "scan" ? <Spinner className="h-4 w-4" /> : <Icon name="search" className="!text-[18px]" />}
                             {scanned ? "Re-scan" : "Start scan"}
                         </Button>
@@ -353,9 +367,9 @@ function ScanStep({ m, onReview }: { m: Hook; onReview: () => void }) {
                                 <Icon name="arrow_forward" className="!text-[18px]" />
                             </Button>
                         )}
-                        {runActive && (
+                        {conflictingWork && (
                             <span className="text-xs text-base-content/55">
-                                Complete or cancel the active migration before starting a new scan.
+                                Wait for the active migration operation to finish before starting a new scan.
                             </span>
                         )}
                     </div>

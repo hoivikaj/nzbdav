@@ -38,6 +38,10 @@ public sealed class UsenetMigrationController(
         var metadataRoot = RequireDir(request.MetadataRoot, "metadataRoot");
         var storeRoot = OptionalDir(request.StoreRoot, "storeRoot");
         var configPath = OptionalFile(request.ConfigPath, "configPath");
+        var current = await store.GetSessionAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+        if (!CanConnect(current.Status))
+            throw new BadHttpRequestException(
+                $"Cannot connect while migration operation '{current.Status}' is active.");
 
         var categories = new List<AltmountCategory>();
         if (configPath is not null)
@@ -45,28 +49,21 @@ public sealed class UsenetMigrationController(
             var config = await AltmountConfigReader.ReadAsync(configPath, HttpContext.RequestAborted)
                 .ConfigureAwait(false);
             categories = config.Categories.ToList();
-            await store.SeedCategoryMapFromConfigAsync(categories, HttpContext.RequestAborted)
-                .ConfigureAwait(false);
         }
 
-        await store.UpdatePreferencesAsync(p =>
-        {
-            p.AltmountMetadataRoot = metadataRoot;
-            p.AltmountConfigPath = configPath;
-            p.AltmountStoreRoot = storeRoot;
-            if (request.MaxQueueDepth is > 0) p.MaxQueueDepth = request.MaxQueueDepth.Value;
-            if (request.SubmitWorkers is > 0) p.SubmitWorkers = request.SubmitWorkers.Value;
-        }, HttpContext.RequestAborted).ConfigureAwait(false);
-
-        await store.UpdateSessionAsync(s =>
-        {
-            s.AltmountMetadataRoot = metadataRoot;
-            s.AltmountConfigPath = configPath;
-            s.AltmountStoreRoot = storeRoot;
-            if (request.MaxQueueDepth is > 0) s.MaxQueueDepth = request.MaxQueueDepth.Value;
-            if (request.SubmitWorkers is > 0) s.SubmitWorkers = request.SubmitWorkers.Value;
-            s.Status = "connected";
-        }, HttpContext.RequestAborted).ConfigureAwait(false);
+        var transition = await store.ApplyConnectionAsync(
+                new MigrationConnectionValues(
+                    metadataRoot,
+                    configPath,
+                    storeRoot,
+                    request.MaxQueueDepth,
+                    request.SubmitWorkers),
+                categories,
+                HttpContext.RequestAborted)
+            .ConfigureAwait(false);
+        if (!transition.Succeeded)
+            throw new BadHttpRequestException(
+                $"Cannot connect while migration operation '{transition.CurrentStatus}' is active.");
 
         return Ok(new { status = true, categoryCount = categories.Count, categories });
     });
@@ -92,23 +89,23 @@ public sealed class UsenetMigrationController(
         if (request.Mappings is null || request.Mappings.Count == 0)
             throw new BadHttpRequestException("At least one mapping is required.");
 
-        foreach (var m in request.Mappings)
-        {
-            var action = m.Action is "exclude" ? "exclude" : "migrate";
-            await store.SetCategoryMappingAsync(m.AltmountCategory, m.TargetCategory, action,
-                HttpContext.RequestAborted).ConfigureAwait(false);
-        }
+        var mappings = request.Mappings
+            .Select(m => new MigrationCategoryMappingChange(
+                m.AltmountCategory,
+                m.TargetCategory,
+                m.Action is "exclude" ? "exclude" : "migrate"))
+            .ToList();
+        var transition = await store.ApplyCategoryMappingsAsync(
+                mappings, HttpContext.RequestAborted)
+            .ConfigureAwait(false);
+        if (!transition.Succeeded)
+            throw new BadHttpRequestException(
+                $"Category mappings cannot change while migration operation '{transition.CurrentStatus}' is active.");
 
         // Category changes alter per-release base reasons (category_unmapped, target
         // category), so a scanned result is no longer valid — drop back to "mapped"
         // and require a re-scan to apply. (An include/exclude edit, by contrast, is
         // recomputed in place — see releases/include.)
-        await store.UpdateSessionAsync(s =>
-        {
-            if (s.Status is "connected" or "mapped" or "scanned")
-                s.Status = "mapped";
-        }, HttpContext.RequestAborted).ConfigureAwait(false);
-
         var map = await store.GetCategoryMapAsync(HttpContext.RequestAborted).ConfigureAwait(false);
         return Ok(new { status = true, categories = map });
     });
@@ -125,23 +122,30 @@ public sealed class UsenetMigrationController(
             return Ok(new { status = true, state = "scanning" });
         if (!CanStartScan(session.Status))
             throw new BadHttpRequestException(
-                "Cannot scan while a migration is running or paused. Complete or cancel it first.");
+                $"Cannot scan while migration operation '{session.Status}' is active.");
 
-        await store.UpdateSessionAsync(s => s.Status = "scanning", HttpContext.RequestAborted)
+        var transition = await store.TryTransitionSessionAsync(
+                MigrationSessionTransition.StartScan, HttpContext.RequestAborted)
             .ConfigureAwait(false);
+        if (!transition.Succeeded)
+            throw new BadHttpRequestException(
+                $"Cannot scan while migration operation '{transition.CurrentStatus}' is active.");
+
         return Ok(new { status = true, state = "scanning" });
     });
 
     [HttpDelete("api/altmount-migration/scan")]
     public Task<IActionResult> CancelScan() => GuardedAsync(async () =>
     {
-        // Best-effort: flips the trigger back so the runner won't (re)start a scan.
-        // A scan already executing in the current tick runs to completion.
-        await store.UpdateSessionAsync(s =>
-        {
-            if (s.Status is "scanning") s.Status = "mapped";
-        }, HttpContext.RequestAborted).ConfigureAwait(false);
-        return Ok(new { status = true });
+        var transition = await store.TryTransitionSessionAsync(
+                MigrationSessionTransition.CancelScan, HttpContext.RequestAborted)
+            .ConfigureAwait(false);
+        if (!transition.Succeeded)
+            throw new BadHttpRequestException(
+                $"Only an active scan can be cancelled; current state is '{transition.CurrentStatus}'.");
+
+        runner.InterruptScan();
+        return Ok(new { status = true, state = "scan_cancelling" });
     });
 
     // --- releases ----------------------------------------------------------
@@ -362,31 +366,36 @@ public sealed class UsenetMigrationController(
         // without manufacturing an empty migration run.
         if (submittable == 0)
         {
-            await store.UpdateSessionAsync(s =>
-            {
-                s.Status = "complete";
-                s.RunCompletedAt = DateTime.UtcNow;
-            }, HttpContext.RequestAborted).ConfigureAwait(false);
+            var completed = await store.CompleteEmptyRunAsync(HttpContext.RequestAborted)
+                .ConfigureAwait(false);
+            if (!completed.Succeeded)
+                throw new BadHttpRequestException(
+                    $"The wizard moved to '{completed.CurrentStatus}' before the migration could start.");
             return Ok(new { status = true, state = "complete" });
         }
 
-        await store.BeginRunAsync(HttpContext.RequestAborted).ConfigureAwait(false);
-        await store.UpdateSessionAsync(s => s.Status = "running", HttpContext.RequestAborted)
+        var transition = await store.TryTransitionSessionAsync(
+                MigrationSessionTransition.StartRun, HttpContext.RequestAborted)
             .ConfigureAwait(false);
+        if (!transition.Succeeded)
+            throw new BadHttpRequestException(
+                $"The wizard moved to '{transition.CurrentStatus}' before the migration could start.");
+
+        if (transition.Outcome == MigrationSessionTransitionOutcome.AlreadyApplied)
+            return Ok(new { status = true, state = "running" });
+
+        await store.BeginRunAsync(HttpContext.RequestAborted).ConfigureAwait(false);
         return Ok(new { status = true, state = "running" });
     });
 
     [HttpPost("api/altmount-migration/run/resume")]
     public Task<IActionResult> ResumeRun() => GuardedAsync(async () =>
     {
-        var session = await store.GetSessionAsync(HttpContext.RequestAborted).ConfigureAwait(false);
-        if (session.Status is "running")
-            return Ok(new { status = true, state = "running" });
-        if (!CanResumeMigration(session.Status))
-            throw new BadHttpRequestException("Only a paused migration can be resumed.");
-
-        await store.UpdateSessionAsync(s => s.Status = "running", HttpContext.RequestAborted)
+        var transition = await store.TryTransitionSessionAsync(
+                MigrationSessionTransition.ResumeRun, HttpContext.RequestAborted)
             .ConfigureAwait(false);
+        if (!transition.Succeeded)
+            throw new BadHttpRequestException("Only a paused migration can be resumed.");
         return Ok(new { status = true, state = "running" });
     });
 
@@ -413,15 +422,12 @@ public sealed class UsenetMigrationController(
             return Ok(new { status = true, state = "cancelling" });
         }
 
-        if (session.Status is "paused")
-            return Ok(new { status = true, state = "paused" });
-        if (!CanPauseMigration(session.Status))
+        var transition = await store.TryTransitionSessionAsync(
+                MigrationSessionTransition.PauseRun, HttpContext.RequestAborted)
+            .ConfigureAwait(false);
+        if (!transition.Succeeded)
             throw new BadHttpRequestException("Only a running migration can be paused.");
 
-        await store.UpdateSessionAsync(s =>
-        {
-            if (s.Status is "running") s.Status = "paused";
-        }, HttpContext.RequestAborted).ConfigureAwait(false);
         runner.InterruptSubmissionBatch();
         return Ok(new { status = true, state = "paused" });
     });
@@ -682,11 +688,9 @@ public sealed class UsenetMigrationController(
         if (request.Confirm != true)
             throw new BadHttpRequestException("Forgetting all migration records requires explicit confirmation.");
 
-        var session = await store.GetSessionAsync(HttpContext.RequestAborted).ConfigureAwait(false);
-        if (IsMigrationWorkActive(session.Status))
+        if (!await store.ForgetAllMigrationRecordsAsync(HttpContext.RequestAborted)
+                .ConfigureAwait(false))
             throw new BadHttpRequestException("Wait for the active migration task to finish before forgetting its records.");
-
-        await store.ForgetAllMigrationRecordsAsync(HttpContext.RequestAborted).ConfigureAwait(false);
         return Ok(new { status = true });
     });
 
@@ -711,12 +715,9 @@ public sealed class UsenetMigrationController(
     internal static async Task ResetWizardAsync(
         UsenetMigrationStore migrationStore, CancellationToken ct = default)
     {
-        var session = await migrationStore.GetSessionAsync(ct).ConfigureAwait(false);
-        if (IsMigrationWorkActive(session.Status))
+        if (!await migrationStore.ResetAsync(ct).ConfigureAwait(false))
             throw new BadHttpRequestException(
                 "Wait for the active migration task to finish, or cancel the migration, before resetting the wizard.");
-
-        await migrationStore.ResetAsync(ct).ConfigureAwait(false);
     }
 
     internal static async Task<List<SubmissionIssueDto>> LoadSubmissionIssuesAsync(

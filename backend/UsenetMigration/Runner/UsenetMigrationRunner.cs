@@ -37,6 +37,7 @@ public sealed class UsenetMigrationRunner : BackgroundService
     private readonly SubmissionReconciler _reconciler;
     private readonly SymlinkPlanner _symlinkPlanner;
     private readonly SymlinkRewriter _symlinkRewriter;
+    private readonly SubmissionOperationGate _scanGate = new();
     private readonly SubmissionOperationGate _submissionGate = new();
 
     public UsenetMigrationRunner(
@@ -60,7 +61,9 @@ public sealed class UsenetMigrationRunner : BackgroundService
     /// so its NzbDAV queue id can still be persisted by the worker.
     /// </summary>
     internal void InterruptSubmissionBatch() => _submissionGate.Interrupt();
+    internal void InterruptScan() => _scanGate.Interrupt();
 
+    internal AltmountScanRunner ScanRunnerForTests => _scanRunner;
     internal SubmissionWorkerPool WorkerPoolForTests => _workerPool;
     internal SubmissionReconciler ReconcilerForTests => _reconciler;
     internal Task TickOnceForTestsAsync(CancellationToken ct = default) => TickAsync(ct);
@@ -124,7 +127,12 @@ public sealed class UsenetMigrationRunner : BackgroundService
         switch (session.Status)
         {
             case "scanning":
-                await _scanRunner.RunAsync(ct).ConfigureAwait(false);
+                await RunScanAsync(ct).ConfigureAwait(false);
+                break;
+
+            case "scan_cancelling":
+                if (!_scanGate.IsActive)
+                    await _store.CompleteScanCancellationAsync(ct).ConfigureAwait(false);
                 break;
 
             case "running":
@@ -161,6 +169,32 @@ public sealed class UsenetMigrationRunner : BackgroundService
         }
     }
 
+    private async Task RunScanAsync(CancellationToken ct)
+    {
+        var interrupted = false;
+        using (var scanOperation = _scanGate.Begin(ct))
+        {
+            // Cancellation may claim scan_cancelling after TickAsync observed
+            // scanning but before this operation boundary became visible.
+            var session = await _store.GetSessionAsync(ct).ConfigureAwait(false);
+            if (session.Status is not "scanning")
+                return;
+
+            try
+            {
+                interrupted = await _scanRunner.RunAsync(scanOperation.Token).ConfigureAwait(false) is null;
+            }
+            catch (OperationCanceledException) when (
+                scanOperation.Token.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                interrupted = true;
+            }
+        }
+
+        if (interrupted)
+            await _store.CompleteScanCancellationAsync(ct).ConfigureAwait(false);
+    }
+
     private async Task RunTickAsync(CancellationToken ct)
     {
         // The two global settings sampled during Scan must still hold, or the
@@ -168,7 +202,9 @@ public sealed class UsenetMigrationRunner : BackgroundService
         // Review rather than submitting against different rules.
         if (await GlobalsDriftedAsync(ct).ConfigureAwait(false))
         {
-            await _store.UpdateSessionAsync(s => s.Status = "scanned", ct).ConfigureAwait(false);
+            await _store.TryTransitionSessionAsync(
+                    MigrationSessionTransition.ReturnRunToReview, ct)
+                .ConfigureAwait(false);
             Log.Warning(
                 "Usenet migration paused to Review: a global (lazy-RAR parsing or Windows-safe paths) " +
                 "changed since Scan. Re-scan before running.");
