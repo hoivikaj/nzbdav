@@ -1559,7 +1559,10 @@ function BenchmarkPanel(props: BenchmarkPanelProps) {
 
                     {result.confidence && (
                         <div className="mt-3">
-                            <Tooltip content="How steady the measurements were (bucket-to-bucket throughput variation, article-pool reuse, and concurrent activity).">
+                            <Tooltip
+                                placement="right"
+                                content="How steady the measurements were (bucket-to-bucket throughput variation, article-pool reuse, and concurrent activity)."
+                            >
                                 <Badge
                                     className={`badge-sm badge-soft font-medium ${
                                         result.confidence === "high"

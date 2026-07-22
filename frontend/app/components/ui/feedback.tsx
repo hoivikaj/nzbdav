@@ -31,9 +31,26 @@ export function Spinner({ className = "", size }: { className?: string; size?: s
   return <span className={`loading loading-spinner ${size === "sm" ? "loading-sm" : ""} ${className}`} />;
 }
 
-export function Tooltip({ content, children }: { content: string; children: ReactNode }) {
+type TooltipPlacement = "top" | "bottom" | "left" | "right";
+
+const tooltipPlacementClass: Record<TooltipPlacement, string> = {
+  top: "tooltip-top",
+  bottom: "tooltip-bottom",
+  left: "tooltip-left",
+  right: "tooltip-right",
+};
+
+export function Tooltip({
+  content,
+  children,
+  placement = "top",
+}: {
+  content: string;
+  children: ReactNode;
+  placement?: TooltipPlacement;
+}) {
   return (
-    <span className="tooltip" data-tip={content}>
+    <span className={`tooltip ${tooltipPlacementClass[placement]}`} data-tip={content}>
       {children}
     </span>
   );
