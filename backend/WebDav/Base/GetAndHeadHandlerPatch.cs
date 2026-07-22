@@ -5,6 +5,7 @@ using NWebDav.Server.Handlers;
 using NWebDav.Server.Helpers;
 using NWebDav.Server.Props;
 using NWebDav.Server.Stores;
+using NzbWebDAV.Api.Controllers.GetWebdavItem;
 using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Database.Models.Metrics;
 using NzbWebDAV.Services;
@@ -61,8 +62,9 @@ public class GetAndHeadHandlerPatch : IRequestHandler
         // Determine if we are invoked as HEAD
         var isHeadRequest = request.Method == HttpMethods.Head;
 
-        // Determine the requested range
-        var range = request.GetRange();
+        // Determine the requested range (ignore malformed / non-bytes / HEAD)
+        var rangeHeader = request.Headers["Range"].FirstOrDefault() ?? "";
+        var range = TryResolveRange(isHeadRequest, rangeHeader);
         var copyStart = 0L;
         long? copyEnd = null;
 
@@ -235,6 +237,29 @@ public class GetAndHeadHandlerPatch : IRequestHandler
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// Resolve a single bytes Range for GET. Returns null for HEAD, missing,
+    /// malformed, non-bytes, multi-range, or overflow so the caller serves full content.
+    /// Suffix form <c>bytes=-N</c> maps to <c>Start=null</c>, <c>End=N</c>.
+    /// </summary>
+    internal static NWebDav.Server.Helpers.Range? TryResolveRange(bool isHeadRequest, string rangeHeader)
+    {
+        if (isHeadRequest)
+            return null;
+
+        if (!GetWebdavItemRequest.TryParseRangeHeader(
+                rangeHeader, out var rStart, out var rEnd, out var rSuffix))
+            return null;
+
+        if (rStart is not null)
+            return new NWebDav.Server.Helpers.Range { Start = rStart, End = rEnd };
+
+        if (rSuffix is not null)
+            return new NWebDav.Server.Helpers.Range { Start = null, End = rSuffix };
+
+        return null;
     }
 
     private void FinishRange(Guid sessionId, ReadSession.EndReasonCode reason, string? message = null)

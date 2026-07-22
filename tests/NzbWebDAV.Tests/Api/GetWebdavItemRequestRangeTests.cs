@@ -24,6 +24,7 @@ public class GetWebdavItemRequestRangeTests
     [InlineData("bytes=0-99,200-299")]
     [InlineData("bytes=0-xx")]
     [InlineData("items=0-10")]
+    [InlineData("npt=0.000-")]
     [InlineData("bytes=-")]
     public void TryParseRangeHeader_IgnoresMalformed(string header)
     {
