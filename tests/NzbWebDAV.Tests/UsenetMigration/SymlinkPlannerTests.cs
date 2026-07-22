@@ -159,6 +159,36 @@ public class SymlinkPlannerTests
     }
 
     [Fact]
+    public async Task Plan_TraversalFailure_DoesNotPersistPartialPlan()
+    {
+        await using var h = await MigrationTestHarness.CreateAsync();
+        await h.Store.UpdateSessionAsync(s =>
+        {
+            s.SymlinkLibraryRoot = "/lib";
+            s.Status = "linked";
+        });
+
+        static IEnumerable<SymlinkPair> FailAfterOneLink()
+        {
+            yield return new SymlinkPair("/lib/partial.mkv", "/mnt/altmount/tv/partial.mkv");
+            throw new IOException("simulated traversal failure");
+        }
+
+        var planner = new SymlinkPlanner(h.Store, new ConfigManager())
+        {
+            DavContextFactory = h.DavFactory,
+            SymlinkEnumerator = _ => FailAfterOneLink(),
+            LibraryRootValidator = root => root,
+        };
+
+        var error = await Assert.ThrowsAsync<IOException>(() => planner.PlanAsync());
+
+        Assert.Contains("traversal failure", error.Message);
+        await using var mig = h.Mig();
+        Assert.Empty(await mig.SymlinkRewrites.ToListAsync());
+    }
+
+    [Fact]
     public async Task Plan_UsesValidatedProvenanceFromAnEarlierRun()
     {
         await using var h = await MigrationTestHarness.CreateAsync();

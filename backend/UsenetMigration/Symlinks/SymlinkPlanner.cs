@@ -4,7 +4,6 @@ using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
 using NzbWebDAV.Database.Models.UsenetMigration;
-using NzbWebDAV.Utils;
 using NzbWebDAV.WebDav;
 using Serilog;
 
@@ -372,7 +371,5 @@ public sealed class SymlinkPlanner(UsenetMigrationStore store, ConfigManager con
     }
 
     private static IEnumerable<SymlinkPair> DefaultEnumerator(string libraryRoot) =>
-        SymlinkAndStrmUtil.GetAllSymlinksAndStrms(libraryRoot)
-            .OfType<SymlinkAndStrmUtil.SymlinkInfo>()
-            .Select(s => new SymlinkPair(s.SymlinkPath, s.TargetPath));
+        MigrationSymlinkUtil.GetAllSymlinks(libraryRoot);
 }

@@ -1,8 +1,8 @@
-using NzbWebDAV.Utils;
+using NzbWebDAV.UsenetMigration.Symlinks;
 
-namespace NzbWebDAV.Tests.Utils;
+namespace NzbWebDAV.Tests.UsenetMigration;
 
-public sealed class SymlinkAndStrmUtilTests
+public sealed class MigrationSymlinkUtilTests
 {
     [Fact]
     public void LinuxFindStartInfo_PassesHostileRootAsOneOpaqueArgument()
@@ -11,14 +11,13 @@ public sealed class SymlinkAndStrmUtilTests
             Path.GetTempPath(),
             "library-\"-'-$()-; touch injected-line1\nline2");
 
-        var startInfo = SymlinkAndStrmUtil.CreateLinuxFindStartInfo(hostileRoot);
+        var startInfo = MigrationSymlinkUtil.CreateLinuxFindStartInfo(hostileRoot);
 
         Assert.Equal("find", startInfo.FileName);
         Assert.False(startInfo.UseShellExecute);
         Assert.Empty(startInfo.Arguments);
-        Assert.Equal(Path.GetFullPath(hostileRoot), startInfo.ArgumentList[1]);
         Assert.Equal(
-            ["-H", Path.GetFullPath(hostileRoot), "(", "-type", "l", "-o", "-name", "*.strm", ")", "-print0"],
+            ["-H", Path.GetFullPath(hostileRoot), "-type", "l", "-print0"],
             startInfo.ArgumentList);
     }
 
@@ -31,7 +30,7 @@ public sealed class SymlinkAndStrmUtilTests
             Path.GetTempPath(),
             $"library-\"-'-$()-; touch injected-line1\nline2-{Guid.NewGuid():N}");
         var strmPath = Path.Combine(root, "movie.strm");
-        var symlinkPath = Path.Combine(root, "episode-link.mkv");
+        var symlinkPath = Path.Combine(root, "episode-\nlink.mkv");
         const string targetUrl = "http://localhost:8080/content/movie.mkv?token=a&part=1";
         const string linkTarget = "missing-target.mkv";
 
@@ -41,20 +40,27 @@ public sealed class SymlinkAndStrmUtilTests
             File.WriteAllText(strmPath, targetUrl);
             File.CreateSymbolicLink(symlinkPath, linkTarget);
 
-            var results = SymlinkAndStrmUtil.GetAllSymlinksAndStrms(root).ToList();
+            var symlinks = MigrationSymlinkUtil.GetAllSymlinks(root);
 
-            var strm = Assert.Single(results.OfType<SymlinkAndStrmUtil.StrmInfo>());
-            Assert.Equal(strmPath, strm.StrmPath);
-            Assert.Equal(targetUrl, strm.TargetUrl);
-
-            var symlink = Assert.Single(results.OfType<SymlinkAndStrmUtil.SymlinkInfo>());
+            var symlink = Assert.Single(symlinks);
             Assert.Equal(symlinkPath, symlink.SymlinkPath);
             Assert.Equal(linkTarget, symlink.TargetPath);
+            Assert.DoesNotContain(symlinks, link => link.SymlinkPath == strmPath);
         }
         finally
         {
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public void Enumeration_MissingRootFailsWithoutReturningPartialResults()
+    {
+        var missingRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-altmount-library-{Guid.NewGuid():N}");
+
+        Assert.ThrowsAny<Exception>(() => MigrationSymlinkUtil.GetAllSymlinks(missingRoot));
     }
 }
