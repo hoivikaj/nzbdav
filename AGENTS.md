@@ -307,6 +307,12 @@ Set `Priority` and `Effort` on the project item (not org Issue Fields, not label
 | `L` | Multi-week |
 | `XL` | Multi-week+ and/or UsenetSharp / SharpCompress / library work |
 
+### Votes (project field)
+
+`Votes` is a **Number** field auto-synced by [`.github/workflows/sync-issue-votes.yml`](.github/workflows/sync-issue-votes.yml) (every 6 hours, plus `workflow_dispatch`). It stores the count of **thumbs-up (👍)** reactions on the issue body only — not comments, and not other reaction types. Do **not** set `Votes` manually; the cron overwrites it.
+
+Requires repo secret `PROJECT_VOTES_TOKEN` (fine-grained PAT or GitHub App token with Organization **Projects: Read and write** and **Issues: Read** on repos whose issues appear on the project).
+
 ### Status (project field)
 
 Closing a GitHub issue does **not** move the project item. When an issue is finished (fixed or closed as not planned / skipped), set project **Status** to **Done**. Open work stays in `Backlog` / `Ready` / `In progress` / `In review` as appropriate.
