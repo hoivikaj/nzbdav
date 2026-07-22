@@ -216,6 +216,39 @@ public class SymlinkRewriterTests
         }
     }
 
+    [SkippableFact]
+    public void RealOps_LeafSwapFromSymlinkToFile_LeavesRealFileUntouched()
+    {
+        Skip.IfNot(OperatingSystem.IsLinux(), "Symlink race behavior is validated on the Linux deployment platform.");
+
+        var dir = Path.Combine(Path.GetTempPath(), $"altmig-leaf-race-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var link = Path.Combine(dir, "movie.mkv");
+        File.CreateSymbolicLink(link, "/mnt/altmount/movie.mkv");
+
+        try
+        {
+            var ops = new RealSymlinkOps
+            {
+                BeforeFinalLeafValidation = path =>
+                {
+                    File.Delete(path);
+                    File.WriteAllText(path, "precious content");
+                },
+            };
+
+            var error = Assert.Throws<IOException>(() =>
+                ops.CreateOrReplaceSymlink(dir, link, "/mnt/nzbdav/.ids/x"));
+
+            Assert.Contains("no longer the expected symlink", error.Message);
+            Assert.Equal("precious content", File.ReadAllText(link));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public void RealOps_RejectsPathsOutsideLibraryRoot()
     {

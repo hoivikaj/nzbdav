@@ -101,6 +101,7 @@ public class SymlinkPlannerTests
         {
             DavContextFactory = h.DavFactory,
             SymlinkEnumerator = _ => links,
+            LibraryRootValidator = root => root,
         };
 
         var summary = await planner.PlanAsync();
@@ -147,6 +148,7 @@ public class SymlinkPlannerTests
         {
             DavContextFactory = h.DavFactory,
             SymlinkEnumerator = _ => new[] { new SymlinkPair("/lib/x.mkv", "/mnt/other/x.mkv") },
+            LibraryRootValidator = root => root,
         };
 
         await planner.PlanAsync();
@@ -217,6 +219,7 @@ public class SymlinkPlannerTests
             {
                 new SymlinkPair("/lib/earlier.mkv", "/mnt/altmount/tv/Earlier/Earlier.mkv"),
             },
+            LibraryRootValidator = root => root,
         };
 
         var summary = await planner.PlanAsync();
@@ -229,5 +232,33 @@ public class SymlinkPlannerTests
         Assert.Equal(
             DatabaseStoreSymlinkFile.GetTargetPath(davItemId, config.GetRcloneMountDir(), '/'),
             rewrite.NewTarget);
+    }
+
+    [SkippableFact]
+    public async Task Plan_RejectsSymlinkedLibraryRoot()
+    {
+        Skip.IfNot(OperatingSystem.IsLinux(), "Directory symlink behavior is validated on the Linux deployment platform.");
+
+        await using var h = await MigrationTestHarness.CreateAsync();
+        var realRoot = Path.Combine(Path.GetTempPath(), $"altmig-library-{Guid.NewGuid():N}");
+        var linkedRoot = Path.Combine(Path.GetTempPath(), $"altmig-library-link-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(realRoot);
+        Directory.CreateSymbolicLink(linkedRoot, realRoot);
+
+        try
+        {
+            await h.Store.UpdateSessionAsync(s => s.SymlinkLibraryRoot = linkedRoot);
+
+            var error = await Assert.ThrowsAsync<IOException>(() =>
+                new SymlinkPlanner(h.Store, new ConfigManager()).PlanAsync());
+
+            Assert.Contains("Library Root", error.Message);
+            Assert.Contains("symbolic link", error.Message);
+        }
+        finally
+        {
+            Directory.Delete(linkedRoot);
+            Directory.Delete(realRoot);
+        }
     }
 }

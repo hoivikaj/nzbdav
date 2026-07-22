@@ -74,11 +74,15 @@ public sealed class SymlinkPlanner(UsenetMigrationStore store, ConfigManager con
     /// <summary>Test seam for library enumeration; production uses the real filesystem walk.</summary>
     internal Func<string, IEnumerable<SymlinkPair>> SymlinkEnumerator { get; set; } = DefaultEnumerator;
 
+    /// <summary>Test seam for validating the production library root.</summary>
+    internal Func<string, string> LibraryRootValidator { get; set; } = SymlinkPathGuard.RequireRealLibraryRoot;
+
     public async Task<SymlinkPlanSummary> PlanAsync(CancellationToken ct = default)
     {
         var session = await store.GetSessionAsync(ct).ConfigureAwait(false);
         var libraryRoot = session.SymlinkLibraryRoot
                           ?? throw new InvalidOperationException("Symlink planning requires SymlinkLibraryRoot to be set.");
+        libraryRoot = LibraryRootValidator(libraryRoot);
         var mountDir = configManager.GetRcloneMountDir();
 
         // Correlate + match, then classify against a fresh library walk.

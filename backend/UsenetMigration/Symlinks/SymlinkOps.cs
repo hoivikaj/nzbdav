@@ -26,6 +26,9 @@ public sealed class RealSymlinkOps : ISymlinkOps
 {
     public static readonly RealSymlinkOps Instance = new();
 
+    /// <summary>Test-only fault injection at the final leaf validation boundary.</summary>
+    internal Action<string>? BeforeFinalLeafValidation { get; init; }
+
     public string? ReadLink(string libraryRoot, string path)
     {
         var safePath = SymlinkPathGuard.RequireSafeParentChain(libraryRoot, path);
@@ -42,6 +45,19 @@ public sealed class RealSymlinkOps : ISymlinkOps
         safePath = SymlinkPathGuard.RequireSafeParentChain(libraryRoot, safePath);
         if (existing is not null)
         {
+            BeforeFinalLeafValidation?.Invoke(safePath);
+            var current = ReadLinkUnchecked(safePath);
+            if (current is null)
+            {
+                throw new IOException(
+                    $"Refusing to replace '{safePath}' because it is no longer the expected symlink.");
+            }
+            if (!string.Equals(current, existing, SymlinkPathGuard.PathComparison))
+            {
+                throw new IOException(
+                    $"Refusing to replace '{safePath}' because its symlink target changed during replacement.");
+            }
+
             // Delete only the link inode. Deleting a symlink never recurses into or
             // removes its target content.
             if (Directory.Exists(safePath) && new DirectoryInfo(safePath).LinkTarget is not null)
@@ -80,14 +96,26 @@ public sealed class RealSymlinkOps : ISymlinkOps
 
 internal static class SymlinkPathGuard
 {
-    internal static string RequireSafeParentChain(string libraryRoot, string path)
+    internal static StringComparison PathComparison => OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+
+    internal static string RequireRealLibraryRoot(string libraryRoot)
     {
         if (string.IsNullOrWhiteSpace(libraryRoot))
             throw new IOException("The configured Library Root is missing.");
+
+        var root = Path.GetFullPath(libraryRoot);
+        EnsureRealDirectory(root, "The configured Library Root");
+        return root;
+    }
+
+    internal static string RequireSafeParentChain(string libraryRoot, string path)
+    {
         if (string.IsNullOrWhiteSpace(path))
             throw new IOException("The symlink path is missing.");
 
-        var root = Path.GetFullPath(libraryRoot);
+        var root = RequireRealLibraryRoot(libraryRoot);
         var fullPath = Path.GetFullPath(path);
         var relative = Path.GetRelativePath(root, fullPath);
         if (relative == "." || IsOutsideRoot(relative))
@@ -95,8 +123,6 @@ internal static class SymlinkPathGuard
 
         var parent = Path.GetDirectoryName(fullPath)
                      ?? throw new IOException($"The symlink path has no parent directory: '{fullPath}'.");
-        EnsureRealDirectory(root);
-
         var relativeParent = Path.GetRelativePath(root, parent);
         if (relativeParent != ".")
         {
@@ -106,7 +132,7 @@ internal static class SymlinkPathGuard
                          StringSplitOptions.RemoveEmptyEntries))
             {
                 current = Path.Combine(current, segment);
-                EnsureRealDirectory(current);
+                EnsureRealDirectory(current, "Symlink parent directory");
             }
         }
 
@@ -119,7 +145,7 @@ internal static class SymlinkPathGuard
         || relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
         || relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal);
 
-    private static void EnsureRealDirectory(string path)
+    private static void EnsureRealDirectory(string path, string description)
     {
         FileAttributes attributes;
         try
@@ -128,12 +154,12 @@ internal static class SymlinkPathGuard
         }
         catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
         {
-            throw new IOException($"Symlink parent directory does not exist: '{path}'.", e);
+            throw new IOException($"{description} does not exist: '{path}'.", e);
         }
 
         if (!attributes.HasFlag(FileAttributes.Directory))
-            throw new IOException($"Symlink parent path is not a directory: '{path}'.");
+            throw new IOException($"{description} is not a directory: '{path}'.");
         if (attributes.HasFlag(FileAttributes.ReparsePoint) || new DirectoryInfo(path).LinkTarget is not null)
-            throw new IOException($"Symlink parent directory is a symbolic link or reparse point: '{path}'.");
+            throw new IOException($"{description} is a symbolic link or reparse point: '{path}'.");
     }
 }
