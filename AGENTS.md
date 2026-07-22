@@ -311,7 +311,9 @@ Set `Priority` and `Effort` on the project item (not org Issue Fields, not label
 
 `Votes` is a **Number** field auto-synced by [`.github/workflows/sync-issue-votes.yml`](.github/workflows/sync-issue-votes.yml) (every 6 hours, plus `workflow_dispatch`). It stores the count of **thumbs-up (👍)** reactions on the issue body only — not comments, and not other reaction types. Do **not** set `Votes` manually; the cron overwrites it.
 
-Requires repo secret `PROJECT_VOTES_TOKEN` (fine-grained PAT or GitHub App token with Organization **Projects: Read and write** and **Issues: Read** on repos whose issues appear on the project).
+The same workflow appends an upvote footer (marker `<!-- nzbdav-votes-footer -->`) to open **Feature** issues when missing. The feature request issue template includes that footer for new issues. Do **not** remove the marker; the cron treats it as already present.
+
+Requires repo secret `PROJECT_VOTES_TOKEN` (fine-grained PAT or GitHub App token with Organization **Projects: Read and write** and **Issues: Read and write** on repos whose issues appear on the project).
 
 ### Status (project field)
 
