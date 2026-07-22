@@ -1,21 +1,22 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 
 namespace NzbWebDAV.Utils;
 
 /// <summary>
-/// One shared HttpClient per distinct proxy URL (or "" for direct). Returned clients
+/// One shared HttpClient per distinct proxy URL and TLS-validation policy. Returned clients
 /// have an infinite Timeout because they're shared across callers with different
 /// budgets; each caller enforces its own per-request timeout via CancellationToken.
 /// </summary>
 public static class ProxyHttpClientPool
 {
-    private static readonly ConcurrentDictionary<string, HttpClient> Clients = new();
+    private static readonly ConcurrentDictionary<ClientKey, HttpClient> Clients = new();
 
-    public static HttpClient GetClient(string? proxyUrl)
+    public static HttpClient GetClient(string? proxyUrl, bool skipTlsVerification = false)
     {
-        var key = Normalize(proxyUrl) ?? "";
+        var key = new ClientKey(Normalize(proxyUrl) ?? "", skipTlsVerification);
         return Clients.GetOrAdd(key, k =>
         {
             var handler = new SocketsHttpHandler
@@ -25,7 +26,7 @@ public static class ProxyHttpClientPool
                 ConnectTimeout = TimeSpan.FromSeconds(15),
             };
 
-            if (k.Length > 0 && Uri.TryCreate(k, UriKind.Absolute, out var uri))
+            if (k.ProxyUrl.Length > 0 && Uri.TryCreate(k.ProxyUrl, UriKind.Absolute, out var uri))
             {
                 var address = new UriBuilder(uri) { UserName = "", Password = "" }.Uri;
                 var proxy = new WebProxy(address) { BypassProxyOnLocal = false };
@@ -45,9 +46,19 @@ public static class ProxyHttpClientPool
                 handler.ConnectCallback = KeepAliveConnectAsync;
             }
 
+            if (k.SkipTlsVerification)
+            {
+                handler.SslOptions = new SslClientAuthenticationOptions
+                {
+                    RemoteCertificateValidationCallback = static (_, _, _, _) => true,
+                };
+            }
+
             return new HttpClient(handler, disposeHandler: true) { Timeout = Timeout.InfiniteTimeSpan };
         });
     }
+
+    private readonly record struct ClientKey(string ProxyUrl, bool SkipTlsVerification);
 
     private static async ValueTask<Stream> KeepAliveConnectAsync(
         SocketsHttpConnectionContext context, CancellationToken ct)

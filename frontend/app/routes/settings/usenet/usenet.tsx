@@ -84,6 +84,7 @@ type ConnectionDetails = {
     Host: string;
     Port: number;
     UseSsl: boolean;
+    SkipTlsVerification?: boolean;
     User: string;
     Pass: string;
     MaxConnections: number;
@@ -806,6 +807,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
     const [host, setHost] = useState(provider?.Host || "");
     const [port, setPort] = useState(provider?.Port?.toString() || "");
     const [useSsl, setUseSsl] = useState(provider?.UseSsl ?? true);
+    const [skipTlsVerification, setSkipTlsVerification] = useState(provider?.SkipTlsVerification ?? false);
     const [user, setUser] = useState(provider?.User || "");
     const [pass, setPass] = useState(provider?.Pass || "");
     const [maxConnections, setMaxConnections] = useState(provider?.MaxConnections?.toString() || "");
@@ -843,6 +845,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
             setHost(provider?.Host || "");
             setPort(provider?.Port?.toString() || "");
             setUseSsl(provider?.UseSsl ?? true);
+            setSkipTlsVerification(provider?.SkipTlsVerification ?? false);
             setUser(provider?.User || "");
             setPass(provider?.Pass || "");
             setMaxConnections(provider?.MaxConnections?.toString() || "");
@@ -896,6 +899,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
             formData.append('host', host);
             formData.append('port', port);
             formData.append('use-ssl', useSsl.toString());
+            formData.append('skip-tls-verification', skipTlsVerification.toString());
             formData.append('user', user);
             formData.append('pass', pass);
 
@@ -921,7 +925,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
         } finally {
             setIsTestingConnection(false);
         }
-    }, [host, port, useSsl, user, pass]);
+    }, [host, port, useSsl, skipTlsVerification, user, pass]);
 
     const handleAutoTune = useCallback(async (verifyConnections?: number) => {
         // Abort any previous run still in flight before starting a new one.
@@ -983,6 +987,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
             formData.append('host', host);
             formData.append('port', port);
             formData.append('use-ssl', useSsl.toString());
+            formData.append('skip-tls-verification', skipTlsVerification.toString());
             formData.append('user', user);
             formData.append('pass', pass);
             formData.append('max-connections', maxConnections || "10");
@@ -1021,7 +1026,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
                 ? { ...prev, status: "Speed test still running…" }
                 : { phase: "sweep", status: "Speed test still running…", percent: 50, dataUsedBytes: 0, sweep: [] });
         }
-    }, [host, port, useSsl, user, pass, maxConnections, intensity, pipeliningOnly, dataBudget]);
+    }, [host, port, useSsl, skipTlsVerification, user, pass, maxConnections, intensity, pipeliningOnly, dataBudget]);
 
     const handleApplyRecommendation = useCallback(() => {
         if (!benchmarkResult) return;
@@ -1068,6 +1073,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
             Host: host,
             Port: parseInt(port, 10),
             UseSsl: useSsl,
+            SkipTlsVerification: useSsl && skipTlsVerification,
             User: user,
             Pass: pass,
             MaxConnections: parseInt(maxConnections, 10),
@@ -1080,7 +1086,7 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
             BytesUsedOffset: offsetToPersist,
             BytesUsedResetAt: resetAtToPersist,
         });
-    }, [type, host, port, useSsl, user, pass, maxConnections, pipeliningDepth, nickname, storageGroup, provider, isEditing, limitValue, limitUnit, initialUsedValue, initialUsedUnit, onSave]);
+    }, [type, host, port, useSsl, skipTlsVerification, user, pass, maxConnections, pipeliningDepth, nickname, storageGroup, provider, isEditing, limitValue, limitUnit, initialUsedValue, initialUsedUnit, onSave]);
 
     const isPipeliningDepthValid = pipeliningDepth.trim() === ""
         || (isPositiveInteger(pipeliningDepth) && Number(pipeliningDepth) <= 64);
@@ -1289,6 +1295,27 @@ function ProviderModal({ show, provider, onClose, onSave, onApplyPipelining, def
                         <Alert variant="warning" className="text-xs">
                             Credentials are sent unencrypted without SSL. Prefer port 563 with SSL enabled.
                         </Alert>
+                    )}
+                    {useSsl && (
+                        <>
+                            <label htmlFor="provider-skip-tls-verification" className="mt-2 flex items-center gap-2">
+                                <Checkbox
+                                    id="provider-skip-tls-verification"
+                                    checked={skipTlsVerification}
+                                    onChange={(e) => {
+                                        setSkipTlsVerification(e.target.checked);
+                                        setConnectionTested(false);
+                                    }}
+                                />
+                                <span className="text-sm text-base-content/80">Skip TLS certificate verification</span>
+                            </label>
+                            {skipTlsVerification && (
+                                <Alert variant="warning" className="text-xs">
+                                    TLS remains encrypted, but this accepts an untrusted or mismatched certificate.
+                                    Only enable it for a provider you trust.
+                                </Alert>
+                            )}
+                        </>
                     )}
                 </div>
 

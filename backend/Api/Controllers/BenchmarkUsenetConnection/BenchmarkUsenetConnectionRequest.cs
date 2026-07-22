@@ -12,6 +12,7 @@ public class BenchmarkUsenetConnectionRequest
     public string Pass { get; init; }
     public int Port { get; init; }
     public bool UseSsl { get; init; }
+    public bool SkipTlsVerification { get; init; }
 
     /// <summary>The provider's currently-configured max connections (the sweep probes a bit above it).</summary>
     public int MaxConnections { get; init; }
@@ -44,6 +45,7 @@ public class BenchmarkUsenetConnectionRequest
             Pass = "";
             Port = 0;
             UseSsl = false;
+            SkipTlsVerification = false;
             MaxConnections = 1;
             Intensity = BenchmarkIntensity.Quick;
             return;
@@ -72,6 +74,10 @@ public class BenchmarkUsenetConnectionRequest
         UseSsl = !bool.TryParse(useSsl, out var useSslValue)
             ? throw new BadHttpRequestException("Invalid use-ssl value")
             : useSslValue;
+
+        var skipTlsVerification = context.Request.Form["skip-tls-verification"].FirstOrDefault();
+        SkipTlsVerification = bool.TryParse(skipTlsVerification, out var skipTlsVerificationValue)
+                              && skipTlsVerificationValue;
 
         // Optional knobs — fall back to sensible defaults rather than rejecting.
         var maxConnections = context.Request.Form["max-connections"].FirstOrDefault();
@@ -103,6 +109,7 @@ public class BenchmarkUsenetConnectionRequest
             Pass = Pass,
             Port = Port,
             UseSsl = UseSsl,
+            SkipTlsVerification = UseSsl && SkipTlsVerification,
             MaxConnections = 1,
             Type = ProviderType.Disabled
         };

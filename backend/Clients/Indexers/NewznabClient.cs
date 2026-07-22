@@ -8,12 +8,13 @@ public class NewznabClient(
     string apiKey,
     string userAgent = "NzbDav",
     string? proxyUrl = null,
-    int timeoutSeconds = 30)
+    int timeoutSeconds = 30,
+    bool skipTlsVerification = false)
 {
     private static readonly XNamespace Newznab = "http://www.newznab.com/DTD/2010/feeds/attributes/";
 
     private readonly Uri _apiUri = NormalizeApiUri(baseUrl);
-    private readonly HttpClient _http = ProxyHttpClientPool.GetClient(proxyUrl);
+    private readonly HttpClient _http = ProxyHttpClientPool.GetClient(proxyUrl, skipTlsVerification);
     private readonly int _timeoutSeconds = timeoutSeconds > 0 ? timeoutSeconds : 30;
 
     private static Uri NormalizeApiUri(string baseUrl)

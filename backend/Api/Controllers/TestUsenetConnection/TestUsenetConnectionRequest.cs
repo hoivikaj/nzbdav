@@ -11,6 +11,7 @@ public class TestUsenetConnectionRequest
     public string Pass { get; init; }
     public int Port { get; init; }
     public bool UseSsl { get; init; }
+    public bool SkipTlsVerification { get; init; }
 
     public TestUsenetConnectionRequest(HttpContext context, ConfigManager configManager)
     {
@@ -37,6 +38,10 @@ public class TestUsenetConnectionRequest
         UseSsl = !bool.TryParse(useSsl, out bool useSslValue)
             ? throw new BadHttpRequestException("Invalid use-ssl value")
             : useSslValue;
+
+        var skipTlsVerification = context.Request.Form["skip-tls-verification"].FirstOrDefault();
+        SkipTlsVerification = bool.TryParse(skipTlsVerification, out var skipTlsVerificationValue)
+                              && skipTlsVerificationValue;
     }
 
     public UsenetProviderConfig.ConnectionDetails ToConnectionDetails()
@@ -48,6 +53,7 @@ public class TestUsenetConnectionRequest
             Pass = Pass,
             Port = Port,
             UseSsl = UseSsl,
+            SkipTlsVerification = UseSsl && SkipTlsVerification,
             MaxConnections = 1,
             Type = ProviderType.Disabled
         };

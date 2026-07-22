@@ -13,7 +13,8 @@ namespace NzbWebDAV.Api.SabControllers.AddUrl;
 
 public class AddUrlRequest() : AddFileRequest
 {
-    private static readonly HttpClient DirectHttpClient = InitializeHttpClient();
+    private static readonly HttpClient StrictDirectHttpClient = InitializeHttpClient(skipTlsVerification: false);
+    private static readonly HttpClient PermissiveDirectHttpClient = InitializeHttpClient(skipTlsVerification: true);
     private static readonly HttpRequestOptionsKey<TrustedHostsMatcher> TrustedHostsOptionKey = new("TrustedHosts");
     private const int MaxAutomaticRedirections = 10;
     private static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(60);
@@ -27,6 +28,7 @@ public class AddUrlRequest() : AddFileRequest
 
         var userAgent = IndexerConfig.PerIndexerRetrieveUserAgent(matchedIndexer) ?? configManager.GetUserAgent();
         var proxyUrl = StringUtil.EmptyToNull(matchedIndexer?.ProxyUrl) ?? indexerConfig.ProxyUrl;
+        var skipTlsVerification = matchedIndexer?.SkipTlsVerification == true;
         var trustedHosts = TrustedHostsMatcher.Parse(configManager.GetAddUrlTrustedHosts());
 
         if (matchedIndexer is not null)
@@ -43,7 +45,13 @@ public class AddUrlRequest() : AddFileRequest
         }
 
         var nzbFile = await GetNzbFile(
-            nzbUrl, nzbName, userAgent, proxyUrl, trustedHosts, context.RequestAborted).ConfigureAwait(false);
+            nzbUrl,
+            nzbName,
+            userAgent,
+            proxyUrl,
+            skipTlsVerification,
+            trustedHosts,
+            context.RequestAborted).ConfigureAwait(false);
         if (matchedIndexer is not null)
             _ = hitTracker.RecordAsync(matchedIndexer.Name, IndexerApiHit.HitType.Download, CancellationToken.None);
         return new AddUrlRequest()
@@ -81,6 +89,7 @@ public class AddUrlRequest() : AddFileRequest
         string? nzbName,
         string userAgent,
         string? proxyUrl,
+        bool skipTlsVerification,
         TrustedHostsMatcher trustedHosts,
         CancellationToken cancellationToken)
     {
@@ -90,7 +99,7 @@ public class AddUrlRequest() : AddFileRequest
                 throw new Exception($"The url is invalid.");
 
             var response = await GetAsync(
-                url, userAgent, proxyUrl, trustedHosts, cancellationToken).ConfigureAwait(false);
+                url, userAgent, proxyUrl, skipTlsVerification, trustedHosts, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 response.Dispose();
@@ -133,6 +142,7 @@ public class AddUrlRequest() : AddFileRequest
         string url,
         string userAgent,
         string? proxyUrl,
+        bool skipTlsVerification,
         TrustedHostsMatcher trustedHosts,
         CancellationToken cancellationToken
     )
@@ -142,8 +152,8 @@ public class AddUrlRequest() : AddFileRequest
         var ct = timeoutCts.Token;
         var currentUri = ValidateHttpUri(url);
         var httpClient = string.IsNullOrWhiteSpace(proxyUrl)
-            ? DirectHttpClient
-            : ProxyHttpClientPool.GetClient(proxyUrl);
+            ? (skipTlsVerification ? PermissiveDirectHttpClient : StrictDirectHttpClient)
+            : ProxyHttpClientPool.GetClient(proxyUrl, skipTlsVerification);
 
         for (var redirectCount = 0; ; redirectCount++)
         {
@@ -197,7 +207,7 @@ public class AddUrlRequest() : AddFileRequest
         }
     }
 
-    private static HttpClient InitializeHttpClient()
+    private static HttpClient InitializeHttpClient(bool skipTlsVerification)
     {
         var handler = new SocketsHttpHandler
         {
@@ -205,6 +215,13 @@ public class AddUrlRequest() : AddFileRequest
             UseProxy = false,
             ConnectCallback = ConnectToValidatedAddress,
         };
+        if (skipTlsVerification)
+        {
+            handler.SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = static (_, _, _, _) => true,
+            };
+        }
         return new HttpClient(handler);
     }
 

@@ -52,6 +52,7 @@ interface ConnectionDetails {
     UserAgent?: string;
     SearchUserAgent?: string;
     RetrieveUserAgent?: string;
+    SkipTlsVerification?: boolean;
     MaxRequestsPerMinute?: number;
     EnableStrictMatching?: boolean;
     ProxyUrl?: string;
@@ -814,6 +815,7 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
     const [name, setName] = useState("");
     const [url, setUrl] = useState("");
     const [apiKey, setApiKey] = useState("");
+    const [skipTlsVerification, setSkipTlsVerification] = useState(false);
     const [searchUserAgent, setSearchUserAgent] = useState("");
     const [retrieveUserAgent, setRetrieveUserAgent] = useState("");
     const [proxyUrl, setProxyUrl] = useState("");
@@ -853,6 +855,7 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
             setName(indexer?.Name || "");
             setUrl(indexer?.Url || "");
             setApiKey(indexer?.ApiKey || "");
+            setSkipTlsVerification(indexer?.SkipTlsVerification ?? false);
             setSearchUserAgent(indexer?.SearchUserAgent || indexer?.UserAgent || "");
             setRetrieveUserAgent(indexer?.RetrieveUserAgent || indexer?.UserAgent || "");
             setProxyUrl(indexer?.ProxyUrl || "");
@@ -887,7 +890,7 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
         }
     }, [show, indexer]);
 
-    useEffect(() => { setTestState('idle'); }, [url, apiKey, searchUserAgent, proxyUrl, timeoutSeconds]);
+    useEffect(() => { setTestState('idle'); }, [url, apiKey, searchUserAgent, proxyUrl, timeoutSeconds, skipTlsVerification]);
 
     const handleTest = useCallback(async () => {
         if (!url.trim() || !apiKey.trim() || apiKeyIsMasked) return;
@@ -899,13 +902,14 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
             if (searchUserAgent.trim()) fd.append('userAgent', searchUserAgent);
             if (proxyUrl.trim()) fd.append('proxyUrl', proxyUrl);
             if (timeoutSeconds.trim()) fd.append('timeoutSeconds', timeoutSeconds);
+            fd.append('skipTlsVerification', skipTlsVerification.toString());
             const r = await fetch('/api/test-indexer-connection', { method: 'POST', body: fd });
             const data = await r.json();
             setTestState(data.status && data.connected ? 'success' : 'error');
         } catch {
             setTestState('error');
         }
-    }, [url, apiKey, apiKeyIsMasked, searchUserAgent, proxyUrl, timeoutSeconds]);
+    }, [url, apiKey, apiKeyIsMasked, searchUserAgent, proxyUrl, timeoutSeconds, skipTlsVerification]);
 
     const handleSave = useCallback(() => {
         const rpm = parseInt(maxRpm || "0", 10);
@@ -936,6 +940,9 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
             UserAgent: undefined,
             SearchUserAgent: searchUserAgent.trim() || undefined,
             RetrieveUserAgent: retrieveUserAgent.trim() || undefined,
+            SkipTlsVerification: url.trim().toLowerCase().startsWith("https://") && skipTlsVerification
+                ? true
+                : undefined,
             ProxyUrl: proxyUrl.trim() || undefined,
             TimeoutSeconds: Number.isFinite(timeout) && timeout > 0 ? timeout : undefined,
             SearchResultLimit: Number.isFinite(srl) && srl > 0 ? srl : undefined,
@@ -956,7 +963,7 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
                 PreferDownloaded: filterPreferDownloaded,
             },
         });
-    }, [name, url, apiKey, searchUserAgent, retrieveUserAgent, proxyUrl, timeoutSeconds, searchResultLimit, maxRpm, hitLimit, downloadLimit, hitResetTime, enabled, strict,
+    }, [name, url, apiKey, searchUserAgent, retrieveUserAgent, skipTlsVerification, proxyUrl, timeoutSeconds, searchResultLimit, maxRpm, hitLimit, downloadLimit, hitResetTime, enabled, strict,
         extraMovieCategories, extraTvCategories, ignoreCategoryFilter,
         filterEnabled, filterSkipPassworded, filterMinGrabs, filterGrabsGraceHours,
         filterMaxAgeDaysWithoutGrabs, filterPreferDownloaded, onSave]);
@@ -965,6 +972,7 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
         if (!url.trim()) return false;
         try { new URL(url); return true; } catch { return false; }
     })();
+    const isHttpsUrl = url.trim().toLowerCase().startsWith("https://");
     const isRpmValid = (() => {
         const n = Number(maxRpm);
         return Number.isInteger(n) && n >= 0 && maxRpm.trim() === n.toString();
@@ -1044,6 +1052,24 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
                                 onChange={e => setUrl(e.target.value)}
                             />
                         </div>
+                        {isHttpsUrl && (
+                            <div className="flex flex-col gap-1.5 sm:col-span-2">
+                                <label htmlFor="indexer-skip-tls-verification" className="flex items-center gap-2">
+                                    <Checkbox
+                                        id="indexer-skip-tls-verification"
+                                        checked={skipTlsVerification}
+                                        onChange={e => setSkipTlsVerification(e.target.checked)}
+                                    />
+                                    <span className="text-sm text-base-content/80">Skip TLS certificate verification</span>
+                                </label>
+                                {skipTlsVerification && (
+                                    <Alert variant="warning" className="text-xs">
+                                        TLS remains encrypted, but this accepts an untrusted or mismatched certificate.
+                                        Only enable it for an indexer you trust.
+                                    </Alert>
+                                )}
+                            </div>
+                        )}
 
                         <div className="flex flex-col gap-1.5 sm:col-span-2">
                             <Label htmlFor="indexer-apikey">API Key</Label>

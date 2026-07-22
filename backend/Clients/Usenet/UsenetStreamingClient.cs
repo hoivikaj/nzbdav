@@ -162,6 +162,16 @@ public class UsenetStreamingClient : WrappingNntpClient
                 label);
         }
 
+        if (connectionDetails.UseSsl && connectionDetails.SkipTlsVerification)
+        {
+            var label = string.IsNullOrWhiteSpace(connectionDetails.Nickname)
+                ? connectionDetails.Host
+                : connectionDetails.Nickname;
+            Log.Warning(
+                "Provider '{Provider}' skips TLS certificate verification. The connection is encrypted but vulnerable to server impersonation.",
+                label);
+        }
+
         var connectionPool = CreateNewConnectionPool(
             maxConnections: maxConnections,
             connectionFactory: ct => CreateNewConnection(connectionDetails, ct),
@@ -232,7 +242,10 @@ public class UsenetStreamingClient : WrappingNntpClient
     (
         UsenetProviderConfig.ConnectionDetails connectionDetails,
         CancellationToken ct
-    ) => CreateNewConnection(connectionDetails, static () => new BaseNntpClient(), ct);
+    ) => CreateNewConnection(
+        connectionDetails,
+        () => new BaseNntpClient(connectionDetails.UseSsl && connectionDetails.SkipTlsVerification),
+        ct);
 
     internal static async ValueTask<INntpClient> CreateNewConnection
     (

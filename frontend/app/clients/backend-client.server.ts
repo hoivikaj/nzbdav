@@ -489,6 +489,7 @@ export type TestUsenetConnectionRequest = {
     host: string,
     port: string,
     useSsl: string,
+    skipTlsVerification: string,
     user: string,
     pass: string
 }

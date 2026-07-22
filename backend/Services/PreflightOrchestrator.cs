@@ -141,13 +141,14 @@ public class PreflightOrchestrator(
         NzbResolutionCache.Candidate c,
         CancellationToken ct)
     {
-        return nzbFetchCoalescer.GetOrFetchAsync(c.NzbUrl, async innerCt =>
+        var skipTlsVerification = configManager.GetIndexerConfig().ShouldSkipTlsVerification(c.IndexerName);
+        return nzbFetchCoalescer.GetOrFetchAsync(c.NzbUrl, c.ProxyUrl, skipTlsVerification, async innerCt =>
         {
             try
             {
                 using var req = new HttpRequestMessage(HttpMethod.Get, c.NzbUrl);
                 req.Headers.TryAddWithoutValidation("User-Agent", c.IndexerUserAgent);
-                var client = ProxyHttpClientPool.GetClient(c.ProxyUrl);
+                var client = ProxyHttpClientPool.GetClient(c.ProxyUrl, skipTlsVerification);
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(innerCt);
                 cts.CancelAfter(FetchTimeout);
                 using var resp = await client.SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(false);

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using NzbWebDAV.Config;
 using NzbWebDAV.Extensions;
 using NzbWebDAV.Services;
 using NzbWebDAV.Utils;
@@ -9,6 +10,7 @@ namespace NzbWebDAV.Api.Controllers.Profiles.Adapters;
 [ApiController]
 [Route("api/search/{token}/nzb/{playToken}.nzb")]
 public class NzbProxyController(
+    ConfigManager configManager,
     SearchProfileService searchService,
     NzbResolutionCache cache,
     NzbFetchCoalescer nzbFetchCoalescer
@@ -37,19 +39,25 @@ public class NzbProxyController(
         byte[]? bytes;
         try
         {
-            bytes = await nzbFetchCoalescer.GetOrFetchAsync(candidate.NzbUrl, async innerCt =>
-            {
-                using var req = new HttpRequestMessage(HttpMethod.Get, candidate.NzbUrl);
-                req.Headers.TryAddWithoutValidation("User-Agent", candidate.IndexerUserAgent);
-                var client = ProxyHttpClientPool.GetClient(candidate.ProxyUrl);
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(innerCt);
-                cts.CancelAfter(FetchTimeout);
-                using var resp = await client
-                    .SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token)
-                    .ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode) return null;
-                return await resp.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(false);
-            }, HttpContext.RequestAborted).ConfigureAwait(false);
+            var skipTlsVerification = configManager.GetIndexerConfig().ShouldSkipTlsVerification(candidate.IndexerName);
+            bytes = await nzbFetchCoalescer.GetOrFetchAsync(
+                candidate.NzbUrl,
+                candidate.ProxyUrl,
+                skipTlsVerification,
+                async innerCt =>
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Get, candidate.NzbUrl);
+                    req.Headers.TryAddWithoutValidation("User-Agent", candidate.IndexerUserAgent);
+                    var client = ProxyHttpClientPool.GetClient(candidate.ProxyUrl, skipTlsVerification);
+                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(innerCt);
+                    cts.CancelAfter(FetchTimeout);
+                    using var resp = await client
+                        .SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token)
+                        .ConfigureAwait(false);
+                    if (!resp.IsSuccessStatusCode) return null;
+                    return await resp.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(false);
+                },
+                HttpContext.RequestAborted).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

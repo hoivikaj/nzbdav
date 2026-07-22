@@ -24,6 +24,7 @@ Synced patterns take precedence; last-good cache survives temporary URL failures
 | Name / URL / API Key | Newznab endpoint |
 | Search / Retrieve User-Agent | Optional overrides |
 | Proxy URL | Optional override |
+| Skip TLS certificate verification | Accept an invalid HTTPS certificate; off by default |
 | Max requests / minute | `0` = unlimited |
 | API hit / download limits + reset hour | Cap usage; blank reset = rolling 24h |
 | Enabled | Include in searches |
@@ -31,5 +32,15 @@ Synced patterns take precedence; last-good cache survives temporary URL failures
 | Extra movie/TV categories | Appended to 2000/2070 or 5000/5070 |
 | Ignore category filter | Omit `cat=` |
 | Result filtering | Skip passworded, min grabs, grace period, age/zero-download drops, rank by grabs |
+
+## Invalid indexer certificates [since 0.9.0](https://github.com/nzbdav/nzbdav/releases/tag/v0.9.0){ .nzbdav-since }
+
+Leave **Skip TLS certificate verification** disabled unless a trusted HTTPS
+indexer has a certificate it cannot correct. The setting keeps traffic encrypted
+but accepts untrusted, expired, and hostname-mismatched certificates, exposing
+API keys and NZB requests to man-in-the-middle attacks. It applies to the
+indexer's API and its resolved NZB download URLs. SAB `addurl` requests inherit
+the setting only when their initial URL exactly matches an enabled indexer's
+configured host.
 
 [Indexer search feature](../features/indexer-search.md)

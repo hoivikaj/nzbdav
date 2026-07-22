@@ -16,6 +16,7 @@ Add one or more accounts. Each provider supports:
 | Pipeline depth | Per-provider override when pipelining on | blank = global `8` |
 | Type | Disabled / Pool Connections / Backup Only | Pool |
 | Use SSL | TLS for NNTP | on |
+| Skip TLS certificate verification | Accept an invalid provider certificate | off |
 | Data Cap | Block-account limit; auto-pauses near ~95% | uncapped |
 | Already Used | Seed usage when migrating mid-block | empty |
 | Auto-tune | Speed test → recommend connections + pipelining | action |
@@ -25,6 +26,13 @@ Persisted as `usenet.providers` JSON.
 !!! warning "Cleartext"
 
     Disabling SSL stores/sends credentials in cleartext on the wire — only for trusted networks.
+
+## Invalid provider certificates [since 0.9.0](https://github.com/nzbdav/nzbdav/releases/tag/v0.9.0){ .nzbdav-since }
+
+Leave **Skip TLS certificate verification** disabled unless a trusted provider has
+a certificate it cannot correct. It keeps the NNTP connection encrypted but
+accepts an untrusted, expired, or hostname-mismatched certificate. This permits
+a man-in-the-middle attacker to impersonate the provider and read credentials.
 
 ## Routing and pipelining
 

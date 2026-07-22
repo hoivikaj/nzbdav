@@ -37,6 +37,13 @@ public class IndexerConfig
         return DefaultSearchResultLimit;
     }
 
+    public bool ShouldSkipTlsVerification(string indexerName)
+    {
+        return Indexers.FirstOrDefault(x => x.Enabled &&
+                                            string.Equals(x.Name, indexerName, StringComparison.Ordinal))
+            ?.SkipTlsVerification == true;
+    }
+
     public static string? PerIndexerSearchUserAgent(ConnectionDetails? indexer)
         => indexer is null ? null : FirstNonBlank(indexer.SearchUserAgent, indexer.UserAgent);
 
@@ -55,6 +62,7 @@ public class IndexerConfig
         public string? UserAgent { get; set; }
         public string? SearchUserAgent { get; set; }
         public string? RetrieveUserAgent { get; set; }
+        public bool SkipTlsVerification { get; set; } = false;
         public int MaxRequestsPerMinute { get; set; } = 0;
         public bool EnableStrictMatching { get; set; } = false;
         // Per-indexer HTTP(S) proxy URL. Overrides the global ProxyUrl. Empty/null = inherit global.

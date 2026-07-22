@@ -27,11 +27,16 @@ public class BaseNntpClient : NntpClient
 
     private readonly IUsenetClient _client;
 
-    public BaseNntpClient() : this(new UsenetClient(new UsenetClientOptions
+    public BaseNntpClient() : this(skipTlsVerification: false)
+    {
+    }
+
+    public BaseNntpClient(bool skipTlsVerification) : this(new UsenetClient(new UsenetClientOptions
     {
         CrcValidation = EnvironmentUtil.GetEnvironmentVariable("USENET_DISABLE_CRC_VALIDATION") == "1"
             ? YencCrcValidationMode.Off
             : YencCrcValidationMode.WhenPresent,
+        SkipTlsVerification = skipTlsVerification,
     }))
     {
     }
