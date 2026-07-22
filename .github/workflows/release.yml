@@ -152,14 +152,36 @@ jobs:
             exit 1
           fi
 
-          RELEASE_NOTES=$(sed -n '/^## \[[0-9]\+\.[0-9]\+\.[0-9]\+\](/,$p' CHANGELOG.md | sed -n '1!{/^## \[/q;p}')
-          RELEASE_URL="https://github.com/${REPO}/releases/tag/v${VERSION}"
-          ANNOUNCEMENT_BODY=$(printf '**New Release: v%s**\n%s\n\n%s' "${VERSION}" "${RELEASE_NOTES}" "${RELEASE_URL}")
+          # Single-process extract: a sed|sed pipeline SIGPIPEs under pipefail when the
+          # second sed quits at the next ## [version] heading on a large CHANGELOG.
+          RELEASE_NOTES=$(awk '
+            /^## \[[0-9]+\.[0-9]+\.[0-9]+\]\(/ {
+              if (seen++) exit
+              next
+            }
+            seen { print }
+          ' CHANGELOG.md)
 
+          # Discord-friendly notes: drop markdown noise and per-commit parentheticals.
+          RELEASE_NOTES=$(printf '%s\n' "${RELEASE_NOTES}" | sed -E \
+            -e 's/^### //' \
+            -e 's/^\* \*\*([^*]+):\*\* /\1: /' \
+            -e 's/^\* //' \
+            -e 's/ \(\[[0-9a-f]+\]\(https:\/\/github\.com\/[^)]+\/commit\/[^)]+\)\)//g' \
+            -e 's/ \(\[#[0-9]+\]\(https:\/\/github\.com\/[^)]+\/issues\/[0-9]+\)\)//g' \
+            -e 's/, closes \[#[0-9]+\]\(https:\/\/github\.com\/[^)]+\/issues\/[0-9]+\)//g' \
+            | awk 'NF { blank=0; print; next } !blank++')
+
+          RELEASE_URL="https://github.com/${REPO}/releases/tag/v${VERSION}"
+          HEADER=$(printf '**New Release: v%s**' "${VERSION}")
+          # Discord content limit is 2000; keep a single message and prefer the release URL.
           MAX_LEN=1900
-          if [ "${#ANNOUNCEMENT_BODY}" -gt "${MAX_LEN}" ]; then
-            ANNOUNCEMENT_BODY="${ANNOUNCEMENT_BODY:0:$((MAX_LEN - 3))}..."
+          overhead=$((${#HEADER} + ${#RELEASE_URL} + 2))
+          max_notes=$((MAX_LEN - overhead))
+          if [ "${#RELEASE_NOTES}" -gt "${max_notes}" ]; then
+            RELEASE_NOTES="${RELEASE_NOTES:0:$((max_notes - 3))}..."
           fi
+          ANNOUNCEMENT_BODY=$(printf '%s\n%s\n%s' "${HEADER}" "${RELEASE_NOTES}" "${RELEASE_URL}")
 
           ESCAPED_BODY=$(printf '%s' "$ANNOUNCEMENT_BODY" | jq -Rsa .)
           curl --fail-with-body -sS -H "Content-Type: application/json" \
