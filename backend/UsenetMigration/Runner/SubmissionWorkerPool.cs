@@ -22,8 +22,8 @@ namespace NzbWebDAV.UsenetMigration.Runner;
 /// only the <see cref="AddFileRequest"/>, not the HttpContext, so a bare
 /// <see cref="DefaultHttpContext"/> suffices.
 ///
-/// Submission is sequential by default because concurrent submissions sharing a
-/// <c>UNIQUE(Category, FileName)</c> key can evict one another mid-download.
+/// Scan-time collision validation guarantees that included releases have distinct
+/// queue identities, allowing the configured workers to submit safely in parallel.
 /// </summary>
 public sealed class SubmissionWorkerPool(
     UsenetMigrationStore store,
@@ -58,115 +58,126 @@ public sealed class SubmissionWorkerPool(
 
         var session = await store.GetSessionAsync(ct).ConfigureAwait(false);
         var maxDepth = Math.Max(1, session.MaxQueueDepth);
+        var workerCount = Math.Clamp(session.SubmitWorkers, 1, maxDepth);
 
         var depth = await CurrentQueueDepthAsync(ct).ConfigureAwait(false);
         if (depth >= maxDepth)
             return 0;
 
-        await using var ctx = store.NewContext();
-        var pending = await ctx.Submissions.AsNoTracking()
-            .Where(s => s.State == "pending")
-            .OrderBy(s => s.StoreRef)
-            .ToListAsync(ct)
-            .ConfigureAwait(false);
+        List<string> pending;
+        await using (var ctx = store.NewContext())
+        {
+            pending = await ctx.Submissions.AsNoTracking()
+                .Where(s => s.State == "pending")
+                .OrderBy(s => s.StoreRef)
+                .Take(maxDepth - depth)
+                .Select(s => s.StoreRef)
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+        }
         if (pending.Count == 0)
             return 0;
 
         var submitted = 0;
-        foreach (var sub in pending)
-        {
-            if (depth >= maxDepth)
-                break;
-            if (!await CanSubmitNextAsync(store, submissionToken, ct).ConfigureAwait(false))
-                break;
-
-            var release = await ctx.Releases.AsNoTracking()
-                .FirstOrDefaultAsync(r => r.StoreRef == sub.StoreRef, ct)
-                .ConfigureAwait(false);
-            if (release is null || string.IsNullOrEmpty(release.TargetCategory))
+        var stopScheduling = 0;
+        await Parallel.ForEachAsync(
+            pending,
+            new ParallelOptions { MaxDegreeOfParallelism = workerCount, CancellationToken = ct },
+            async (storeRef, workerToken) =>
             {
-                await store.UpdateSubmissionAsync(sub.StoreRef, current =>
+                if (Volatile.Read(ref stopScheduling) != 0
+                    || !await CanSubmitNextAsync(store, submissionToken, workerToken).ConfigureAwait(false))
+                    return;
+
+                await using var workerContext = store.NewContext();
+                var release = await workerContext.Releases.AsNoTracking()
+                    .FirstOrDefaultAsync(r => r.StoreRef == storeRef, workerToken)
+                    .ConfigureAwait(false);
+                if (release is null || string.IsNullOrEmpty(release.TargetCategory))
                 {
-                    current.State = "failed";
-                    current.Error = "Release missing or has no target category at submit time.";
-                    current.Attempt++;
-                }, ct).ConfigureAwait(false);
-                continue;
-            }
+                    await store.UpdateSubmissionAsync(storeRef, current =>
+                    {
+                        current.State = "failed";
+                        current.Error = "Release missing or has no target category at submit time.";
+                        current.Attempt++;
+                    }, workerToken).ConfigureAwait(false);
+                    return;
+                }
 
-            byte[] nzbBytes;
-            try
-            {
-                nzbBytes = BuildNzbOverride is null
-                    ? await BuildNzbAsync(release, session, ctx, ct).ConfigureAwait(false)
-                    : await BuildNzbOverride(release, ct).ConfigureAwait(false);
-            }
-            catch (Exception e) when (e is not OperationCanceledException)
-            {
-                Log.Warning(e, "Failed to prepare migration release {StoreRef}: {Message}",
-                    release.StoreRef, e.Message);
-                await store.UpdateSubmissionAsync(sub.StoreRef, current =>
+                byte[] nzbBytes;
+                try
                 {
-                    current.State = "failed";
-                    current.Error = e.Message;
-                    current.Attempt++;
-                }, ct).ConfigureAwait(false);
-                continue;
-            }
-
-            // Preparation can be slow. Do not create a claim unless this run is
-            // still active, then persist the identity before AddFile can mutate
-            // the queue.
-            if (!await CanSubmitNextAsync(store, submissionToken, ct).ConfigureAwait(false))
-                break;
-
-            var claim = await store.ClaimSubmissionAsync(sub.StoreRef, ct).ConfigureAwait(false);
-            var claimedId = Guid.Parse(claim.NzoId!);
-
-            // A pause/cancel can race the durable claim. Leaving it in submitting
-            // is intentional: the next active pass proves no queue item exists
-            // and safely returns the same id to pending.
-            if (!await CanSubmitNextAsync(store, submissionToken, ct).ConfigureAwait(false))
-                break;
-
-            try
-            {
-                if (SubmitPreparedReleaseOverride is null)
-                    await SubmitPreparedReleaseAsync(release, claimedId, nzbBytes, ct).ConfigureAwait(false);
-                else
-                    await SubmitPreparedReleaseOverride(release, claimedId, nzbBytes, ct).ConfigureAwait(false);
-
-                // Persist each success immediately. If the process stops between
-                // AddFile and this save, the durable claim above is recovered by id.
-                await store.UpdateSubmissionAsync(sub.StoreRef, current =>
+                    nzbBytes = BuildNzbOverride is null
+                        ? await BuildNzbAsync(release, session, workerContext, workerToken).ConfigureAwait(false)
+                        : await BuildNzbOverride(release, workerToken).ConfigureAwait(false);
+                }
+                catch (Exception e) when (e is not OperationCanceledException)
                 {
-                    current.NzoId = claimedId.ToString();
-                    current.State = "submitted";
-                    current.SubmittedAt = DateTime.UtcNow;
-                    current.Error = null;
-                }, ct).ConfigureAwait(false);
+                    Log.Warning(e, "Failed to prepare migration release {StoreRef}: {Message}",
+                        release.StoreRef, e.Message);
+                    await store.UpdateSubmissionAsync(storeRef, current =>
+                    {
+                        current.State = "failed";
+                        current.Error = e.Message;
+                        current.Attempt++;
+                    }, workerToken).ConfigureAwait(false);
+                    return;
+                }
 
-                depth++;
-                submitted++;
-            }
-            catch (Exception e) when (e is not OperationCanceledException)
-            {
-                Log.Warning(e,
-                    "Migration release {StoreRef} stopped at the submission boundary; " +
-                    "its durable claim {NzoId} will be recovered before retry",
-                    release.StoreRef, claimedId);
+                // Preparation can be slow. Do not create a claim unless this run is
+                // still active, then persist the identity before AddFile can mutate
+                // the queue.
+                if (Volatile.Read(ref stopScheduling) != 0
+                    || !await CanSubmitNextAsync(store, submissionToken, workerToken).ConfigureAwait(false))
+                    return;
 
-                // The exception may have happened before or after AddFile's DB
-                // commit. Never guess here and never mark the row pending. The
-                // next pass will inspect queue/history using the claimed id.
-                await store.UpdateSubmissionAsync(sub.StoreRef, current =>
+                var claim = await store.ClaimSubmissionAsync(storeRef, workerToken).ConfigureAwait(false);
+                var claimedId = Guid.Parse(claim.NzoId!);
+
+                // A pause/cancel can race the durable claim. Leaving it in submitting
+                // is intentional: the next active pass proves no queue item exists
+                // and safely returns the same id to pending.
+                if (Volatile.Read(ref stopScheduling) != 0
+                    || !await CanSubmitNextAsync(store, submissionToken, workerToken).ConfigureAwait(false))
+                    return;
+
+                try
                 {
-                    current.State = "submitting";
-                    current.Error = $"Submission outcome requires recovery: {e.Message}";
-                }, ct).ConfigureAwait(false);
-                break;
-            }
-        }
+                    if (SubmitPreparedReleaseOverride is null)
+                        await SubmitPreparedReleaseAsync(release, claimedId, nzbBytes, workerToken).ConfigureAwait(false);
+                    else
+                        await SubmitPreparedReleaseOverride(release, claimedId, nzbBytes, workerToken).ConfigureAwait(false);
+
+                    // Persist each success immediately. If the process stops between
+                    // AddFile and this save, the durable claim above is recovered by id.
+                    await store.UpdateSubmissionAsync(storeRef, current =>
+                    {
+                        current.NzoId = claimedId.ToString();
+                        current.State = "submitted";
+                        current.SubmittedAt = DateTime.UtcNow;
+                        current.Error = null;
+                    }, workerToken).ConfigureAwait(false);
+
+                    Interlocked.Increment(ref submitted);
+                }
+                catch (Exception e) when (e is not OperationCanceledException)
+                {
+                    Interlocked.Exchange(ref stopScheduling, 1);
+                    Log.Warning(e,
+                        "Migration release {StoreRef} stopped at the submission boundary; " +
+                        "its durable claim {NzoId} will be recovered before retry",
+                        release.StoreRef, claimedId);
+
+                    // The exception may have happened before or after AddFile's DB
+                    // commit. Never guess here and never mark the row pending. The
+                    // next pass will inspect queue/history using the claimed id.
+                    await store.UpdateSubmissionAsync(storeRef, current =>
+                    {
+                        current.State = "submitting";
+                        current.Error = $"Submission outcome requires recovery: {e.Message}";
+                    }, workerToken).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
 
         return submitted;
     }

@@ -47,6 +47,69 @@ public sealed class SubmissionWorkerPoolTests
     }
 
     [Fact]
+    public async Task SubmitBatch_UsesConfiguredWorkerConcurrency()
+    {
+        await using var h = await MigrationTestHarness.CreateAsync();
+        await SeedPendingAsync(h, "store-a", "store-b", "store-c");
+        await h.Store.UpdateSessionAsync(s => s.SubmitWorkers = 2);
+        using var queueManager = CreateQueueManager();
+        var pool = CreatePool(h, queueManager);
+        var active = 0;
+        var peak = 0;
+        var entered = 0;
+        var twoEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseWorkers = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        pool.SubmitPreparedReleaseOverride = async (_, _, _, _) =>
+        {
+            var current = Interlocked.Increment(ref active);
+            UpdatePeak(ref peak, current);
+            if (Interlocked.Increment(ref entered) == 2)
+                twoEntered.TrySetResult(true);
+            await releaseWorkers.Task;
+            Interlocked.Decrement(ref active);
+        };
+
+        var batch = pool.SubmitBatchAsync(CancellationToken.None);
+        await twoEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, Volatile.Read(ref peak));
+        Assert.Equal(2, Volatile.Read(ref entered));
+        Assert.False(batch.IsCompleted);
+
+        releaseWorkers.TrySetResult(true);
+        Assert.Equal(3, await batch.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(2, peak);
+    }
+
+    [Fact]
+    public async Task SubmitBatch_WorkersNeverExceedAvailableQueueSlots()
+    {
+        await using var h = await MigrationTestHarness.CreateAsync();
+        await SeedPendingAsync(h, "store-a", "store-b", "store-c", "store-d");
+        await h.Store.UpdateSessionAsync(s =>
+        {
+            s.MaxQueueDepth = 2;
+            s.SubmitWorkers = 4;
+        });
+        using var queueManager = CreateQueueManager();
+        var pool = CreatePool(h, queueManager);
+        var submitCalls = 0;
+        pool.SubmitPreparedReleaseOverride = (_, _, _, _) =>
+        {
+            Interlocked.Increment(ref submitCalls);
+            return Task.CompletedTask;
+        };
+
+        var submitted = await pool.SubmitBatchAsync(CancellationToken.None);
+
+        Assert.Equal(2, submitted);
+        Assert.Equal(2, submitCalls);
+        await using var check = h.Mig();
+        Assert.Equal(2, await check.Submissions.CountAsync(s => s.State == "submitted"));
+        Assert.Equal(2, await check.Submissions.CountAsync(s => s.State == "pending"));
+    }
+
+    [Fact]
     public async Task CancelDuringBlockedSubmission_BlocksResetUntilClaimIsReconciled()
     {
         await using var h = await MigrationTestHarness.CreateAsync();
@@ -268,6 +331,18 @@ public sealed class SubmissionWorkerPoolTests
             BuildNzbOverride = (_, _) => Task.FromResult<byte[]>([1]),
         };
         return pool;
+    }
+
+    private static void UpdatePeak(ref int peak, int current)
+    {
+        var observed = Volatile.Read(ref peak);
+        while (current > observed)
+        {
+            var previous = Interlocked.CompareExchange(ref peak, current, observed);
+            if (previous == observed)
+                return;
+            observed = previous;
+        }
     }
 
     private static async Task SeedPendingAsync(MigrationTestHarness h, params string[] storeRefs)
