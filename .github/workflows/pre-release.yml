@@ -55,7 +55,7 @@ jobs:
 
           if [ -n "${PREVIOUS_SHA}" ] && [ "${PREVIOUS_SHA}" != "${SHA}" ]; then
             CHANGELOG=$(gh api "repos/${REPO}/compare/${PREVIOUS_SHA}...${SHA}" \
-              --jq '.commits[] | "• " + (.commit.message | split("\n")[0]) + " (" + (.sha[0:7]) + ")"')
+              --jq '.commits[] | "• " + (.commit.message | split("\n")[0] | sub(" \\(#[0-9]+\\)$"; ""))')
             if [ -n "${CHANGELOG}" ]; then
               ANNOUNCEMENT_BODY=$(printf '%s\n\n**Changes since previous :dev:**\n%s' "${ANNOUNCEMENT_BODY}" "${CHANGELOG}")
             fi
