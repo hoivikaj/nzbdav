@@ -113,8 +113,10 @@ public sealed class SubmissionWorkerPool(
                 }
                 catch (Exception e) when (e is not OperationCanceledException)
                 {
-                    Log.Warning(e, "Failed to prepare migration release {StoreRef}: {Message}",
+                    Log.Warning(
+                        "Failed to prepare migration release {StoreRef}. Reason: {Reason}",
                         release.StoreRef, e.Message);
+                    Log.Debug(e, "Migration release {StoreRef} preparation failure stack", release.StoreRef);
                     await store.UpdateSubmissionAsync(storeRef, current =>
                     {
                         current.State = "failed";
@@ -163,10 +165,14 @@ public sealed class SubmissionWorkerPool(
                 catch (Exception e) when (e is not OperationCanceledException)
                 {
                     Interlocked.Exchange(ref stopScheduling, 1);
-                    Log.Warning(e,
+                    Log.Warning(
                         "Migration release {StoreRef} stopped at the submission boundary; " +
-                        "its durable claim {NzoId} will be recovered before retry",
-                        release.StoreRef, claimedId);
+                        "its durable claim {NzoId} will be recovered before retry. Reason: {Reason}",
+                        release.StoreRef, claimedId, e.Message);
+                    Log.Debug(
+                        e,
+                        "Migration release {StoreRef} submission-boundary failure stack",
+                        release.StoreRef);
 
                     // The exception may have happened before or after AddFile's DB
                     // commit. Never guess here and never mark the row pending. The

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
+using NzbWebDAV.Extensions;
 using NzbWebDAV.UsenetMigration.Symlinks;
 using NzbWebDAV.Config;
 using NzbWebDAV.Queue;
@@ -135,7 +136,17 @@ public sealed class UsenetMigrationRunner : BackgroundService
             }
             catch (Exception e)
             {
-                Log.Error(e, "Usenet migration DB could not be initialised; runner idle.");
+                if (e.TryGetKnownErrorMessage(out var reason))
+                {
+                    Log.Warning(
+                        "Usenet migration database could not be initialised; runner idle. Reason: {Reason}",
+                        reason);
+                    Log.Debug(e, "Usenet migration database initialisation failure stack");
+                }
+                else
+                {
+                    Log.Error(e, "Usenet migration DB could not be initialised; runner idle.");
+                }
                 await Task.Delay(TickInterval, stoppingToken).ConfigureAwait(false);
             }
         }
@@ -153,7 +164,7 @@ public sealed class UsenetMigrationRunner : BackgroundService
             }
             catch (Exception e)
             {
-                Log.Warning(e, "Usenet migration tick failed: {Message}", e.Message);
+                e.LogWarningKnownOrStack("Usenet migration tick failed.");
                 await Task.Delay(TickInterval, stoppingToken).ConfigureAwait(false);
             }
         }

@@ -65,7 +65,10 @@ public sealed class SymlinkRestoreService(UsenetMigrationStore store)
             }
             catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException)
             {
-                Log.Warning(e, "Unable to read symlink restore archive {ArchivePath}", path);
+                Log.Warning(
+                    "Unable to read symlink restore archive {ArchivePath}. Reason: {Reason}",
+                    path, e.Message);
+                Log.Debug(e, "Unreadable symlink restore archive {ArchivePath} failure stack", path);
                 archives.Add(new SymlinkBackupInfo(
                     fileName, GetLastWriteTimeUtc(path), GetFileLength(path), 0, 0, false, e.Message));
             }

@@ -1,4 +1,4 @@
-# Migrate from Altmount [since 0.9.0](https://github.com/nzbdav/nzbdav/releases/tag/v0.9.0)
+# Migrate from Altmount [since 0.9.0](https://github.com/nzbdav/nzbdav/releases/tag/v0.9.0){ .nzbdav-since }
 
 The guided migration under **Settings → Altmount Migration** imports an existing Altmount library by rebuilding each release's NZB and submitting it through NzbDAV's normal queue. It does not modify Altmount metadata or store files.
 
@@ -19,7 +19,7 @@ Note: Altmount does NOT have to be running, but can be, for this process to run.
 
 ## Run the wizard
 
-1. **Connect** — enter the metadata root. Add `config.yaml` when available and the store root when recorded store paths are not directly readable. Keep **Submit Workers** at `1` unless you have a specific reason to increase it; **Max Queue Depth** limits how many imports NzbDAV queues at once.
+1. **Connect** — enter the metadata root. Add `config.yaml` when available and the store root when recorded store paths are not directly readable. **Submit Workers** controls how many imports may cross the queue boundary concurrently; keep it at `1` unless you have a specific reason to increase it. **Max Queue Depth** limits how many imports NzbDAV queues at once.
 2. **Categories** — map every discovered Altmount category to an existing NzbDAV category, or exclude it.
 3. **Scan** — NzbDAV groups metadata by store, verifies the referenced `.nzbz` data, estimates fetch cost, and checks whether the release is already present.
 4. **Review** — inspect red/amber findings, exclusions, filename changes, and collisions. Blocking collisions must be resolved before the run can start.
