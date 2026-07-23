@@ -15,7 +15,7 @@ For headless / container bootstrap, see **[Environment variables](environment-va
 -   **Connections** — [Usenet](usenet.md) · [Indexers](indexers.md) · [Search profiles](profiles.md)
 -   **Playback & automation** — [Watchdog](watchdog.md) · [Preflight](preflight.md) · [Watchtower](watchtower.md) · [Warden](warden.md)
 -   **Integrations** — [SABnzbd](sabnzbd.md) · [WebDAV](webdav.md) · [Radarr/Sonarr](arrs.md) · [Rclone](rclone.md)
--   **System** — [Repairs](repairs.md) · [Maintenance](maintenance.md) · [Backup](backup.md)
+-   **System** — [Repairs](repairs.md) · [Maintenance](maintenance.md) · [Backup](backup.md) · [Altmount migration](../guides/altmount-migration.md) [since 0.9.0](https://github.com/nzbdav/nzbdav/releases/tag/v0.9.0){ .nzbdav-since }
 
 </div>
 

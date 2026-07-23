@@ -11,6 +11,7 @@ import { isIndexersSettingsUpdated, isIndexersSettingsValid, IndexersSettings } 
 import { isProfilesSettingsUpdated, isProfilesSettingsValid, ProfilesSettings } from "./profiles/profiles";
 import { isMaintenanceSettingsUpdated, Maintenance } from "./maintenance/maintenance";
 import { isBackupSettingsUpdated, BackupSettings } from "./backup/backup";
+import { AltmountMigration } from "./altmount-migration/altmount-migration";
 import { isRepairsSettingsUpdated, RepairsSettings } from "./repairs/repairs";
 import { isWatchdogSettingsUpdated, WatchdogSettings } from "./watchdog/watchdog";
 import { isPreflightSettingsUpdated, PreflightSettings } from "./preflight/preflight";
@@ -268,6 +269,7 @@ function Body(props: BodyProps) {
                 {activeTab === "rclone" && <RcloneSettings config={newConfig} setNewConfig={setNewConfig} />}
                 {activeTab === "maintenance" && <Maintenance savedConfig={config} config={newConfig} setNewConfig={setNewConfig} />}
                 {activeTab === "backup" && <BackupSettings config={newConfig} setNewConfig={setNewConfig} />}
+                {activeTab === "altmount-migration" && <AltmountMigration />}
             </SettingsPanel>
 
             {saveError && (
