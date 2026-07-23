@@ -3,8 +3,9 @@
 # Also appends an upvote footer to open Feature issues when missing.
 #
 # Requires repo secret PROJECT_VOTES_TOKEN: a fine-grained PAT (or GitHub App
-# token) with Organization Projects: Read and write, and Issues: Read and write
-# on repositories whose issues appear on the project (at least this repo).
+# token) with Organization Projects: Read and write, and Issues: Read on
+# repositories whose issues appear on the project (at least this repo).
+# Feature footer updates use the workflow GITHUB_TOKEN (issues: write).
 name: Sync issue votes
 
 on:
@@ -14,37 +15,24 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   sync-votes:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync thumbs-up counts to Votes and Feature footers
+      - name: Sync thumbs-up counts to Votes
         env:
           GH_TOKEN: ${{ secrets.PROJECT_VOTES_TOKEN }}
           PROJECT_OWNER: nzbdav
           PROJECT_NUMBER: "1"
           FIELD_NAME: Votes
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           python3 <<'PY'
           import json
           import os
           import subprocess
           import sys
-
-          FOOTER_MARKER = "<!-- nzbdav-votes-footer -->"
-          FOOTER = "\n".join(
-              [
-                  "<!-- nzbdav-votes-footer -->",
-                  "---",
-                  "",
-                  "**Upvote this request** by reacting with a thumbs-up (👍) on this issue. "
-                  "Thumbs-up counts are tracked as Votes on the project board and help us "
-                  "prioritize feature work.",
-              ]
-          )
 
 
           def die(message: str, code: int = 1) -> None:
@@ -78,14 +66,12 @@ jobs:
               die(
                   "PROJECT_VOTES_TOKEN secret is missing or empty. "
                   "Create a fine-grained PAT with Organization Projects: Read and write "
-                  "and Issues: Read and write, then store it as PROJECT_VOTES_TOKEN."
+                  "and Issues: Read, then store it as PROJECT_VOTES_TOKEN."
               )
 
           owner = os.environ["PROJECT_OWNER"]
           project_number = int(os.environ["PROJECT_NUMBER"])
           field_name = os.environ["FIELD_NAME"]
-          repo_owner = os.environ["REPO_OWNER"]
-          repo_name = os.environ["REPO_NAME"]
 
           project_data = gh_graphql(
               """
@@ -250,7 +236,61 @@ jobs:
           print(
               f"Votes sync done. updated={updated} unchanged={unchanged} skipped={skipped}"
           )
+          PY
 
+      - name: Append Feature upvote footers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          FOOTER_MARKER = "<!-- nzbdav-votes-footer -->"
+          FOOTER = "\n".join(
+              [
+                  "<!-- nzbdav-votes-footer -->",
+                  "---",
+                  "",
+                  "**Upvote this request** by reacting with a thumbs-up (👍) on this issue. "
+                  "Thumbs-up counts are tracked as Votes on the project board and help us "
+                  "prioritize feature work.",
+              ]
+          )
+
+
+          def die(message: str, code: int = 1) -> None:
+              print(f"::error::{message}", file=sys.stderr)
+              raise SystemExit(code)
+
+
+          def gh_graphql(query: str, variables: dict | None = None) -> dict:
+              body: dict = {"query": query}
+              if variables is not None:
+                  body["variables"] = variables
+              result = subprocess.run(
+                  ["gh", "api", "graphql", "--input", "-"],
+                  input=json.dumps(body),
+                  capture_output=True,
+                  text=True,
+              )
+              if result.returncode != 0:
+                  die(
+                      "GraphQL request failed: "
+                      + (result.stderr.strip() or result.stdout.strip() or "unknown error")
+                  )
+              payload = json.loads(result.stdout)
+              if payload.get("errors"):
+                  die("GraphQL errors: " + json.dumps(payload["errors"]))
+              return payload["data"]
+
+
+          repo_owner = os.environ["REPO_OWNER"]
+          repo_name = os.environ["REPO_NAME"]
           footer_appended = 0
           footer_present = 0
           footer_skipped = 0

@@ -63,3 +63,9 @@ Chat with other operators, track development, and contribute.
 </div>
 
 Prefer **Issues** for bugs and feature requests that need tracking; use **Discord** for quicker chat. The site header also shows live GitHub stars / forks / latest release when available.
+
+## Feature request voting [since 0.9.0](https://github.com/nzbdav/nzbdav/releases/tag/v0.9.0){ .nzbdav-since }
+
+Want a capability prioritized? Open a **Feature** request on GitHub (Issue Type: Feature), then react with a thumbs-up (👍) on the **issue body** — not on comments.
+
+Thumbs-up counts sync to the [NZBDav Ecosystem](https://github.com/orgs/nzbdav/projects/1) project **Votes** field every few hours and help maintainers prioritize. Feature issues include a short footer that explains how to vote.
