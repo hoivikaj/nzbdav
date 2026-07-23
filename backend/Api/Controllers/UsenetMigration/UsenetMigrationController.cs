@@ -613,6 +613,14 @@ public sealed class UsenetMigrationController(
 
         await using (var ctx = store.NewContext())
         {
+            var unreadable = await ctx.SymlinkRewrites.AsNoTracking()
+                .CountAsync(r => r.Status == "unreadable", HttpContext.RequestAborted)
+                .ConfigureAwait(false);
+            if (unreadable > 0 && request.AcknowledgeUnreadable != true)
+                throw new BadHttpRequestException(
+                    $"The current plan contains {unreadable} unreadable symlink(s). " +
+                    "Review the Unreadable rows, then fix access and rebuild the plan or explicitly acknowledge them.");
+
             var rewrites = await ctx.SymlinkRewrites.AsNoTracking()
                 .CountAsync(r => r.Status == "rewrite", HttpContext.RequestAborted)
                 .ConfigureAwait(false);
@@ -875,7 +883,7 @@ public sealed record ForgetMigrationDataRequest(bool? Confirm);
 
 public sealed record SymlinkPlanRequest(string? LibraryRoot, string? BackupDir);
 
-public sealed record SymlinkApplyRequest(bool? Confirm);
+public sealed record SymlinkApplyRequest(bool? Confirm, bool? AcknowledgeUnreadable);
 
 public sealed record SymlinkRestoreRequest(string? FileName, bool? Confirm);
 

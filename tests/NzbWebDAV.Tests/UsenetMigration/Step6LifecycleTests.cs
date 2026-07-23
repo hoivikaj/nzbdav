@@ -1,5 +1,10 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using NzbWebDAV.Api.Controllers;
+using NzbWebDAV.Api.Controllers.UsenetMigration;
 using NzbWebDAV.Clients.Usenet;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database.Models;
@@ -8,6 +13,7 @@ using NzbWebDAV.Queue;
 using NzbWebDAV.Services;
 using NzbWebDAV.Services.Metrics;
 using NzbWebDAV.Services.StreamTrace;
+using NzbWebDAV.Tests.Database;
 using NzbWebDAV.UsenetMigration;
 using NzbWebDAV.UsenetMigration.Runner;
 using NzbWebDAV.UsenetMigration.Symlinks;
@@ -15,6 +21,7 @@ using NzbWebDAV.Websocket;
 
 namespace NzbWebDAV.Tests.UsenetMigration;
 
+[Collection(nameof(ConfigPathCollection))]
 public sealed class Step6LifecycleTests
 {
     private sealed class BlockingSymlinkOps(string path, string currentTarget) : ISymlinkOps
@@ -142,6 +149,74 @@ public sealed class Step6LifecycleTests
         finally
         {
             File.Delete(notDirectory);
+        }
+    }
+
+    [Fact]
+    public async Task Apply_RequiresExplicitAcknowledgementWhileUnreadableRowsExist()
+    {
+        await using var h = await MigrationTestHarness.CreateAsync();
+        await h.Store.UpdateSessionAsync(s =>
+        {
+            s.Status = "linked";
+            s.SymlinkLibraryRoot = "/library";
+            s.SymlinkBackupDir = "/backups";
+        });
+        await using (var migration = h.Mig())
+        {
+            migration.SymlinkRewrites.AddRange(
+                new MigrationSymlinkRewrite
+                {
+                    SymlinkPath = "/library/rewrite.mkv",
+                    OldTarget = "/mnt/altmount/rewrite.mkv",
+                    NewTarget = "/mnt/nzbdav/.ids/rewrite",
+                    Status = "rewrite",
+                    UpdatedAt = DateTime.UtcNow,
+                },
+                new MigrationSymlinkRewrite
+                {
+                    SymlinkPath = "/library/unreadable.mkv",
+                    OldTarget = "",
+                    Status = "unreadable",
+                    Error = "Permission denied",
+                    UpdatedAt = DateTime.UtcNow,
+                });
+            await migration.SaveChangesAsync();
+        }
+
+        const string apiKey = "step6-unreadable-test-key";
+        var previousApiKey = Environment.GetEnvironmentVariable("FRONTEND_BACKEND_API_KEY");
+        Environment.SetEnvironmentVariable("FRONTEND_BACKEND_API_KEY", apiKey);
+        try
+        {
+            var config = new ConfigManager();
+            using var queueManager = CreateQueueManager();
+            var runner = new UsenetMigrationRunner(
+                h.Store, queueManager, config, new WebsocketManager());
+            using var services = new ServiceCollection()
+                .AddSingleton(config)
+                .AddSingleton(h.Store)
+                .BuildServiceProvider();
+            var httpContext = new DefaultHttpContext { RequestServices = services };
+            httpContext.Request.Headers["x-api-key"] = apiKey;
+            var controller = new UsenetMigrationController(h.Store, runner)
+            {
+                ControllerContext = new ControllerContext { HttpContext = httpContext },
+            };
+
+            var rejected = Assert.IsType<BadRequestObjectResult>(
+                await controller.ApplySymlinks(new SymlinkApplyRequest(true, null)));
+            var rejection = Assert.IsType<BaseApiResponse>(rejected.Value);
+            Assert.Contains("1 unreadable symlink", rejection.Error!);
+            Assert.Equal("linked", (await h.Store.GetSessionAsync()).Status);
+
+            Assert.IsType<OkObjectResult>(
+                await controller.ApplySymlinks(new SymlinkApplyRequest(true, true)));
+            Assert.Equal("applying", (await h.Store.GetSessionAsync()).Status);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FRONTEND_BACKEND_API_KEY", previousApiKey);
         }
     }
 

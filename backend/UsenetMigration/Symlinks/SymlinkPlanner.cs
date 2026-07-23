@@ -12,6 +12,18 @@ namespace NzbWebDAV.UsenetMigration.Symlinks;
 /// <summary>A symlink discovered in the arr/Plex library, reduced to what planning needs.</summary>
 public readonly record struct SymlinkPair(string SymlinkPath, string TargetPath);
 
+/// <summary>A library entry find reported but whose link target could not be read.</summary>
+public readonly record struct UnreadableLink(string SymlinkPath, string Reason);
+
+/// <summary>
+/// A complete census of one library walk. Either the walk succeeded and every entry find
+/// reported appears in exactly one of these lists, or the walk threw. Callers never receive
+/// a partial result.
+/// </summary>
+public sealed record LibraryWalkResult(
+    IReadOnlyList<SymlinkPair> Links,
+    IReadOnlyList<UnreadableLink> Unreadable);
+
 /// <summary>One correlated Altmount virtual file, indexed for suffix matching.</summary>
 public sealed class CorrelatedFile
 {
@@ -40,7 +52,8 @@ public sealed class SymlinkPlanSummary
     public int AlreadyNzbdav { get; init; }
     public int NotAltmount { get; init; }
     public int Orphan { get; init; }
-    public int Total => Rewrite + AlreadyNzbdav + NotAltmount + Orphan;
+    public int Unreadable { get; init; }
+    public int Total => Rewrite + AlreadyNzbdav + NotAltmount + Orphan + Unreadable;
 }
 
 /// <summary>
@@ -63,6 +76,8 @@ public sealed class SymlinkPlanSummary
 /// <item><b>not-altmount</b> — correlates to nothing we scanned. Left untouched. Because
 ///   the scan persists ReleaseFiles for <i>every</i> release (included or not), this is
 ///   cleanly distinct from orphan.</item>
+/// <item><b>unreadable</b> — the walk found the symlink but could not read its target.
+///   Left untouched and surfaced for explicit review.</item>
 /// </list>
 /// </summary>
 public sealed class SymlinkPlanner(UsenetMigrationStore store, ConfigManager configManager)
@@ -71,7 +86,7 @@ public sealed class SymlinkPlanner(UsenetMigrationStore store, ConfigManager con
     internal Func<DavDatabaseContext>? DavContextFactory { get; set; }
 
     /// <summary>Test seam for library enumeration; production uses the real filesystem walk.</summary>
-    internal Func<string, IEnumerable<SymlinkPair>> SymlinkEnumerator { get; set; } = DefaultEnumerator;
+    internal Func<string, CancellationToken, LibraryWalkResult> SymlinkEnumerator { get; set; } = DefaultEnumerator;
 
     /// <summary>Test seam for validating the production library root.</summary>
     internal Func<string, string> LibraryRootValidator { get; set; } = SymlinkPathGuard.RequireRealLibraryRoot;
@@ -86,13 +101,12 @@ public sealed class SymlinkPlanner(UsenetMigrationStore store, ConfigManager con
 
         // Correlate + match, then classify against a fresh library walk.
         var index = await BuildCorrelationIndexAsync(ct).ConfigureAwait(false);
-
-        await using var ctx = store.NewContext();
-        // A plan is a fresh dry-run each time — clear any prior one.
-        await ctx.SymlinkRewrites.ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        var walk = SymlinkEnumerator(libraryRoot, ct);
 
         int rewrite = 0, already = 0, notAltmount = 0, orphan = 0;
-        foreach (var link in SymlinkEnumerator(libraryRoot))
+        var plannedAt = DateTime.UtcNow;
+        var rows = new List<MigrationSymlinkRewrite>(walk.Links.Count + walk.Unreadable.Count);
+        foreach (var link in walk.Links)
         {
             ct.ThrowIfCancellationRequested();
             var c = Classify(link.TargetPath, index, mountDir);
@@ -104,7 +118,7 @@ public sealed class SymlinkPlanner(UsenetMigrationStore store, ConfigManager con
                 default: orphan++; break;
             }
 
-            ctx.SymlinkRewrites.Add(new MigrationSymlinkRewrite
+            rows.Add(new MigrationSymlinkRewrite
             {
                 SymlinkPath = link.SymlinkPath,
                 OldTarget = link.TargetPath,
@@ -112,11 +126,40 @@ public sealed class SymlinkPlanner(UsenetMigrationStore store, ConfigManager con
                 Status = c.Status,
                 MatchMethod = c.MatchMethod,
                 StoreRef = c.StoreRef,
-                UpdatedAt = DateTime.UtcNow,
+                UpdatedAt = plannedAt,
             });
         }
 
+        foreach (var link in walk.Unreadable)
+        {
+            ct.ThrowIfCancellationRequested();
+            rows.Add(new MigrationSymlinkRewrite
+            {
+                SymlinkPath = link.SymlinkPath,
+                OldTarget = "",
+                NewTarget = null,
+                Status = "unreadable",
+                Error = link.Reason,
+                UpdatedAt = plannedAt,
+            });
+        }
+
+        await using var ctx = store.NewContext();
+        await using var transaction = await ctx.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+        // Replace the prior plan atomically only after the complete walk and
+        // classification have succeeded.
+        await ctx.SymlinkRewrites.ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        ctx.SymlinkRewrites.AddRange(rows);
         await ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+
+        foreach (var link in walk.Unreadable)
+        {
+            Log.Warning(
+                "Library symlink {SymlinkPath} could not be classified and will remain unchanged. Reason: {Reason}",
+                link.SymlinkPath,
+                link.Reason);
+        }
 
         var summary = new SymlinkPlanSummary
         {
@@ -124,11 +167,12 @@ public sealed class SymlinkPlanner(UsenetMigrationStore store, ConfigManager con
             AlreadyNzbdav = already,
             NotAltmount = notAltmount,
             Orphan = orphan,
+            Unreadable = walk.Unreadable.Count,
         };
         Log.Information(
             "Symlink plan: {Total} links — {Rewrite} rewrite, {Orphan} orphan, " +
-            "{Already} already-nzbdav, {NotAltmount} not-altmount",
-            summary.Total, rewrite, orphan, already, notAltmount);
+            "{Already} already-nzbdav, {NotAltmount} not-altmount, {Unreadable} unreadable",
+            summary.Total, rewrite, orphan, already, notAltmount, summary.Unreadable);
         return summary;
     }
 
@@ -370,6 +414,6 @@ public sealed class SymlinkPlanner(UsenetMigrationStore store, ConfigManager con
             .ToList();
     }
 
-    private static IEnumerable<SymlinkPair> DefaultEnumerator(string libraryRoot) =>
-        MigrationSymlinkUtil.GetAllSymlinks(libraryRoot);
+    private static LibraryWalkResult DefaultEnumerator(string libraryRoot, CancellationToken ct) =>
+        MigrationSymlinkUtil.GetAllSymlinks(libraryRoot, ct);
 }

@@ -36,6 +36,7 @@ const LINK_STEP = 5;
 const SYMLINK_STATUS_HELP: Record<string, string> = {
     rewrite: "Points to Altmount and has a verified NzbDAV replacement.",
     orphan: "Points to Altmount, but no safe NzbDAV match was found.",
+    unreadable: "Found in the library, but its target could not be read or classified. It remains unchanged and may still point at Altmount.",
     "already-nzbdav": "Already points to NzbDAV, so no change is needed.",
     "not-altmount": "Does not point to Altmount and will be left unchanged.",
     applied: "Successfully repointed to NzbDAV.",
@@ -45,6 +46,7 @@ const SYMLINK_STATUS_HELP: Record<string, string> = {
 const SYMLINK_STATUS_LABELS: Record<string, string> = {
     rewrite: "Rewrite",
     orphan: "Orphan",
+    unreadable: "Unreadable",
     "already-nzbdav": "NzbDAV",
     "not-altmount": "Other",
     applied: "Applied",
@@ -881,14 +883,15 @@ function SymlinkResults({ m }: { m: Hook }) {
 
     const counts = data.counts;
     const rewrites = counts["rewrite"] ?? 0;
+    const unreadable = counts["unreadable"] ?? 0;
     const applied = counts["applied"] ?? 0;
     const failed = counts["failed"] ?? 0;
     const canApply = !loading && loadError === null && rewrites > 0 && m.busy === null;
     const pages = Math.max(1, Math.ceil(data.total / filters.pageSize));
 
-    const doApply = () => {
+    const doApply = (acknowledgeUnreadable?: boolean) => {
         setConfirmApply(false);
-        void m.applySymlinks();
+        void m.applySymlinks(acknowledgeUnreadable === true);
     };
 
     return (
@@ -901,9 +904,10 @@ function SymlinkResults({ m }: { m: Hook }) {
                 </Alert>
             )}
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
                 <StatTile label="Rewrite" value={rewrites} tone="success" help={SYMLINK_STATUS_HELP.rewrite} />
                 <StatTile label="Orphan" value={counts["orphan"] ?? 0} tone={(counts["orphan"] ?? 0) > 0 ? "warning" : undefined} help={SYMLINK_STATUS_HELP.orphan} />
+                {unreadable > 0 && <StatTile label="Unreadable" value={unreadable} tone="error" help={SYMLINK_STATUS_HELP.unreadable} />}
                 <StatTile label="NzbDAV" value={counts["already-nzbdav"] ?? 0} help={SYMLINK_STATUS_HELP["already-nzbdav"]} />
                 <StatTile label="Other" value={counts["not-altmount"] ?? 0} help={SYMLINK_STATUS_HELP["not-altmount"]} />
                 <StatTile label="Applied" value={applied} tone={applied > 0 ? "success" : undefined} help={SYMLINK_STATUS_HELP.applied} />
@@ -916,10 +920,15 @@ function SymlinkResults({ m }: { m: Hook }) {
                     Apply {rewrites} rewrite(s)
                 </Button>
                 {!loading && !loadError && rewrites === 0 && applied === 0 && (
-                    <span className="text-xs text-base-content/50">No rewrites to apply — every symlink is already correct, orphaned, or unrelated.</span>
+                    unreadable > 0
+                        ? <span className="text-xs text-error">No verified rewrites are available; {unreadable} unreadable symlink(s) remain unchanged and require review.</span>
+                        : <span className="text-xs text-base-content/50">No rewrites to apply — every symlink is already correct, orphaned, or unrelated.</span>
                 )}
                 {applied > 0 && (
-                    <span className="text-xs text-success">{applied} symlink(s) rewritten. A restore tarball is in your backup directory.</span>
+                    <span className="text-xs text-success">
+                        {applied} symlink(s) rewritten. A restore tarball is in your backup directory.
+                        {unreadable > 0 && <span className="ml-1 text-error">{unreadable} unreadable symlink(s) remain unchanged.</span>}
+                    </span>
                 )}
             </div>
 
@@ -932,6 +941,7 @@ function SymlinkResults({ m }: { m: Hook }) {
                     <option value="">All statuses</option>
                     <option value="rewrite">Rewrite</option>
                     <option value="orphan">Orphan</option>
+                    <option value="unreadable">Unreadable</option>
                     <option value="already-nzbdav">NzbDAV</option>
                     <option value="not-altmount">Other</option>
                     <option value="applied">Applied</option>
@@ -1000,6 +1010,13 @@ function SymlinkResults({ m }: { m: Hook }) {
                         and only symlinks are changed — never the files they point at. Continue?
                     </>
                 }
+                checkboxMessage={unreadable > 0
+                    ? `I acknowledge that ${unreadable} unreadable symlink(s) will remain unchanged`
+                    : undefined}
+                requireCheckbox={unreadable > 0}
+                errorMessage={unreadable > 0
+                    ? `${unreadable} symlink(s) could not be classified and may still point at Altmount.`
+                    : undefined}
                 cancelText="Cancel"
                 confirmText="Apply"
                 onCancel={() => setConfirmApply(false)}
@@ -1189,7 +1206,7 @@ function HistoryCleanupAction({ m }: { m: Hook }) {
 function SymlinkStatusBadge({ status }: { status: string }) {
     const cls = status === "rewrite" ? "badge-info"
         : status === "applied" ? "badge-success"
-        : status === "failed" ? "badge-error"
+        : status === "failed" || status === "unreadable" ? "badge-error"
         : status === "orphan" ? "badge-warning"
         : "badge-ghost";
     const badge = <Badge className={`badge-sm ${cls} badge-soft cursor-help`}>{SYMLINK_STATUS_LABELS[status] ?? status}</Badge>;

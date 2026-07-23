@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 
@@ -11,18 +12,26 @@ internal static class MigrationSymlinkUtil
 {
     private const int MaxStderrChars = 4096;
 
-    internal static IReadOnlyList<SymlinkPair> GetAllSymlinks(string directoryPath)
+    internal static LibraryWalkResult GetAllSymlinks(
+        string directoryPath,
+        CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         return OperatingSystem.IsLinux()
-            ? GetAllSymlinksLinux(directoryPath)
-            : GetAllSymlinksManaged(directoryPath);
+            ? GetAllSymlinksLinux(directoryPath, ct)
+            : GetAllSymlinksManaged(directoryPath, ct);
     }
 
-    private static IReadOnlyList<SymlinkPair> GetAllSymlinksLinux(string directoryPath)
+    private static LibraryWalkResult GetAllSymlinksLinux(
+        string directoryPath,
+        CancellationToken ct)
     {
         var startInfo = CreateLinuxFindStartInfo(directoryPath);
         using var process = Process.Start(startInfo)
                             ?? throw new InvalidOperationException("Unable to start migration symlink scan.");
+        using var cancellationRegistration = ct.Register(
+            static state => TryKill((Process)state!),
+            process);
 
         // Drain stderr while stdout is consumed so a large number of traversal
         // errors cannot fill the process pipe and deadlock the scan.
@@ -42,18 +51,40 @@ internal static class MigrationSymlinkUtil
         };
         process.BeginErrorReadLine();
 
-        // Materialize the complete result before returning it. If find fails,
-        // callers never receive a partial migration plan.
-        var symlinks = new List<SymlinkPair>();
-        while (ReadNullTerminated(process.StandardOutput) is { } symlinkPath)
+        // This walk is a census: every entry find reports is returned as either
+        // readable or unreadable. If traversal itself fails, throw rather than
+        // handing callers a partial result.
+        var links = new List<SymlinkPair>();
+        var unreadable = new List<UnreadableLink>();
+        try
         {
-            var fullPath = Path.GetFullPath(symlinkPath);
-            var target = new FileInfo(fullPath).LinkTarget;
-            if (target is not null)
-                symlinks.Add(new SymlinkPair(fullPath, target));
+            while (ReadNullTerminated(process.StandardOutput, ct) is { } symlinkPath)
+            {
+                ct.ThrowIfCancellationRequested();
+                var fullPath = Path.GetFullPath(symlinkPath);
+                try
+                {
+                    var target = new FileInfo(fullPath).LinkTarget;
+                    if (target is not null)
+                        links.Add(new SymlinkPair(fullPath, target));
+                    else
+                        unreadable.Add(new UnreadableLink(fullPath, DescribeUnreadable(fullPath)));
+                }
+                catch (Exception e)
+                {
+                    unreadable.Add(new UnreadableLink(fullPath, e.Message));
+                }
+            }
+
+            process.WaitForExit();
+            ct.ThrowIfCancellationRequested();
+        }
+        catch
+        {
+            TryKill(process);
+            throw;
         }
 
-        process.WaitForExit();
         if (process.ExitCode != 0)
         {
             string stderr;
@@ -65,7 +96,7 @@ internal static class MigrationSymlinkUtil
                 (string.IsNullOrWhiteSpace(stderr) ? "." : $": {stderr}"));
         }
 
-        return symlinks;
+        return new LibraryWalkResult(links, unreadable);
     }
 
     /// <summary>
@@ -94,26 +125,82 @@ internal static class MigrationSymlinkUtil
         return startInfo;
     }
 
-    private static IReadOnlyList<SymlinkPair> GetAllSymlinksManaged(string directoryPath)
+    private static LibraryWalkResult GetAllSymlinksManaged(
+        string directoryPath,
+        CancellationToken ct)
     {
-        return Directory.EnumerateFileSystemEntries(directoryPath, "*", SearchOption.AllDirectories)
-            .Select(path => new FileInfo(path))
-            .Where(info => info.Attributes.HasFlag(FileAttributes.ReparsePoint) && info.LinkTarget is not null)
-            .Select(info => new SymlinkPair(info.FullName, info.LinkTarget!))
-            .ToList();
+        var links = new List<SymlinkPair>();
+        var unreadable = new List<UnreadableLink>();
+        foreach (var path in Directory.EnumerateFileSystemEntries(
+                     directoryPath,
+                     "*",
+                     SearchOption.AllDirectories))
+        {
+            ct.ThrowIfCancellationRequested();
+            var info = new FileInfo(path);
+            try
+            {
+                if (!info.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    continue;
+
+                var target = info.LinkTarget;
+                if (target is not null)
+                    links.Add(new SymlinkPair(info.FullName, target));
+                else
+                    unreadable.Add(new UnreadableLink(info.FullName, DescribeUnreadable(info.FullName)));
+            }
+            catch (Exception e)
+            {
+                unreadable.Add(new UnreadableLink(info.FullName, e.Message));
+            }
+        }
+
+        return new LibraryWalkResult(links, unreadable);
     }
 
-    private static string? ReadNullTerminated(StreamReader reader)
+    private static string DescribeUnreadable(string fullPath)
+    {
+        try
+        {
+            return File.ResolveLinkTarget(fullPath, returnFinalTarget: false) is null
+                ? "The path is no longer a symlink."
+                : "The link target could not be read.";
+        }
+        catch (Exception e)
+        {
+            return e.Message;
+        }
+    }
+
+    private static string? ReadNullTerminated(StreamReader reader, CancellationToken ct)
     {
         var value = new StringBuilder();
         while (true)
         {
+            ct.ThrowIfCancellationRequested();
             var next = reader.Read();
             if (next < 0)
                 return value.Length == 0 ? null : value.ToString();
             if (next == '\0')
                 return value.ToString();
             value.Append((char)next);
+        }
+    }
+
+    private static void TryKill(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+            // The process exited between HasExited and Kill.
+        }
+        catch (Win32Exception)
+        {
+            // Best effort during cancellation or exceptional cleanup.
         }
     }
 }

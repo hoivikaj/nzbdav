@@ -12,7 +12,7 @@ namespace NzbWebDAV.Tests.UsenetMigration;
 /// End-to-end coverage of <see cref="SymlinkPlanner"/> over both databases: it
 /// exercises <see cref="SymlinkMatcher.LoadLeavesAsync"/> against the live Dav DB
 /// (leaves found by durable NzbBlobId after HistoryItemId cleanup), conservative
-/// matching, all four classifications, NewTarget == GetTargetPath, and that
+/// matching, symlink classifications, NewTarget == GetTargetPath, and that
 /// NewDavItemId is persisted back onto matched ReleaseFiles.
 /// </summary>
 public class SymlinkPlannerTests
@@ -100,7 +100,7 @@ public class SymlinkPlannerTests
         var planner = new SymlinkPlanner(h.Store, config)
         {
             DavContextFactory = h.DavFactory,
-            SymlinkEnumerator = _ => links,
+            SymlinkEnumerator = (_, _) => new LibraryWalkResult(links, []),
             LibraryRootValidator = root => root,
         };
 
@@ -147,7 +147,9 @@ public class SymlinkPlannerTests
         var planner = new SymlinkPlanner(h.Store, config)
         {
             DavContextFactory = h.DavFactory,
-            SymlinkEnumerator = _ => new[] { new SymlinkPair("/lib/x.mkv", "/mnt/other/x.mkv") },
+            SymlinkEnumerator = (_, _) => new LibraryWalkResult(
+                [new SymlinkPair("/lib/x.mkv", "/mnt/other/x.mkv")],
+                []),
             LibraryRootValidator = root => root,
         };
 
@@ -159,7 +161,7 @@ public class SymlinkPlannerTests
     }
 
     [Fact]
-    public async Task Plan_TraversalFailure_DoesNotPersistPartialPlan()
+    public async Task Plan_TraversalFailure_LeavesPriorPlanIntact()
     {
         await using var h = await MigrationTestHarness.CreateAsync();
         await h.Store.UpdateSessionAsync(s =>
@@ -168,16 +170,23 @@ public class SymlinkPlannerTests
             s.Status = "linked";
         });
 
-        static IEnumerable<SymlinkPair> FailAfterOneLink()
+        await using (var seed = h.Mig())
         {
-            yield return new SymlinkPair("/lib/partial.mkv", "/mnt/altmount/tv/partial.mkv");
-            throw new IOException("simulated traversal failure");
+            seed.SymlinkRewrites.Add(new MigrationSymlinkRewrite
+            {
+                SymlinkPath = "/lib/prior.mkv",
+                OldTarget = "/mnt/altmount/tv/prior.mkv",
+                NewTarget = "/mnt/nzbdav/.ids/prior",
+                Status = "rewrite",
+                UpdatedAt = DateTime.UtcNow,
+            });
+            await seed.SaveChangesAsync();
         }
 
         var planner = new SymlinkPlanner(h.Store, new ConfigManager())
         {
             DavContextFactory = h.DavFactory,
-            SymlinkEnumerator = _ => FailAfterOneLink(),
+            SymlinkEnumerator = (_, _) => throw new IOException("simulated traversal failure"),
             LibraryRootValidator = root => root,
         };
 
@@ -185,7 +194,41 @@ public class SymlinkPlannerTests
 
         Assert.Contains("traversal failure", error.Message);
         await using var mig = h.Mig();
-        Assert.Empty(await mig.SymlinkRewrites.ToListAsync());
+        var prior = Assert.Single(await mig.SymlinkRewrites.ToListAsync());
+        Assert.Equal("/lib/prior.mkv", prior.SymlinkPath);
+        Assert.Equal("rewrite", prior.Status);
+    }
+
+    [Fact]
+    public async Task Plan_UnreadableLinks_ArePlannedNotDropped()
+    {
+        await using var h = await MigrationTestHarness.CreateAsync();
+        await h.Store.UpdateSessionAsync(s =>
+        {
+            s.SymlinkLibraryRoot = "/lib";
+            s.Status = "linked";
+        });
+
+        var planner = new SymlinkPlanner(h.Store, new ConfigManager())
+        {
+            DavContextFactory = h.DavFactory,
+            SymlinkEnumerator = (_, _) => new LibraryWalkResult(
+                [new SymlinkPair("/lib/readable.mkv", "/mnt/other/readable.mkv")],
+                [new UnreadableLink("/lib/unreadable.mkv", "Permission denied")]),
+            LibraryRootValidator = root => root,
+        };
+
+        var summary = await planner.PlanAsync();
+
+        Assert.Equal(1, summary.NotAltmount);
+        Assert.Equal(1, summary.Unreadable);
+        Assert.Equal(2, summary.Total);
+        await using var mig = h.Mig();
+        var unreadable = await mig.SymlinkRewrites.SingleAsync(r => r.Status == "unreadable");
+        Assert.Equal("/lib/unreadable.mkv", unreadable.SymlinkPath);
+        Assert.Equal("", unreadable.OldTarget);
+        Assert.Null(unreadable.NewTarget);
+        Assert.Equal("Permission denied", unreadable.Error);
     }
 
     [Fact]
@@ -245,10 +288,9 @@ public class SymlinkPlannerTests
         var planner = new SymlinkPlanner(h.Store, config)
         {
             DavContextFactory = h.DavFactory,
-            SymlinkEnumerator = _ => new[]
-            {
-                new SymlinkPair("/lib/earlier.mkv", "/mnt/altmount/tv/Earlier/Earlier.mkv"),
-            },
+            SymlinkEnumerator = (_, _) => new LibraryWalkResult(
+                [new SymlinkPair("/lib/earlier.mkv", "/mnt/altmount/tv/Earlier/Earlier.mkv")],
+                []),
             LibraryRootValidator = root => root,
         };
 

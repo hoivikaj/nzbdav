@@ -8,9 +8,40 @@ import {
     canStartScanMigration,
     isMigrationWorkActive,
     loadTableRetainingLastGood,
+    requestSymlinkApply,
     runUiMutation,
     type SessionStatus,
 } from "./use-altmount-migration";
+
+describe("requestSymlinkApply", () => {
+    it.each([
+        [undefined, false],
+        [true, true],
+    ] as const)("sends unreadable acknowledgement %s", async (input, expected) => {
+        const originalFetch = globalThis.fetch;
+        const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+            new Response(JSON.stringify({ status: true }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+            }),
+        );
+        globalThis.fetch = fetchMock;
+        try {
+            await requestSymlinkApply(input);
+
+            expect(fetchMock).toHaveBeenCalledOnce();
+            const [url, init] = fetchMock.mock.calls[0];
+            expect(url).toBe("/api/altmount-migration/symlinks/apply");
+            expect(init?.method).toBe("POST");
+            expect(JSON.parse(String(init?.body))).toEqual({
+                confirm: true,
+                acknowledgeUnreadable: expected,
+            });
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+});
 
 describe("beginLatestRequest", () => {
     it("invalidates older request tickets when a newer refresh starts", () => {

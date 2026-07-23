@@ -245,6 +245,13 @@ function jsonInit(method: string, payload: unknown): FetchInit {
     };
 }
 
+export async function requestSymlinkApply(acknowledgeUnreadable = false): Promise<void> {
+    await apiJson(
+        `${BASE}/symlinks/apply`,
+        jsonInit("POST", { confirm: true, acknowledgeUnreadable }),
+    );
+}
+
 export async function runUiMutation(
     fn: () => Promise<void>,
     recordError: (message: string) => void,
@@ -456,8 +463,8 @@ export function useAltmountMigration() {
         return apiJson<SymlinkListResponse>(`${BASE}/symlinks?${params.toString()}`);
     }, []);
 
-    const applySymlinks = useCallback(() => withBusy("symlink-apply", async () => {
-        await apiJson(`${BASE}/symlinks/apply`, jsonInit("POST", { confirm: true }));
+    const applySymlinks = useCallback((acknowledgeUnreadable = false) => withBusy("symlink-apply", async () => {
+        await requestSymlinkApply(acknowledgeUnreadable);
         await refresh();
     }), [withBusy, refresh]);
 

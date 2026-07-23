@@ -32,6 +32,18 @@ The wizard can be reset after work reaches a non-active state. Resetting clears 
 
 Set **Library Root** to the media library containing the links and **Backup Directory** to a separate writable location. Apply and restore are confined to the Library Root and reject symlinked or reparse-point parent directories. If a link target changes after planning, the drift guard leaves it untouched.
 
+The dry-run plan classifies every symlink found during the library walk:
+
+| Status | Meaning |
+|--------|---------|
+| `rewrite` | Points to Altmount and has a verified NzbDAV replacement. |
+| `orphan` | Points to Altmount, but no safe NzbDAV match was found. |
+| `unreadable` | The link was found, but its target could not be read or classified. It remains unchanged and may still point at Altmount. Review directory permissions and filenames that are not valid UTF-8, and check whether another process changed the entry during the scan. Applying other rewrites requires explicit acknowledgement of these gaps. |
+| `already-nzbdav` | Already points to NzbDAV and needs no change. |
+| `not-altmount` | Does not correlate to scanned Altmount content and is left unchanged. |
+| `applied` | Successfully repointed to NzbDAV. |
+| `failed` | A verified rewrite was attempted but could not be completed. |
+
 Use **Restore previous rewrite** to select a generated archive. Restore verifies that each link still points to the replacement recorded by that archive before restoring its original target.
 
 ## Troubleshooting
@@ -43,7 +55,7 @@ Use **Restore previous rewrite** to select a generated archive. Restore verifies
 | A release is already migrated | It is not resubmitted; retained provenance can still be used for symlink matching. |
 | Start migration is disabled | Resolve blocking collisions, map or exclude every category, and successfully refresh the review tables. |
 | Reset is disabled | Cancel active work and wait for the session to reach a non-active state. A paused run is still active. |
-| A symlink is `orphan` or `failed` | Review its match/target details. The wizard will not guess or overwrite a link that cannot be verified safely. |
+| A symlink is `orphan`, `unreadable`, or `failed` | Review its match/target details. The wizard will not guess or overwrite a link that cannot be verified safely. |
 
 ## Related
 
