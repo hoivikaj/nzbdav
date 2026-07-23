@@ -64,6 +64,9 @@ class Program
             .MinimumLevel.Override("Microsoft.AspNetCore.Routing", AtLeast(level, LogEventLevel.Warning))
             .MinimumLevel.Override("Microsoft.AspNetCore.Server.Kestrel", AtLeast(level, LogEventLevel.Error))
             .MinimumLevel.Override("Microsoft.AspNetCore.DataProtection", AtLeast(level, LogEventLevel.Error))
+            // NWebDav logs every remaining property as an Error after a
+            // PROPFIND client disconnects. Suppress only that known event.
+            .Filter.ByExcluding(NWebDavLogFilter.IsCancelledPropFindPropertyError)
             .WriteTo.Console(new ExpressionTemplate(
                 "[{@t:HH:mm:ss} {@l:u3}] " +
                 "{#if SourceContext is not null}" +
