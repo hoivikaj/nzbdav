@@ -7,6 +7,7 @@ using NzbWebDAV.Exceptions;
 using NzbWebDAV.Extensions;
 using NzbWebDAV.Models;
 using NzbWebDAV.Models.Nzb;
+using NzbWebDAV.Queue;
 using Serilog;
 using UsenetSharp.Models;
 using UsenetSharp.Streams;
@@ -50,7 +51,7 @@ public static class FetchFirstSegmentsStep
         await foreach (var result in files
                            .Select(x => FetchFirstSegment(x, usenetClient, abortCts.Token))
                            .WithConcurrencyAsync(
-                               Math.Min(configManager.GetMaxQueueConnections() + 5, 50),
+                               QueueFanOut.GetConcurrency(abortCts.Token, configManager),
                                abortCts.Token)
                            .WithCancellation(abortCts.Token)
                            .ConfigureAwait(false))
@@ -163,7 +164,7 @@ public static class FetchFirstSegmentsStep
             await foreach (var (i, result) in pending
                                .Select(i => RescueFirstSegment(i, files[i], usenetClient, rescueAbortCts.Token))
                                .WithConcurrencyAsync(
-                                   Math.Min(configManager.GetMaxQueueConnections() + 5, 50),
+                                   QueueFanOut.GetConcurrency(rescueAbortCts.Token, configManager),
                                    rescueAbortCts.Token)
                                .WithCancellation(rescueAbortCts.Token)
                                .ConfigureAwait(false))

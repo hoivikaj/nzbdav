@@ -42,6 +42,26 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     onChange={e => setNewConfig({ ...config, "usenet.max-queue-connections": e.target.value })} />
                 <p className="text-[11px] leading-relaxed text-base-content/45" id="max-queue-connections-help">
                     Connections available to queue imports. Leave blank to use all provider connections.
+                    Shared across concurrent queue workers and background health checks.
+                </p>
+            </div>
+            </ManagedSetting>
+            <hr />
+            <ManagedSetting configKey="queue.worker-count">
+            <div className="space-y-2">
+                <label className="block text-sm font-medium text-base-content" htmlFor="queue-worker-count-input">Concurrent Queue Downloads</label>
+                <Input
+                    {...className(['w-full', !isValidQueueWorkerCount(config["queue.worker-count"]) && 'input-error'])}
+                    type="text"
+                    id="queue-worker-count-input"
+                    aria-describedby="queue-worker-count-help"
+                    placeholder="1"
+                    value={config["queue.worker-count"] ?? "1"}
+                    onChange={e => setNewConfig({ ...config, "queue.worker-count": e.target.value })} />
+                <p className="text-[11px] leading-relaxed text-base-content/45" id="queue-worker-count-help">
+                    How many NZB queue items may process at once (1–8, default 1). The first active item
+                    gets preferred access to Queue Download Connections; additional items use spare capacity.
+                    Raising this does not increase the connection budget.
                 </p>
             </div>
             </ManagedSetting>
@@ -351,6 +371,7 @@ export function isWebdavSettingsUpdated(config: Record<string, string>, newConfi
         || config["usenet.max-download-connections-per-stream"] !== newConfig["usenet.max-download-connections-per-stream"]
         || config["usenet.max-download-connections-per-stream-preset"] !== newConfig["usenet.max-download-connections-per-stream-preset"]
         || config["usenet.max-queue-connections"] !== newConfig["usenet.max-queue-connections"]
+        || config["queue.worker-count"] !== newConfig["queue.worker-count"]
         || config["usenet.streaming-priority"] !== newConfig["usenet.streaming-priority"]
         || config["usenet.streaming-segment-timeout-seconds"] !== newConfig["usenet.streaming-segment-timeout-seconds"]
         || config["usenet.streaming-segment-retries"] !== newConfig["usenet.streaming-segment-retries"]
@@ -373,6 +394,7 @@ export function isWebdavSettingsValid(newConfig: Record<string, string>) {
     return isValidUser(newConfig["webdav.user"])
         && isValidMaxDownloadConnections(newConfig["usenet.max-download-connections"])
         && isValidMaxQueueConnections(newConfig["usenet.max-queue-connections"])
+        && isValidQueueWorkerCount(newConfig["queue.worker-count"])
         && isValidStreamingPriority(newConfig["usenet.streaming-priority"])
         && isValidStreamingSegmentTimeout(newConfig["usenet.streaming-segment-timeout-seconds"])
         && isValidStreamingSegmentRetries(newConfig["usenet.streaming-segment-retries"])
@@ -400,6 +422,12 @@ function isValidMaxDownloadConnections(value: string | undefined): boolean {
 
 function isValidMaxQueueConnections(value: string): boolean {
     return value.trim() === "" || isPositiveInteger(value);
+}
+
+function isValidQueueWorkerCount(value: string | undefined): boolean {
+    if (value == null || value.trim() === "") return true;
+    const num = Number(value);
+    return Number.isInteger(num) && num >= 1 && num <= 8;
 }
 
 function isValidStreamingPriority(value: string): boolean {
