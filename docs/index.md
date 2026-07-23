@@ -167,7 +167,7 @@ Then open `http://localhost:3000` (self-hosted) or your DUMB service URL, create
 
     ---
 
-    What every Settings control does, plus the headless environment-variable schema.
+    What every Settings control does, plus the [headless `NZBDAV_CONFIG__...` schema](configuration/headless.md).
 
     [:octicons-arrow-right-24: Settings reference](configuration/index.md)
 

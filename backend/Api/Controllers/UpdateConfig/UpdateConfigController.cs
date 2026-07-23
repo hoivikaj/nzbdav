@@ -15,11 +15,8 @@ public class UpdateConfigController(DavDatabaseClient dbClient, ConfigManager co
 {
     private async Task<UpdateConfigResponse> UpdateConfig(UpdateConfigRequest request)
     {
-        // Validate incoming values up-front so a malformed value is rejected here with a
-        // clear message instead of throwing later deep inside a request or background task.
-        // Run before webdav.pass hashing so validation sees the raw submitted value.
-        ConfigManager.ValidateConfigItems(request.ConfigItems);
-
+        // Reject ENV-managed keys before validation so malformed managed payloads
+        // cannot leak submitted values through ValidateConfigItems error text.
         var managed = request.ConfigItems
             .Where(item => configManager.IsEnvironmentManaged(item.ConfigName))
             .Select(item => item.ConfigName)
@@ -37,6 +34,12 @@ public class UpdateConfigController(DavDatabaseClient dbClient, ConfigManager co
                 $"Cannot update environment-managed setting(s): {details}. " +
                 "Change the container environment and restart instead.");
         }
+
+        // Validate SQLite-owned values up-front so a malformed value is rejected here
+        // with a clear message instead of throwing later deep inside a request or
+        // background task. Run before webdav.pass hashing so validation sees the raw
+        // submitted value.
+        ConfigManager.ValidateConfigItems(request.ConfigItems);
 
         var configNames = request.ConfigItems.Select(x => x.ConfigName).ToHashSet();
         var existingItems = await dbClient.Ctx.ConfigItems

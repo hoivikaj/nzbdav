@@ -25,8 +25,8 @@ These remain separate persistence / operational domains — they are **not** dri
 
 Take the Settings config key (documented on each [configuration](index.md) page), then:
 
-1. Replace every `.` with `__`
-2. Replace every `-` with `_`
+1. Replace every `-` with `_`
+2. Replace every `.` with `__`
 3. Uppercase
 4. Prefix with `NZBDAV_CONFIG__`
 
@@ -39,7 +39,7 @@ Examples:
 | `api.addurl-trusted-hosts` | `NZBDAV_CONFIG__API__ADDURL_TRUSTED_HOSTS` |
 | `usenet.providers` | `NZBDAV_CONFIG__USENET__PROVIDERS` |
 
-Structured settings use the same JSON shapes as the Settings API / UI. Per-feature pages list the config keys; apply the mapping rule above for the ENV name.
+Structured settings use the same JSON shapes as the Settings API / UI (**PascalCase** property names — see [JSON and Compose notes](#fully-hydrated-compose-example) below). Per-feature pages list the config keys; apply the mapping rule above for the ENV name.
 
 Internal runtime keys are **excluded** from the public map. Supplying their mapped names
 (e.g. `NZBDAV_CONFIG__SEARCH__EXCLUDE_SYNC_CACHE`) fails startup as an **unknown**
@@ -47,6 +47,8 @@ configuration variable:
 
 - `search.exclude` (prefix constant — not a persisted setting)
 - `search.exclude-sync-cache` (runtime cache state)
+
+Persisted exclude settings such as `search.exclude-patterns` → `NZBDAV_CONFIG__SEARCH__EXCLUDE_PATTERNS` **are** supported.
 
 ## Precedence
 
@@ -68,8 +70,10 @@ When a key is ENV-managed:
 
 ## Validation and restart
 
-- Unknown `NZBDAV_CONFIG__...` names, or invalid values for a known key, abort startup with a **single-line** error that names the variable and **never** prints its value
-- Changing ENV configuration requires a **container restart** to take effect
+- Unknown `NZBDAV_CONFIG__...` names, or invalid values for keys with schema validation (booleans, integers, enums such as `repair.healthcheck-depth`, and JSON blobs), abort startup with a **single-line** error that names the variable and **never** prints its value
+- Free-form string keys (categories, paths, import strategy labels, some mode strings) are not fully schema-checked at ENV load — use the allowed values from the matching [Settings reference](index.md) page
+- Empty ENV values are ignored (same as omitting the variable); they do **not** clear a SQLite value
+- Changing ENV configuration requires a **container restart or recreate** (including after `.env` changes)
 - Logs list managed **key names** only (not secret values)
 
 ## Secrets
@@ -78,7 +82,9 @@ When a key is ENV-managed:
 
     Even when Compose uses `${WEBDAV_PASS:?missing}` placeholders, resolved secrets are visible to the container runtime and inspection tools (`docker inspect`, orchestrator secret mounts that materialize as env, etc.). Prefer an uncommitted `.env` file or orchestrator secret injection. **Never** commit real credentials or paste resolved values into docs, issues, or logs.
 
-`NZBDAV_CONFIG__WEBDAV__PASS` accepts plaintext; NzbDAV hashes it at overlay load (same as the Settings UI). Other secrets in JSON (Usenet `Pass`, indexer / *Arr API keys) remain in the ENV JSON as supplied.
+Headless stacks must still set **`FRONTEND_BACKEND_API_KEY`** for frontend↔backend proxy authentication. Mirror the same value into **`NZBDAV_CONFIG__API__KEY`** so *Arr/SAB and the Settings UI agree on the download-client API key.
+
+`NZBDAV_CONFIG__WEBDAV__PASS` accepts plaintext; NzbDAV hashes it at overlay load (same as the Settings UI). The example uses a Compose-only placeholder name `WEBDAV_PASS` — the legacy fallback variable remains **`WEBDAV_PASSWORD`** ([environment variables](environment-variables.md)). Other secrets in JSON (Usenet `Pass`, indexer / *Arr API keys, profile tokens) remain in the ENV JSON as supplied.
 
 ## Fully hydrated Compose example
 
@@ -108,18 +114,22 @@ services:
       FRONTEND_BACKEND_API_KEY: ${FRONTEND_BACKEND_API_KEY:?set FRONTEND_BACKEND_API_KEY}
 
       # --- Authoritative ConfigItems overlay (NZBDAV_CONFIG__...) ---
+      # Mirror FRONTEND_BACKEND_API_KEY so proxy auth and *Arr/SAB share one key.
       NZBDAV_CONFIG__API__KEY: ${FRONTEND_BACKEND_API_KEY:?set FRONTEND_BACKEND_API_KEY}
       NZBDAV_CONFIG__API__CATEGORIES: "tv,movies"
       NZBDAV_CONFIG__API__MANUAL_CATEGORY: "uncategorized"
       NZBDAV_CONFIG__API__IMPORT_STRATEGY: "symlinks"
       NZBDAV_CONFIG__API__ENSURE_IMPORTABLE_VIDEO: "true"
       NZBDAV_CONFIG__API__IGNORE_HISTORY_LIMIT: "true"
+      # NZBDAV_CONFIG__API__ADDURL_TRUSTED_HOSTS: "prowlarr,indexer"
+      # NZBDAV_CONFIG__GENERAL__BASE_URL: "https://nzbdav.example.com"
 
       NZBDAV_CONFIG__WEBDAV__USER: "webdav"
       NZBDAV_CONFIG__WEBDAV__PASS: ${WEBDAV_PASS:?set WEBDAV_PASS}
       NZBDAV_CONFIG__WEBDAV__ENFORCE_READONLY: "true"
 
       NZBDAV_CONFIG__RCLONE__MOUNT_DIR: "/mnt/remote/nzbdav"
+      NZBDAV_CONFIG__MEDIA__LIBRARY_DIR: "/mnt/media"
 
       NZBDAV_CONFIG__USENET__MAX_DOWNLOAD_CONNECTIONS: "0"
       NZBDAV_CONFIG__USENET__STREAMING_PRIORITY: "80"
@@ -135,16 +145,18 @@ services:
         {"Indexers":[{"Name":"Example","Url":"https://indexer.example/api","ApiKey":"${INDEXER_API_KEY:?set INDEXER_API_KEY}","Enabled":true}]}
 
       NZBDAV_CONFIG__PROFILES__INSTANCES: >-
-        {"Profiles":[{"Name":"Default","Token":"default"}]}
+        {"Profiles":[{"Name":"Default","Token":"${PROFILE_TOKEN:?set PROFILE_TOKEN}"}]}
 
       NZBDAV_CONFIG__REPAIR__ENABLE: "true"
       NZBDAV_CONFIG__REPAIR__HEALTHCHECK_CONCURRENCY: "50"
       NZBDAV_CONFIG__REPAIR__HEALTHCHECK_DEPTH: "standard"
 
       NZBDAV_CONFIG__MAINTENANCE__REMOVE_ORPHANED_SCHEDULE_ENABLED: "true"
+      # Minutes from midnight in TZ (180 = 03:00)
       NZBDAV_CONFIG__MAINTENANCE__REMOVE_ORPHANED_SCHEDULE_TIME: "180"
 
       NZBDAV_CONFIG__BACKUP__SCHEDULE_ENABLED: "true"
+      # Minutes from midnight in TZ (120 = 02:00)
       NZBDAV_CONFIG__BACKUP__SCHEDULE_TIME: "120"
       NZBDAV_CONFIG__BACKUP__RETENTION_COUNT: "7"
 
@@ -157,13 +169,19 @@ services:
 
 !!! note "JSON and Compose escaping"
 
-    Multi-line `>-` YAML folds to a single line. Nested `${...}` inside JSON strings are expanded by Compose before the container starts. `ProviderType` for **Pool Connections** is `1` (`0` = Disabled, `2` = BackupAndStats, `3` = BackupOnly — see [Usenet](usenet.md)). Omit `ProviderId` in ENV JSON — NzbDAV preserves matching SQLite ids by host/port/user, or assigns new ones.
+    Multi-line `>-` YAML folds to a single line. Nested `${...}` inside JSON strings are expanded by Compose before the container starts.
+
+    Use **PascalCase** property names exactly as the Settings UI persists them (`Providers`, `Type`, `Host`, `RadarrInstances`, `Indexers`, `Profiles`, …). camelCase keys are ignored by deserialization and can produce empty or wrong configuration without a startup error.
+
+    Provider `Type` for **Pool Connections** is `1` (`0` = Disabled, `2` = BackupAndStats, `3` = BackupOnly — see [Usenet](usenet.md)). Omit `ProviderId` in ENV JSON — NzbDAV preserves matching SQLite ids by host/port/user, or assigns new ones. Pure ENV-only first installs (no matching SQLite row) get new IDs each restart until a SQLite match exists, so metrics keys may drift.
+
+    Passwords containing `"`, `\`, or `$` can break JSON after Compose substitution; prefer `.env` values without those characters or inject secrets outside inline JSON.
 
 ### After start
 
 1. Open **Settings**. ENV-managed controls show a lock badge such as `Managed by NZBDAV_CONFIG__WEBDAV__USER`.
 2. Attempting to save a managed key is rejected by the API.
-3. To hand a key back to SQLite/UI: remove that `NZBDAV_CONFIG__...` line, recreate the container, and the prior SQLite value (if any) becomes editable again.
+3. To hand a key back to SQLite/UI: remove that `NZBDAV_CONFIG__...` line, restart or recreate the container, and the prior SQLite value (if any) becomes editable again.
 
 ### Minimal `.env` (do not commit)
 
@@ -175,6 +193,7 @@ USENET_PASS=
 RADARR_API_KEY=
 SONARR_API_KEY=
 INDEXER_API_KEY=
+PROFILE_TOKEN=
 ```
 
 ## Legacy compatibility
@@ -187,4 +206,4 @@ INDEXER_API_KEY=
 - [Environment variables](environment-variables.md) — process + legacy fallbacks
 - [Docker](../getting-started/docker.md) — Compose basics
 - [First run](../getting-started/first-run.md) — admin account (still UI / out of ENV scope)
-- Feature Settings references: [Usenet](usenet.md) · [SABnzbd](sabnzbd.md) · [WebDAV](webdav.md) · [Radarr/Sonarr](arrs.md) · [Indexers](indexers.md) · [Profiles](profiles.md) · [Repairs](repairs.md) · [Maintenance](maintenance.md) · [Backup](backup.md)
+- Feature Settings references: [Usenet](usenet.md) · [SABnzbd](sabnzbd.md) · [WebDAV](webdav.md) · [Radarr/Sonarr](arrs.md) · [Indexers](indexers.md) · [Profiles](profiles.md) · [Rclone](rclone.md) · [Repairs](repairs.md) · [Maintenance](maintenance.md) · [Backup](backup.md) · [Preflight](preflight.md) · [Watchdog](watchdog.md) · [Watchtower](watchtower.md) · [Warden](warden.md)

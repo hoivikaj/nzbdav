@@ -67,7 +67,7 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
             </div>
             </ManagedSetting>
             <hr />
-            <ManagedSetting configKeys={["rclone.host", "rclone.pass"]}>
+            <ManagedSetting configKey="rclone.host">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="rclone-host-input">Rclone Server Host</label>
                 <div className="flex w-full">
@@ -122,6 +122,7 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
             </div>
             </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="rclone.pass">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="rclone-pass-input">Rclone Server Password</label>
                 <Input
@@ -135,6 +136,7 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
                     The password for authenticating to the rclone RC API. This field is optional.
                 </p>
             </div>
+            </ManagedSetting>
         </SettingsPage>
     );
 }

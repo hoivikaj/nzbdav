@@ -1,6 +1,7 @@
 # Search profiles
 
-Named profiles select which indexers to query and which output adapters to expose. Stored as `profiles.instances`.
+Named profiles select which indexers to query and which output adapters to expose. Stored as `profiles.instances`
+(`NZBDAV_CONFIG__PROFILES__INSTANCES` — see [headless](headless.md)).
 
 | Control | Effect | Default |
 |---------|--------|---------|

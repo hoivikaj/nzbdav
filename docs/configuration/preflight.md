@@ -2,6 +2,12 @@
 
 Background warm-up of top search results before the user clicks.
 
+!!! tip "Headless ENV"
+
+    Map config keys below to `NZBDAV_CONFIG__...` with the
+    [naming algorithm](headless.md#naming-algorithm)
+    (`preflight.mode` → `NZBDAV_CONFIG__PREFLIGHT__MODE`).
+
 | Control | Config key | Default | Effect |
 |---------|------------|---------|--------|
 | Mode | `preflight.mode` | `off` | off / light / standard / full |

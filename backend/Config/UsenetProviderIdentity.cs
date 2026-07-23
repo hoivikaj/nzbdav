@@ -30,6 +30,7 @@ public static class UsenetProviderIdentity
     public static async Task EnsureAsync(ConfigManager configManager, CancellationToken ct = default)
     {
         var providerConfig = configManager.GetUsenetProviderConfig();
+        var assignedCount = CountMissingProviderIds(providerConfig);
         var assigned = EnsureProviderIds(providerConfig);
         if (!assigned) return;
 
@@ -40,7 +41,7 @@ public static class UsenetProviderIdentity
         {
             Log.Information(
                 "Assigned ProviderId for {Count} ENV-managed usenet provider(s) in memory only.",
-                providerConfig.Providers.Count);
+                assignedCount);
             return;
         }
 
@@ -48,7 +49,7 @@ public static class UsenetProviderIdentity
         {
             await SaveProvidersAsync(configManager, providerConfig, ct).ConfigureAwait(false);
             Log.Information("Assigned and persisted ProviderId for {Count} usenet provider(s).",
-                providerConfig.Providers.Count);
+                assignedCount);
         }
         catch (Exception ex)
         {
@@ -57,6 +58,9 @@ public static class UsenetProviderIdentity
                 "Metrics keys may not be stable across restarts until a save succeeds.");
         }
     }
+
+    private static int CountMissingProviderIds(UsenetProviderConfig config) =>
+        config.Providers.Count(provider => provider.ProviderId == Guid.Empty);
 
     /// <summary>
     /// Assigns a Guid to every provider missing one. Returns true when any id was created.

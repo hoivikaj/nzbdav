@@ -75,4 +75,38 @@ public class EnvironmentManagedConfigApiTests
         Assert.DoesNotContain("attempted", ex.Message);
         Assert.DoesNotContain("movies", ex.Message);
     }
+
+    [Fact]
+    public void UpdateConfigContract_RejectsManagedKeysBeforeValidationCanLeakValues()
+    {
+        var config = new ConfigManager();
+        config.ApplyEnvironmentOverlay(ConfigEnvironmentOverlay.LoadFromEnvironment(new Hashtable
+        {
+            ["NZBDAV_CONFIG__REPAIR__HEALTHCHECK_CONCURRENCY"] = "50",
+        }));
+
+        const string leakedValue = "not-a-number-secret";
+        var requestItems = new List<ConfigItem>
+        {
+            new()
+            {
+                ConfigName = ConfigKeys.RepairHealthcheckConcurrency,
+                ConfigValue = leakedValue,
+            },
+        };
+
+        Assert.True(config.IsEnvironmentManaged(ConfigKeys.RepairHealthcheckConcurrency));
+
+        // Mimic UpdateConfigController ordering: managed rejection first.
+        var managed = requestItems
+            .Where(item => config.IsEnvironmentManaged(item.ConfigName))
+            .Select(item => item.ConfigName)
+            .ToList();
+        Assert.NotEmpty(managed);
+
+        // Validation must not run for managed keys — its messages embed values.
+        var validationWouldLeak = Assert.Throws<ArgumentException>(() =>
+            ConfigManager.ValidateConfigItems(requestItems));
+        Assert.Contains(leakedValue, validationWouldLeak.Message);
+    }
 }

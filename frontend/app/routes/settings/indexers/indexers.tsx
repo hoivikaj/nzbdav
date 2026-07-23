@@ -13,6 +13,7 @@ import {
     Select,
     Spinner,
     Textarea,
+    useIsAnyManaged,
 } from "~/components/ui";
 import { isMaskedSecret } from "~/utils/config-mask";
 
@@ -297,7 +298,12 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
         const timer = setTimeout(() => { void loadSyncStatus(); }, 2000);
         return () => clearTimeout(timer);
     }, [savedSyncUrls, loadSyncStatus]);
+    const excludeSyncManaged = useIsAnyManaged([
+        "search.exclude-sync-urls",
+        "search.exclude-sync-refresh-minutes",
+    ]);
     const handleSyncNow = useCallback(async () => {
+        if (excludeSyncManaged) return;
         setIsSyncing(true);
         try {
             const res = await fetch("/settings/exclude-sync", { method: "POST" });
@@ -307,7 +313,7 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
         } finally {
             setIsSyncing(false);
         }
-    }, []);
+    }, [excludeSyncManaged]);
 
     const defaultSearchUserAgent = config["api.search-user-agent"] ?? "";
     const handleSearchUserAgentChange = useCallback((value: string) => {
@@ -491,7 +497,15 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                                 value={excludeSyncRefresh}
                                 onChange={e => handleSyncRefreshChange(e.target.value)} />
                             <span className="text-[11px] text-base-content/45">minutes</span>
-                            <Button variant="primary" size="small" onClick={handleSyncNow} disabled={isSyncing}>
+                            <Button
+                                variant="primary"
+                                size="small"
+                                onClick={handleSyncNow}
+                                disabled={isSyncing || excludeSyncManaged}
+                                title={excludeSyncManaged
+                                    ? "Synced exclude URLs are managed by NZBDAV_CONFIG__... — change the container environment and restart"
+                                    : undefined}
+                            >
                                 <Icon name={isSyncing ? "progress_activity" : "sync"} className={`!text-[18px] ${isSyncing ? "animate-spin" : ""}`} />
                                 {isSyncing ? "Syncing…" : "Sync now"}
                             </Button>

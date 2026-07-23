@@ -2,6 +2,12 @@
 
 Playback failover, stall failover, and size-variant retention when a release cannot be served.
 
+!!! tip "Headless ENV"
+
+    Map config keys below to `NZBDAV_CONFIG__...` with the
+    [naming algorithm](headless.md#naming-algorithm)
+    (`play.watchdog-enabled` → `NZBDAV_CONFIG__PLAY__WATCHDOG_ENABLED`).
+
 ## Failover
 
 | Control | Config key | Default | Effect |

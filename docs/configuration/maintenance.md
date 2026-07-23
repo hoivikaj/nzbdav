@@ -2,6 +2,13 @@
 
 Database housekeeping, scheduled orphan cleanup, and one-off tools.
 
+!!! tip "Headless ENV"
+
+    Map config keys below to `NZBDAV_CONFIG__...` with the
+    [naming algorithm](headless.md#naming-algorithm).
+    Schedule times are **minutes from midnight** in container `TZ`
+    (`180` = 03:00). One-off maintenance **tasks** remain out of the ENV overlay.
+
 ## Settings
 
 | Control | Config key | Default | Effect |
@@ -10,7 +17,7 @@ Database housekeeping, scheduled orphan cleanup, and one-off tools.
 | SAB history retention (days) | `database.history-retention-days` | `90` | Does not delete WebDAV; `0` = keep all |
 | Health-check retention (days) | `database.healthcheck-retention-days` | `30` | `0` = keep all |
 | Enable daily orphan cleanup | `maintenance.remove-orphaned-schedule-enabled` | off | Remove Orphaned Files schedule |
-| Daily run time | `maintenance.remove-orphaned-schedule-time` | midnight | Uses container `TZ` |
+| Daily run time | `maintenance.remove-orphaned-schedule-time` | midnight (`0`) | Minutes from midnight; uses container `TZ` |
 
 ## Tasks (actions)
 

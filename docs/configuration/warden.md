@@ -2,6 +2,12 @@
 
 Portable dead-release fingerprint list: filter search results, sync remote sources, optional GitHub backup.
 
+!!! note "Headless ENV scope"
+
+    Scalar Settings below (`warden.hide-dead`, `warden.quorum`, `warden.backbone-scope`) can use
+    [`NZBDAV_CONFIG__...`](headless.md). Warden **sources**, GitHub backup state, and `warden.db`
+    remain a separate domain and are **not** driven by the ENV overlay.
+
 ## Persisted settings
 
 | Control | Config key | Default | Effect |
