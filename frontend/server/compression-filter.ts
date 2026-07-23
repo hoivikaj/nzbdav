@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import compression from "compression";
-import { shouldSkipCompression } from "./proxy-path";
+import { shouldSkipCompression } from "./proxy-path.js";
 
 // React Router streams document and `.data` responses and calls res.flush()
 // after every chunk. Express `compression` maps that to zlib flush, which
