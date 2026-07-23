@@ -213,12 +213,15 @@ public class RcloneClient
         }
         catch (HttpRequestException ex)
         {
-            Log.Warning(ex, "Rclone RC request to {Endpoint} failed", endpoint);
+            Log.Warning("Rclone RC request to {Endpoint} failed. Reason: {Reason}", endpoint, ex.Message);
             return new T { Success = false, Error = ex.Message };
         }
-        catch (TaskCanceledException ex)
+        catch (TaskCanceledException)
         {
-            Log.Warning(ex, "Rclone RC request to {Endpoint} timed out", endpoint);
+            Log.Warning(
+                "Rclone RC request to {Endpoint} timed out after {TimeoutSeconds}s",
+                endpoint,
+                (int)HttpClient.Timeout.TotalSeconds);
             return new T { Success = false, Error = "Request timed out" };
         }
     }
