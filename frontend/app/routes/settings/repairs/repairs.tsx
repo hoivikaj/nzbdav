@@ -1,4 +1,4 @@
-import { SettingsPage } from "~/components/ui";
+import { ManagedSetting, SettingsPage } from "~/components/ui";
 import { Checkbox, Input, Select } from "~/components/ui/form";
 import { type Dispatch, type SetStateAction } from "react";
 import { isPositiveInteger } from "../usenet/usenet";
@@ -28,6 +28,7 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
 
     return (
         <SettingsPage>
+            <ManagedSetting configKey="repair.enable">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -42,7 +43,9 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                     {helpText}
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="repair.healthcheck-concurrency">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="healthcheck-concurrency-input">Health Check Concurrency</label>
                 <Input
@@ -59,7 +62,9 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                     Capped at your total provider pool size.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKeys={["repair.healthcheck-depth", "repair.healthcheck-aging"]}>
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="healthcheck-depth-input">Health Check Depth</label>
                 <Select
@@ -98,7 +103,9 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                     is long-since posted and rechecking it in full costs more than it finds.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="repair.auto-remove-unlinked-only">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="auto-remove-after-failures-input">Auto-Remove After Streaming Failures</label>
                 <Input
@@ -131,6 +138,7 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                     force-deletes linked files after the failure threshold.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="library-dir-input">Library Directory</label>

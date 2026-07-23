@@ -1,4 +1,4 @@
-import { SettingsPage } from "~/components/ui";
+import { ManagedSetting, SettingsPage } from "~/components/ui";
 import { Checkbox, Input, Select, Toggle } from "~/components/ui/form";
 import { type Dispatch, type SetStateAction } from "react";
 import { className } from "~/utils/styling";
@@ -12,6 +12,7 @@ type SabnzbdSettingsProps = {
 export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
     return (
         <SettingsPage>
+            <ManagedSetting configKey="webdav.user">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="webdav-user-input">WebDAV User</label>
                 <Input
@@ -26,7 +27,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     Use this user to connect to the webdav. Only letters, numbers, dashes, and underscores allowed.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="usenet.max-queue-connections">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="max-queue-connections-input">Queue Download Connections</label>
                 <Input
@@ -41,7 +44,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     Connections available to queue imports. Leave blank to use all provider connections.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="webdav.pass">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="webdav-pass-input">WebDAV Password</label>
                 <Input
@@ -55,7 +60,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     Use this password to connect to the webdav.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKeys={["usenet.segment-cache.enabled", "usenet.segment-cache.path", "usenet.segment-cache.max-gb"]}>
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -89,7 +96,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     </div>
                 )}
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="usenet.max-download-connections">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="max-download-connections-auto-checkbox">Max Download Connections</label>
                 <Toggle
@@ -115,7 +124,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     Queue imports use their own budget — see Queue Download Connections above.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKeys={["usenet.max-download-connections-per-stream", "usenet.max-download-connections-per-stream-preset"]}>
             <div className="space-y-2">
                 <Toggle
                     id="max-download-connections-per-stream-checkbox"
@@ -150,7 +161,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     </div>
                 )}
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="usenet.streaming-priority">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="streaming-priority-input">Streaming Priority (vs Queue)</label>
                 <div className="flex w-full">
@@ -168,7 +181,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     When streaming from the webdav while the queue is also active, how much bandwidth should be dedicated to streaming?
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="usenet.streaming-segment-timeout-seconds">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="streaming-segment-timeout-input">Streaming Segment Timeout</label>
                 <div className="flex w-full">
@@ -186,7 +201,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     Per-segment deadline for WebDAV playback (2–40s). Stalled connections are replaced and retried before waiting for the provider&apos;s ~40s read timeout.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="usenet.streaming-segment-retries">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="streaming-segment-retries-input">Streaming Segment Retries</label>
                 <Input
@@ -201,7 +218,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     Extra attempts on a fresh connection after a streaming segment timeout (0–5). Queue and health checks are unaffected.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="usenet.article-buffer-size">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="article-buffer-size-input">Article Buffer Size</label>
                 <Input
@@ -216,7 +235,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     The number of articles to buffer ahead, per stream, when reading from the webdav.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="usenet.idle-connection-timeout-seconds">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="idle-connection-timeout-input">Idle connection timeout (seconds)</label>
                 <Input
@@ -234,7 +255,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     connection-pool rebuild (provider config change or restart).
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="usenet.pipelined-body-requests">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -250,7 +273,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     to use the legacy one-at-a-time API while retaining the configured article buffer.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="webdav.enforce-readonly">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -264,7 +289,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     The WebDAV `/content` folder will be readonly when checked. WebDAV clients will not be able to delete files within this directory.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="webdav.show-hidden-files">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -278,7 +305,9 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     Hidden files or directories are those whose names are prefixed by a period.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="webdav.preview-par2-files">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -292,6 +321,7 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     When enabled, par2 files will be rendered as text files on the Dav Explorer page, displaying all File-Descriptor entries.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">

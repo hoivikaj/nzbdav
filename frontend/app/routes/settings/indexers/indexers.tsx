@@ -8,6 +8,7 @@ import {
     Icon,
     Input,
     Label,
+    ManagedSetting,
     Modal,
     Select,
     Spinner,
@@ -328,6 +329,7 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
         : "";
 
     return (
+        <ManagedSetting configKeys={["indexers.instances", "api.user-agent", "api.search-user-agent"]}>
         <div className="mb-6 flex w-full flex-col gap-6">
             <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-3">
@@ -535,6 +537,7 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                 onSave={handleSave}
             />
         </div>
+        </ManagedSetting>
     );
 }
 
@@ -1423,7 +1426,6 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
         </Modal>
     );
 }
-
 export function isIndexersSettingsUpdated(config: Record<string, string>, newConfig: Record<string, string>) {
     return config["indexers.instances"] !== newConfig["indexers.instances"]
         || (config["api.user-agent"] ?? "") !== (newConfig["api.user-agent"] ?? "")

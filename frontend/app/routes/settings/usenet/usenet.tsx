@@ -1,5 +1,5 @@
 import { type Dispatch, type SetStateAction, type ReactNode, type CSSProperties, useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { Alert, Badge, Button, HelpText, Icon, Input, Label, Modal, Select, SettingsIntro, SettingsPage, Tooltip } from "~/components/ui";
+import { Alert, Badge, Button, HelpText, Icon, Input, Label, ManagedSetting, Modal, Select, SettingsIntro, SettingsPage, Tooltip } from "~/components/ui";
 import { Checkbox } from "~/components/ui/form";
 import { subscribeWebsocketTopics, useWebsocketTopic } from "~/utils/shared-websocket";
 import { isMaskedSecret } from "~/utils/config-mask";
@@ -423,6 +423,7 @@ export function UsenetSettings({ config, setNewConfig }: UsenetSettingsProps) {
                 pipelining for faster queue first-segment fetches.
             </SettingsIntro>
 
+            <ManagedSetting configKey="usenet.providers">
             <section className="space-y-3">
                 <div className="flex items-end justify-between gap-4">
                     <div>
@@ -612,7 +613,9 @@ export function UsenetSettings({ config, setNewConfig }: UsenetSettingsProps) {
                     </DndContext>
                 )}
             </section>
+            </ManagedSetting>
 
+            <ManagedSetting configKeys={["usenet.cascade.enabled", "usenet.pipelining.enabled", "usenet.pipelining.depth"]}>
             <section className="overflow-hidden rounded-lg border border-base-content/10 bg-base-100">
                 <div className="flex items-start gap-3 border-b border-base-content/10 p-4">
                     <span className="rounded-lg bg-primary/10 p-2 text-primary">
@@ -709,6 +712,7 @@ export function UsenetSettings({ config, setNewConfig }: UsenetSettingsProps) {
                     </div>
                 </div>
             </section>
+            </ManagedSetting>
 
             <ProviderModal
                 show={showModal}

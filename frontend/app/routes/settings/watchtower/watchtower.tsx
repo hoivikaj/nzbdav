@@ -1,5 +1,5 @@
 import { type Dispatch, type SetStateAction } from "react";
-import { NativeForm as Form, SettingsIntro, SettingsPage } from "~/components/ui";
+import { NativeForm as Form, ManagedSetting, SettingsIntro, SettingsPage } from "~/components/ui";
 
 const GB = 1024 * 1024 * 1024;
 
@@ -45,6 +45,35 @@ export function WatchtowerSettings({ config, setNewConfig }: WatchtowerSettingsP
                 indexer caps. Manage your lists on the <b>Watchtower</b> page; tune the engine here.
             </SettingsIntro>
 
+            <ManagedSetting configKeys={[
+                "watchtower.enabled",
+                "watchtower.profile-token",
+                "watchtower.ranking",
+                "watchtower.size-floor-bytes",
+                "watchtower.size-ceiling-bytes",
+                "watchtower.shortlist-depth",
+                "watchtower.grab-cap-per-resolve",
+                "watchtower.active-set-cap",
+                "watchtower.daily-resolve-budget",
+                "watchtower.auto-throughput",
+                "watchtower.sync-interval-seconds",
+                "watchtower.series-scope",
+                "watchtower.season-bundles",
+                "watchtower.series-max-episodes",
+                "watchtower.series-cap-keep",
+                "watchtower.series-recent-count",
+                "watchtower.season-bundle-fallback",
+                "watchtower.season-bundle-fallback-scope",
+                "watchtower.season-bundle-fallback-recent-count",
+                "watchtower.season-bundle-fallback-max-episodes",
+                "watchtower.min-grabs",
+                "watchtower.verify-sample-count",
+                "watchtower.verify-timeout-seconds",
+                "watchtower.keepfresh-base-seconds",
+                "watchtower.keepfresh-max-seconds",
+                "watchtower.unavailable-retry-seconds",
+                "watchtower.verbose-logging",
+            ]}>
             <Form.Group className="flex flex-col gap-2">
                 <Form.Check
                     type="switch"
@@ -443,6 +472,7 @@ export function WatchtowerSettings({ config, setNewConfig }: WatchtowerSettingsP
                     Watchtower is enabled. Leave off for normal use — it's chatty.
                 </p>
             </Form.Group>
+            </ManagedSetting>
         </SettingsPage>
     );
 }

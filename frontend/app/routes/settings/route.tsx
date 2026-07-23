@@ -1,6 +1,6 @@
 import { Button } from "~/components/ui/button";
 import { Alert } from "~/components/ui/feedback";
-import { SettingsPanel } from "~/components/ui/settings-nav";
+import { SettingsPanel, ManagedEnvProvider, omitManagedConfigKeys, pinManagedConfigKeys, type ManagedEnvMap } from "~/components/ui";
 import type { Route } from "./+types/route";
 import { backendClient } from "~/clients/backend-client.server";
 import { isUsenetSettingsUpdated, UsenetSettings } from "./usenet/usenet";
@@ -17,7 +17,7 @@ import { isPreflightSettingsUpdated, PreflightSettings } from "./preflight/prefl
 import { isWatchtowerSettingsUpdated, WatchtowerSettings } from "./watchtower/watchtower";
 import { isWardenSettingsUpdated, WardenSettings } from "./warden/warden";
 import { isRcloneSettingsUpdated, RcloneSettings } from "./rclone/rclone";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useBlocker, useSearchParams } from "react-router";
 import { ConfirmModal } from "~/components/confirm-modal/confirm-modal";
 import { getAppVersion } from "~/utils/version.server";
@@ -150,13 +150,18 @@ const defaultConfig = {
 export async function loader({ request }: Route.LoaderArgs) {
     const configItems = await backendClient.getConfig(Object.keys(defaultConfig));
 
-    const config: Record<string, string> = defaultConfig;
+    const config: Record<string, string> = { ...defaultConfig };
+    const managedEnv: ManagedEnvMap = {};
     for (const item of configItems) {
         config[item.configName] = item.configValue;
+        if (item.environmentVariableName) {
+            managedEnv[item.configName] = item.environmentVariableName;
+        }
     }
 
     return {
         config: config,
+        managedEnv,
         appVersion: (await getAppVersion()) ?? "unknown",
     }
 }
@@ -169,6 +174,7 @@ export default function Settings(props: Route.ComponentProps) {
 
 type BodyProps = {
     config: Record<string, string>,
+    managedEnv: ManagedEnvMap,
     appVersion: string,
 };
 
@@ -177,10 +183,18 @@ function Body(props: BodyProps) {
     const activeTab = parseSettingsTab(searchParams.get("tab"));
     const activeTabItem = getSettingsTabItem(activeTab);
     const [config, setConfig] = useState(props.config);
-    const [newConfig, setNewConfig] = useState(config);
+    const [newConfig, setNewConfigState] = useState(config);
+    const managedEnv = props.managedEnv;
+    const setNewConfig: Dispatch<SetStateAction<Record<string, string>>> = useCallback((updater) => {
+        setNewConfigState((prev) => {
+            const next = typeof updater === "function" ? updater(prev) : updater;
+            return pinManagedConfigKeys(next, config, managedEnv);
+        });
+    }, [config, managedEnv]);
     const [isSaving, setIsSaving] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
+    const managedCount = useMemo(() => Object.keys(managedEnv).length, [managedEnv]);
 
     const iseUsenetUpdated = isUsenetSettingsUpdated(config, newConfig);
     const isSabnzbdUpdated = isSabnzbdSettingsUpdated(config, newConfig);
@@ -214,10 +228,10 @@ function Body(props: BodyProps) {
     const isSaveButtonDisabled = saveButtonLabel !== "Save";
 
     const onClear = useCallback(() => {
-        setNewConfig(config);
+        setNewConfigState(config);
         setIsSaved(false);
         setSaveError(null);
-    }, [config, setNewConfig]);
+    }, [config]);
 
     const onSave = useCallback(async () => {
         setIsSaving(true);
@@ -228,7 +242,10 @@ function Body(props: BodyProps) {
                 method: "POST",
                 body: (() => {
                     const form = new FormData();
-                    const changedConfig = getChangedConfig(config, newConfig);
+                    const changedConfig = omitManagedConfigKeys(
+                        getChangedConfig(config, newConfig),
+                        managedEnv,
+                    );
                     form.append("config", JSON.stringify(changedConfig));
                     return form;
                 })()
@@ -243,9 +260,10 @@ function Body(props: BodyProps) {
         } finally {
             setIsSaving(false);
         }
-    }, [config, newConfig, setIsSaving, setIsSaved, setConfig]);
+    }, [config, newConfig, managedEnv]);
 
     return (
+        <ManagedEnvProvider value={managedEnv}>
         <div className="flex min-h-full flex-col gap-6 px-4 py-4 md:px-8">
             <SettingsPanel>
                 <header className="mb-6 flex items-center gap-3 border-b border-base-content/10 pb-4">
@@ -254,6 +272,16 @@ function Body(props: BodyProps) {
                         {activeTabItem.label}
                     </h1>
                 </header>
+                {managedCount > 0 && (
+                    <Alert variant="warning" className="mb-6 text-sm">
+                        <span>
+                            {managedCount === 1 ? "1 setting is" : `${managedCount} settings are`}{" "}
+                            managed by <code className="font-mono text-xs">NZBDAV_CONFIG__...</code>{" "}
+                            environment variables and shown read-only. Change the container environment
+                            and restart to update them.
+                        </span>
+                    </Alert>
+                )}
                 {activeTab === "usenet" && <UsenetSettings config={newConfig} setNewConfig={setNewConfig} />}
                 {activeTab === "indexers" && <IndexersSettings config={newConfig} setNewConfig={setNewConfig} savedConfig={config} />}
                 {activeTab === "profiles" && <ProfilesSettings config={newConfig} setNewConfig={setNewConfig} />}
@@ -303,6 +331,7 @@ function Body(props: BodyProps) {
                 onConfirm={navigationBlocker.onConfirmNavigation}
             />
         </div>
+        </ManagedEnvProvider>
     );
 }
 

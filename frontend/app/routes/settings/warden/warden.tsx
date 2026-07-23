@@ -1,6 +1,6 @@
 import { type ChangeEvent, type DragEvent, type Dispatch, type SetStateAction, useEffect, useRef, useState } from "react";
 import { ConfirmModal } from "~/components/confirm-modal/confirm-modal";
-import { Alert, Button, Icon, Modal, NativeForm as Form, SettingsIntro, SettingsPage, Spinner, Textarea } from "~/components/ui";
+import { Alert, Button, Icon, ManagedSetting, Modal, NativeForm as Form, SettingsIntro, SettingsPage, Spinner, Textarea } from "~/components/ui";
 
 type WardenSettingsProps = {
     config: Record<string, string>;
@@ -400,6 +400,7 @@ export function WardenSettings({ config, setNewConfig }: WardenSettingsProps) {
                 indexer, or server, and free of credentials.
             </SettingsIntro>
 
+            <ManagedSetting configKey="warden.hide-dead">
             <Form.Group className={"flex flex-col gap-2"}>
                 <Form.Check
                     type="switch"
@@ -413,7 +414,9 @@ export function WardenSettings({ config, setNewConfig }: WardenSettingsProps) {
                     as a last resort.
                 </p>
             </Form.Group>
+            </ManagedSetting>
 
+            <ManagedSetting configKey="warden.quorum">
             <Form.Group className={"flex flex-col gap-2"}>
                 <Form.Label>Agreement needed for shared lists</Form.Label>
                 <Form.Control className={"w-full max-w-md"} type="number" min={1} max={20}
@@ -425,7 +428,9 @@ export function WardenSettings({ config, setNewConfig }: WardenSettingsProps) {
                     on their own.
                 </p>
             </Form.Group>
+            </ManagedSetting>
 
+            <ManagedSetting configKey="warden.backbone-scope">
             <Form.Group className={"flex flex-col gap-2"}>
                 <Form.Check
                     type="switch"
@@ -438,6 +443,7 @@ export function WardenSettings({ config, setNewConfig }: WardenSettingsProps) {
                     of yours. Your own list always filters.
                 </p>
             </Form.Group>
+            </ManagedSetting>
 
             <div className={`${"flex flex-col gap-2"} ${"w-full"}`}>
                 <div className={"flex items-start justify-between gap-3 mb-1"}>
