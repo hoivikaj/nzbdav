@@ -135,7 +135,7 @@ public class QueueItemProcessor(
                 queueItem.PauseUntil = DateTime.Now + backoff;
                 dbClient.Ctx.QueueItems.Attach(queueItem);
                 dbClient.Ctx.Entry(queueItem).Property(x => x.PauseUntil).IsModified = true;
-                await WithFinalizeLockAsync(() => dbClient.Ctx.SaveChangesAsync())
+                await WithFinalizeLockAsync(() => dbClient.Ctx.SaveChangesAsync(ct))
                     .ConfigureAwait(false);
                 _ = websocketManager.SendMessage(WebsocketTopic.QueueItemStatus, $"{queueItem.Id}|Queued");
             }

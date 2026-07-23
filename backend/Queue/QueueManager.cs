@@ -161,8 +161,6 @@ public class QueueManager : IDisposable
             toCancel = _inProgress.Values
                 .Where(x => queueItemIds.Contains(x.QueueItem.Id))
                 .ToList();
-            foreach (var item in toCancel)
-                item.CancellationTokenSource.Cancel();
         }).ConfigureAwait(false);
 
         foreach (var item in toCancel)
@@ -203,6 +201,9 @@ public class QueueManager : IDisposable
 
             try
             {
+                // Reap before fill so completed primaries do not occupy slots or
+                // block secondary promotion while new workers are claimed.
+                await ReapCompletedWorkersAsync().ConfigureAwait(false);
                 await FillWorkerSlotsAsync(ct).ConfigureAwait(false);
 
                 if (_inProgress.IsEmpty)
@@ -229,8 +230,6 @@ public class QueueManager : IDisposable
                 {
                     break;
                 }
-
-                await ReapCompletedWorkersAsync().ConfigureAwait(false);
             }
             catch (Exception e) when (!e.IsCancellationException(ct))
             {
@@ -337,7 +336,11 @@ public class QueueManager : IDisposable
                     dbClient = new DavDatabaseClient(dbContext);
                 }
 
-                var isPrimary = _primaryId is null || !_inProgress.ContainsKey(_primaryId.Value);
+                // Treat a completed-but-not-yet-reaped primary as vacant so Fill
+                // can claim a new preferred worker without waiting for the next loop.
+                var isPrimary = _primaryId is null ||
+                    !_inProgress.TryGetValue(_primaryId.Value, out var primaryItem) ||
+                    primaryItem.ProcessingTask.IsCompleted;
                 var queueDownloadContext = new QueueDownloadContext
                 {
                     IsPrimary = isPrimary,
@@ -390,27 +393,39 @@ public class QueueManager : IDisposable
     private int ComputeFanOutConcurrency(Guid queueItemId)
     {
         var maxQueue = _configManager.GetMaxQueueConnections();
-        if (_primaryId == queueItemId ||
-            (_inProgress.TryGetValue(queueItemId, out var item) && item.QueueDownloadContext.IsPrimary))
+        var secondaryCount = _inProgress.Values.Count(x => !x.QueueDownloadContext.IsPrimary);
+        var isPrimary = _primaryId == queueItemId ||
+            (_inProgress.TryGetValue(queueItemId, out var item) && item.QueueDownloadContext.IsPrimary);
+
+        if (isPrimary)
         {
-            return QueueFanOut.PrimaryFanOut(maxQueue);
+            return secondaryCount > 0
+                ? QueueFanOut.PrimaryFanOutWhenSharing(maxQueue, secondaryCount)
+                : QueueFanOut.PrimaryFanOut(maxQueue);
         }
 
-        var secondaryCount = _inProgress.Values.Count(x => !x.QueueDownloadContext.IsPrimary);
         return QueueFanOut.SecondaryFanOut(maxQueue, secondaryCount);
     }
 
     private void EnsurePrimaryDesignation()
     {
-        if (_primaryId is not null && _inProgress.ContainsKey(_primaryId.Value))
+        // Ignore completed workers still awaiting reap so a finished primary
+        // cannot block promotion or keep IsPrimary while Fill starts new work.
+        var live = _inProgress.Values
+            .Where(x => !x.ProcessingTask.IsCompleted)
+            .ToList();
+
+        if (_primaryId is not null &&
+            _inProgress.TryGetValue(_primaryId.Value, out var current) &&
+            !current.ProcessingTask.IsCompleted)
         {
             foreach (var item in _inProgress.Values)
                 item.QueueDownloadContext.IsPrimary = item.QueueItem.Id == _primaryId.Value;
             return;
         }
 
-        // Promote the oldest active secondary before claiming a new primary.
-        var oldest = _inProgress.Values
+        // Promote the oldest live secondary before claiming a new primary.
+        var oldest = live
             .OrderBy(x => x.StartedAt)
             .ThenBy(x => x.QueueItem.CreatedAt)
             .FirstOrDefault();
@@ -418,6 +433,8 @@ public class QueueManager : IDisposable
         if (oldest is null)
         {
             _primaryId = null;
+            foreach (var item in _inProgress.Values)
+                item.QueueDownloadContext.IsPrimary = false;
             return;
         }
 

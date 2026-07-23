@@ -1,6 +1,8 @@
 using System.Text.Json;
+using NzbWebDAV.Clients.Usenet.Contexts;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database.Models;
+using NzbWebDAV.Extensions;
 using NzbWebDAV.Queue;
 
 namespace NzbWebDAV.Tests.Queue;
@@ -16,6 +18,18 @@ public class QueueFanOutTests
     }
 
     [Theory]
+    [InlineData(10, 1, 9)]
+    [InlineData(10, 2, 8)]
+    [InlineData(10, 3, 7)]
+    [InlineData(1, 1, 1)]
+    [InlineData(2, 4, 1)]
+    public void PrimaryFanOutWhenSharing_LeavesSpareSoftSlots(
+        int maxQueue, int secondaryCount, int expected)
+    {
+        Assert.Equal(expected, QueueFanOut.PrimaryFanOutWhenSharing(maxQueue, secondaryCount));
+    }
+
+    [Theory]
     [InlineData(10, 1, 10)]
     [InlineData(10, 2, 5)]
     [InlineData(10, 3, 4)]
@@ -28,6 +42,54 @@ public class QueueFanOutTests
 
     [Fact]
     public void GetConcurrency_WithoutContext_UsesPrimaryFanOut()
+    {
+        var config = CreateConfig(maxQueueConnections: 8);
+        Assert.Equal(13, QueueFanOut.GetConcurrency(CancellationToken.None, config));
+    }
+
+    [Fact]
+    public void GetExactQueueConcurrency_WithoutContext_UsesMaxQueue()
+    {
+        var config = CreateConfig(maxQueueConnections: 8);
+        Assert.Equal(8, QueueFanOut.GetExactQueueConcurrency(CancellationToken.None, config));
+    }
+
+    [Fact]
+    public void GetExactQueueConcurrency_ClampsSoloPrimaryOvershootToMaxQueue()
+    {
+        var config = CreateConfig(maxQueueConnections: 10);
+        using var cts = new CancellationTokenSource();
+        using var ctx = cts.Token.SetContext(new QueueDownloadContext
+        {
+            IsPrimary = true,
+            GetFanOutConcurrency = () => QueueFanOut.PrimaryFanOut(10),
+        });
+
+        Assert.Equal(15, QueueFanOut.GetConcurrency(cts.Token, config));
+        Assert.Equal(10, QueueFanOut.GetExactQueueConcurrency(cts.Token, config));
+    }
+
+    [Fact]
+    public void LinkedCancellationToken_PreservesQueueDownloadContextFanOut()
+    {
+        var config = CreateConfig(maxQueueConnections: 10);
+        using var parentCts = new CancellationTokenSource();
+        using var parentCtx = parentCts.Token.SetContext(new QueueDownloadContext
+        {
+            IsPrimary = true,
+            GetFanOutConcurrency = () => 7,
+        });
+
+        using var linked = ContextualCancellationTokenSource.CreateLinkedTokenSource(parentCts.Token);
+
+        Assert.Equal(7, QueueFanOut.GetConcurrency(linked.Token, config));
+        Assert.Equal(7, QueueFanOut.GetExactQueueConcurrency(linked.Token, config));
+        Assert.Same(
+            parentCts.Token.GetContext<QueueDownloadContext>(),
+            linked.Token.GetContext<QueueDownloadContext>());
+    }
+
+    private static ConfigManager CreateConfig(int maxQueueConnections)
     {
         var config = new ConfigManager();
         config.UpdateValues(
@@ -53,10 +115,13 @@ public class QueueFanOutTests
                     ],
                 }),
             },
-            new ConfigItem { ConfigName = ConfigKeys.UsenetMaxQueueConnections, ConfigValue = "8" },
+            new ConfigItem
+            {
+                ConfigName = ConfigKeys.UsenetMaxQueueConnections,
+                ConfigValue = maxQueueConnections.ToString(),
+            },
         ]);
-
-        Assert.Equal(13, QueueFanOut.GetConcurrency(CancellationToken.None, config));
+        return config;
     }
 }
 
