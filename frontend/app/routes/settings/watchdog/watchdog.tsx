@@ -1,11 +1,42 @@
 import { Link } from "react-router";
-import type { Dispatch, SetStateAction } from "react";
-import { NativeForm as Form, ManagedSetting, SettingsPage } from "~/components/ui";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { Icon, NativeForm as Form, ManagedSetting, SettingsIntro, SettingsPage } from "~/components/ui";
 
 type WatchdogSettingsProps = {
     config: Record<string, string>
     setNewConfig: Dispatch<SetStateAction<Record<string, string>>>
 };
+
+function SettingsCard({
+    icon,
+    title,
+    description,
+    children,
+}: {
+    icon: string
+    title: string
+    description: ReactNode
+    children: ReactNode
+}) {
+    return (
+        <section className="overflow-hidden rounded-lg border border-base-content/10 bg-base-100">
+            <div className="flex items-start gap-3 border-b border-base-content/10 p-4">
+                <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Icon name={icon} className="!text-[20px]" />
+                </span>
+                <div>
+                    <h2 className="text-sm font-semibold text-base-content">{title}</h2>
+                    <p className="mt-0.5 text-xs leading-relaxed text-base-content/50">
+                        {description}
+                    </p>
+                </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2">
+                {children}
+            </div>
+        </section>
+    );
+}
 
 export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps) {
     const set = (key: string, value: string) => setNewConfig({ ...config, [key]: value });
@@ -20,6 +51,11 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
 
     return (
         <SettingsPage>
+            <SettingsIntro>
+                Configure how playback recovers from unavailable or stalled releases, and how alternate
+                size variants are retained and selected.
+            </SettingsIntro>
+
             <ManagedSetting configKeys={[
                 "play.watchdog-enabled", "play.total-budget-seconds", "play.hedge-delay-seconds",
                 "play.max-candidates", "play.max-attempts", "play.verify-mode",
@@ -30,14 +66,17 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
                 "variants.replay-strategy", "variants.fallback-on-failure",
                 "variants.eviction-strategy", "variants.eviction-active-grace-seconds",
             ]}>
-            <div className="flex flex-col gap-2">
-                <div className="text-[0.95rem] font-semibold text-base-content">Failover</div>
-                <div className="text-[0.8125rem] leading-relaxed text-base-content/55">
-                    When an item is requested, nzbdav tries the top-ranked release first; if it can't be
-                    served fast enough, alternatives are tried automatically. These knobs control how
-                    aggressive that fallback is, so a request never hangs on a dead release.
-                </div>
-            </div>
+            <div className="flex flex-col gap-4">
+            <SettingsCard
+                icon="alt_route"
+                title="Candidate failover"
+                description={
+                    <>
+                        Try the top-ranked release first, then move to alternatives when it cannot be served
+                        fast enough. These controls keep requests from hanging on a dead release.
+                    </>
+                }
+            >
 
             <Form.Group className="flex flex-col gap-2">
                 <Form.Check
@@ -184,16 +223,18 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
                     On by default.
                 </p>
             </Form.Group>
+            </SettingsCard>
 
-            <div className="flex flex-col gap-2">
-                <div className="text-[0.95rem] font-semibold text-base-content">Stall failover</div>
-                <div className="text-[0.8125rem] leading-relaxed text-base-content/55">
-                    If a candidate reports no progress within the window below, it is set aside and the next
-                    candidate is attempted, instead of waiting for it to complete. A set-aside candidate is
-                    not recorded as failed — it may simply be slow. On by default; requires the failover
-                    watchdog above to be on.
-                </div>
-            </div>
+            <SettingsCard
+                icon="timer_off"
+                title="Stall failover"
+                description={
+                    <>
+                        Set aside candidates that stop progressing and try the next one without recording the
+                        slow candidate as failed. Requires the failover watchdog.
+                    </>
+                }
+            >
 
             <Form.Group className="flex flex-col gap-2">
                 <Form.Check
@@ -240,16 +281,18 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
                     progress — a backstop for a candidate that is queued but not yet started. Default 5.
                 </p>
             </Form.Group>
+            </SettingsCard>
 
-            <div className="flex flex-col gap-2">
-                <div className="text-[0.95rem] font-semibold text-base-content">Variants</div>
-                <div className="text-[0.8125rem] leading-relaxed text-base-content/55">
-                    Keep multiple size copies of the same item. When you pick a different
-                    size for something nzbdav already has, it can fetch that size too, then
-                    on future picks serve the copy closest to whatever size you just selected.
-                    Off by default.
-                </div>
-            </div>
+            <SettingsCard
+                icon="content_copy"
+                title="Variants"
+                description={
+                    <>
+                        Keep multiple size copies of the same item and serve the copy closest to the size
+                        selected on future requests. Off by default.
+                    </>
+                }
+            >
 
             <Form.Group className="flex flex-col gap-2">
                 <Form.Label>Mode</Form.Label>
@@ -367,6 +410,8 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
                     never remove an item that's still being accessed. Default 60.
                 </p>
             </Form.Group>
+            </SettingsCard>
+            </div>
             </ManagedSetting>
         </SettingsPage>
     );
