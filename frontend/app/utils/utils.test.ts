@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { clientIdentityTooltip, clientLabelFromUserAgent } from "./client-label";
 import { isMaskedSecret } from "./config-mask";
 import { formatFileSize } from "./file-size";
-import { getExploreContentLink, getLeafDirectoryName, parseExploreWebdavPath } from "./path";
+import {
+  getExploreBreadcrumbHref,
+  getExploreContentLink,
+  getLeafDirectoryName,
+  parseExploreWebdavPath,
+} from "./path";
 import { className, classNames } from "./styling";
 import { receiveMessage } from "./websocket-util";
 
@@ -87,6 +92,23 @@ describe("getExploreContentLink", () => {
     expect(getExploreContentLink("   ", "movies")).toBeNull();
     expect(getExploreContentLink("/completed/movies/Alien", "   ")).toBeNull();
     expect(getExploreContentLink("/completed/movies/Alien", "")).toBeNull();
+  });
+});
+
+describe("getExploreBreadcrumbHref", () => {
+  it("returns the Explore root for the home breadcrumb", () => {
+    expect(getExploreBreadcrumbHref(["content"], -1)).toBe("/explore");
+  });
+
+  it("encodes each selected directory independently", () => {
+    const directories = ["content", "My#1 Hits", "100%", "A?B", "tv shows", "日本語"];
+    const href = getExploreBreadcrumbHref(directories, directories.length - 1);
+
+    expect(href).toBe("/explore/content/My%231%20Hits/100%25/A%3FB/tv%20shows/%E6%97%A5%E6%9C%AC%E8%AA%9E");
+    expect(parseExploreWebdavPath(href.slice("/explore/".length))).toEqual({
+      ok: true,
+      path: directories.join("/"),
+    });
   });
 });
 

@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { useCallback } from "react"
 import { useNavigate } from "react-router"
 import { Icon } from "~/components/ui"
+import { getExploreBreadcrumbHref } from "~/utils/path"
 
 export type BreadcrumbProps = {
     parentDirectories: string[]
@@ -10,8 +11,7 @@ export type BreadcrumbProps = {
 export function Breadcrumbs({ parentDirectories }: BreadcrumbProps): ReactNode {
     const navigate = useNavigate();
     const onClick = useCallback((index: number) => {
-        if (index === -1) return navigate("/explore");
-        navigate(`/explore/${parentDirectories.slice(0, index + 1).join('/')}`)
+        navigate(getExploreBreadcrumbHref(parentDirectories, index));
     }, [parentDirectories, navigate]);
 
     return (

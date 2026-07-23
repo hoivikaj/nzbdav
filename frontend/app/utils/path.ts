@@ -28,6 +28,12 @@ export function getExploreContentLink(storage: string | null | undefined, catego
     return `/explore/content/${encodeURIComponent(category.trim())}/${encodeURIComponent(downloadFolder)}`;
 }
 
+/** Explore link for a selected decoded breadcrumb directory, including the WebDAV root. */
+export function getExploreBreadcrumbHref(parentDirectories: string[], index: number): string {
+    if (index === -1) return "/explore";
+    return `/explore/${parentDirectories.slice(0, index + 1).map(encodeURIComponent).join("/")}`;
+}
+
 export type ParsedExploreWebdavPath =
     | { ok: true; path: string }
     | { ok: false };
