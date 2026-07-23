@@ -2,6 +2,12 @@
 
 WebDAV authentication and streaming/connection behavior for playback mounts.
 
+!!! tip "Headless ENV"
+
+    Map config keys below to `NZBDAV_CONFIG__...` with the
+    [naming algorithm](headless.md#naming-algorithm)
+    (`webdav.pass` → `NZBDAV_CONFIG__WEBDAV__PASS`).
+
 | Control | Config key | Default | Effect |
 |---------|------------|---------|--------|
 | WebDAV User | `webdav.user` | `admin` / `WEBDAV_USER` | Alphanumeric + `_` `-` |

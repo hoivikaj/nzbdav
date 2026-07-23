@@ -1,6 +1,7 @@
 # Radarr / Sonarr
 
-*Arr instance credentials and automatic stuck-queue handling. Config key: `arr.instances`.
+*Arr instance credentials and automatic stuck-queue handling. Config key: `arr.instances`
+(`NZBDAV_CONFIG__ARR__INSTANCES` — see [headless](headless.md)).
 
 | Control | Effect |
 |---------|--------|

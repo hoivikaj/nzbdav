@@ -2,6 +2,12 @@
 
 Configure NNTP providers, cascade vs pooled routing, and queue-side NNTP pipelining.
 
+!!! tip "Headless ENV"
+
+    Each config key below maps to `NZBDAV_CONFIG__...` via the
+    [naming algorithm](headless.md#naming-algorithm) (for example
+    `usenet.providers` → `NZBDAV_CONFIG__USENET__PROVIDERS`).
+
 ## Providers
 
 Add one or more accounts. Each provider supports:
