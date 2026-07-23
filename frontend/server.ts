@@ -3,7 +3,10 @@ import express from "express";
 import http from "http";
 import { WebSocketServer } from "ws";
 import { logger, requestLogger } from "./server/logger.js";
-import { shouldSkipCompression } from "./server/proxy-path.js";
+import {
+  isHtmlDocumentRequest,
+  shouldSkipCompression,
+} from "./server/proxy-path.js";
 import { securityHeadersMiddleware } from "./server/security-headers.js";
 import {
   isExpectedBackendUnavailableError,
@@ -38,9 +41,14 @@ process.on("unhandledRejection", (reason) => {
 const app = express();
 app.use(
   compression({
-    // Don't compress proxied WebDAV/media/API responses; keep Content-Length intact for seek
+    // Don't compress proxied WebDAV/media/API responses; keep Content-Length intact for seek.
+    // Don't compress SSR HTML: React Router per-chunk flush + zlib drain stacking
+    // trips MaxListenersExceededWarning on Gzip (see isHtmlDocumentRequest).
     filter: (req, res) => {
       if (shouldSkipCompression(req.path || "")) {
+        return false;
+      }
+      if (isHtmlDocumentRequest(req)) {
         return false;
       }
       return compression.filter(req, res);

@@ -50,3 +50,15 @@ export function shouldSkipCompression(pathname: string): boolean {
   if (decodedPath === null) return false;
   return matchesBackendPathPrefix(decodedPath);
 }
+
+// React Router streams SSR HTML and calls res.flush() after every chunk.
+// Express `compression` maps that to zlib.Gzip.flush(), which stacks 'drain'
+// listeners under backpressure and trips MaxListenersExceededWarning (11+).
+// Skip Gzip for document navigations; static assets still compress normally.
+export function isHtmlDocumentRequest(req: {
+  headers: { accept?: string | string[] };
+}): boolean {
+  const accept = req.headers.accept;
+  const value = Array.isArray(accept) ? accept.join(",") : (accept ?? "");
+  return /\btext\/html\b/i.test(value);
+}

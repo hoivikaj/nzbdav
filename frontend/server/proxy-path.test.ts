@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isBackendApiPath,
+  isHtmlDocumentRequest,
   matchesBackendPathPrefix,
   safeDecodePath,
   shouldProxyToBackend,
@@ -113,5 +114,37 @@ describe("shouldSkipCompression", () => {
     expect(shouldSkipCompression("/login")).toBe(false);
     expect(shouldSkipCompression("/viewport.css")).toBe(false);
     expect(shouldSkipCompression("/%zz")).toBe(false);
+  });
+});
+
+describe("isHtmlDocumentRequest", () => {
+  it("skips compression for browser document Accept headers", () => {
+    expect(
+      isHtmlDocumentRequest({
+        headers: {
+          accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isHtmlDocumentRequest({ headers: { accept: "TEXT/HTML" } }),
+    ).toBe(true);
+  });
+
+  it("does not skip for non-HTML Accept headers", () => {
+    expect(
+      isHtmlDocumentRequest({ headers: { accept: "application/json" } }),
+    ).toBe(false);
+    expect(isHtmlDocumentRequest({ headers: { accept: "*/*" } })).toBe(false);
+    expect(isHtmlDocumentRequest({ headers: {} })).toBe(false);
+  });
+
+  it("joins array Accept headers", () => {
+    expect(
+      isHtmlDocumentRequest({
+        headers: { accept: ["application/json", "text/html"] },
+      }),
+    ).toBe(true);
   });
 });
