@@ -25,6 +25,7 @@ public class ConfigManager
     // contend on _config.
     private readonly object _excludeLock = new();
     private IReadOnlyList<Regex>? _compiledExcludeCache;
+    private ConfigEnvironmentOverlay _environmentOverlay = ConfigEnvironmentOverlay.Empty;
     public event EventHandler<ConfigEventArgs>? OnConfigChanged;
 
     public async Task LoadConfig()
@@ -44,10 +45,60 @@ public class ConfigManager
         SyncPathSanitizer();
     }
 
+    /// <summary>
+    /// Applies an authoritative <c>NZBDAV_CONFIG__...</c> overlay. Must run after
+    /// <see cref="LoadConfig"/> so provider-ID normalization can see persisted JSON.
+    /// ENV values stay out of SQLite and win over persisted rows at read time.
+    /// </summary>
+    public void ApplyEnvironmentOverlay(ConfigEnvironmentOverlay overlay)
+    {
+        ArgumentNullException.ThrowIfNull(overlay);
+        lock (_config)
+        {
+            _environmentOverlay = overlay;
+            _deserializedConfig.Clear();
+        }
+        lock (_excludeLock) { _compiledExcludeCache = null; }
+        SyncPathSanitizer();
+    }
+
+    public bool IsEnvironmentManaged(string configName)
+    {
+        lock (_config)
+        {
+            return _environmentOverlay.IsManaged(configName);
+        }
+    }
+
+    public string? GetEnvironmentVariableName(string configName)
+    {
+        lock (_config)
+        {
+            return _environmentOverlay.GetEnvironmentVariableName(configName);
+        }
+    }
+
+    /// <summary>
+    /// Effective value for a key: ENV overlay wins, then SQLite. Used by the
+    /// Settings API so the UI shows what the process is actually running.
+    /// </summary>
+    public string? GetEffectiveConfigValue(string configName) => GetConfigValue(configName);
+
+    /// <summary>Persisted SQLite value only (ignores ENV overlay). Used when normalizing provider IDs.</summary>
+    public string? GetPersistedConfigValue(string configName)
+    {
+        lock (_config)
+        {
+            return _config.TryGetValue(configName, out string? value) ? value : null;
+        }
+    }
+
     private string? GetConfigValue(string configName)
     {
         lock (_config)
         {
+            if (_environmentOverlay.TryGetValue(configName, out var envValue))
+                return envValue;
             return _config.TryGetValue(configName, out string? value) ? value : null;
         }
     }
@@ -59,7 +110,13 @@ public class ConfigManager
 
         lock (_config)
         {
-            if (!_config.TryGetValue(configName, out var storedValue)) return default;
+            string? storedValue = null;
+            if (_environmentOverlay.TryGetValue(configName, out var envValue))
+                storedValue = envValue;
+            else if (_config.TryGetValue(configName, out var dbValue))
+                storedValue = dbValue;
+
+            if (storedValue is null) return default;
             rawValue = StringUtil.EmptyToNull(storedValue);
             if (rawValue == null) return default;
 
@@ -76,8 +133,13 @@ public class ConfigManager
             if (_deserializedConfig.TryGetValue(cacheKey, out var cachedValue))
                 return cachedValue is null ? default : (T)cachedValue;
 
-            if (_config.TryGetValue(configName, out var storedValue) &&
-                StringUtil.EmptyToNull(storedValue) == rawValue)
+            string? currentStored = null;
+            if (_environmentOverlay.TryGetValue(configName, out var envValue))
+                currentStored = envValue;
+            else if (_config.TryGetValue(configName, out var dbValue))
+                currentStored = dbValue;
+
+            if (StringUtil.EmptyToNull(currentStored) == rawValue)
             {
                 _deserializedConfig[cacheKey] = value;
             }
@@ -112,10 +174,14 @@ public class ConfigManager
 
     public void UpdateValues(List<ConfigItem> configItems)
     {
+        Dictionary<string, string> changedConfig;
         lock (_config)
         {
             foreach (var configItem in configItems)
             {
+                // Always update the SQLite-backed map so removing an ENV overlay
+                // on the next restart restores the last persisted value. ENV-managed
+                // keys still resolve from the overlay at read time.
                 _config[configItem.ConfigName] = configItem.ConfigValue;
                 foreach (var cacheKey in _deserializedConfig.Keys
                              .Where(key => key.Name == configItem.ConfigName)
@@ -124,6 +190,12 @@ public class ConfigManager
                     _deserializedConfig.Remove(cacheKey);
                 }
             }
+
+            // Only emit OnConfigChanged for keys whose *effective* value changed.
+            // Writes to ENV-managed keys leave the running value unchanged.
+            changedConfig = configItems
+                .Where(item => !_environmentOverlay.IsManaged(item.ConfigName))
+                .ToDictionary(x => x.ConfigName, x => x.ConfigValue);
         }
 
         if (configItems.Any(x => x.ConfigName.StartsWith(ConfigKeys.SearchExcludePrefix, StringComparison.Ordinal)
@@ -132,7 +204,8 @@ public class ConfigManager
             lock (_excludeLock) { _compiledExcludeCache = null; }
         }
 
-        var changedConfig = configItems.ToDictionary(x => x.ConfigName, x => x.ConfigValue);
+        if (changedConfig.Count == 0) return;
+
         if (changedConfig.ContainsKey(ConfigKeys.WebdavWindowsSafePaths))
             SyncPathSanitizer();
         OnConfigChanged?.Invoke(this, new ConfigEventArgs { ChangedConfig = changedConfig });

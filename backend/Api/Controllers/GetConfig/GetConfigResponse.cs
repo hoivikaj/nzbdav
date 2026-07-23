@@ -1,8 +1,6 @@
-﻿using NzbWebDAV.Database.Models;
-
-namespace NzbWebDAV.Api.Controllers.GetConfig;
+﻿namespace NzbWebDAV.Api.Controllers.GetConfig;
 
 public class GetConfigResponse : BaseApiResponse
 {
-    public List<ConfigItem> ConfigItems { get; init; } = new();
+    public List<ConfigItemDto> ConfigItems { get; init; } = new();
 }

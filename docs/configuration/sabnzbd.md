@@ -2,6 +2,12 @@
 
 SABnzbd-compatible download client API used by Radarr/Sonarr. See also [API compatibility](../features/sab-api.md).
 
+!!! tip "Headless ENV"
+
+    Map any config key in the table to `NZBDAV_CONFIG__...` with the
+    [naming algorithm](headless.md#naming-algorithm)
+    (`api.categories` → `NZBDAV_CONFIG__API__CATEGORIES`).
+
 | Control | Config key | Default | Effect |
 |---------|------------|---------|--------|
 | API Key | `api.key` | from `FRONTEND_BACKEND_API_KEY` if unset | *Arr download client auth |

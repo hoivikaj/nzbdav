@@ -2,6 +2,14 @@
 
 Open `http://your-server:3000` after the container is healthy.
 
+!!! tip "Headless ConfigItems vs first-run account"
+
+    You can pre-seed Usenet, WebDAV, *Arr, and other **Settings** values with
+    [`NZBDAV_CONFIG__...`](../configuration/headless.md) before the first UI visit.
+    The **admin username/password** for the web UI is still created here (or via your
+    existing account) — that bootstrap is **not** part of the ENV overlay. Warden
+    sources and database restore actions are also separate domains.
+
 ## 1. Create the admin account
 
 Set username and password for the web UI. Session cookies can be hardened later with `SECURE_COOKIES=true` behind HTTPS.
@@ -17,7 +25,7 @@ Set username and password for the web UI. Session cookies can be hardened later 
 | Use SSL | On for remote providers |
 | Storage group | Optional — same label for resellers that share upstream storage |
 
-Click **Test** / **Auto-tune** when available. See [Usenet settings](../configuration/usenet.md).
+Click **Test** / **Auto-tune** when available. See [Usenet settings](../configuration/usenet.md). Skip this step when providers are already supplied via [headless ENV](../configuration/headless.md).
 
 ## 3. WebDAV (`Settings` → `WebDAV`)
 
@@ -53,3 +61,4 @@ Copy the **API Key** from this page — *Arr download clients need it.
 - [Connect Radarr/Sonarr](connect-arr.md)
 - [Import strategies](../guides/import-strategies.md)
 - [Configuration reference](../configuration/index.md)
+- [Headless environment configuration](../configuration/headless.md)

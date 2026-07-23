@@ -1,6 +1,6 @@
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/feedback";
-import { SettingsPage } from "~/components/ui";
+import { SettingsPage, ManagedSetting } from "~/components/ui";
 import { Input, Select } from "~/components/ui/form";
 import { Icon } from "~/components/ui/icon";
 import { type Dispatch, type SetStateAction, useState, useCallback, useEffect } from "react";
@@ -195,6 +195,7 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
 
     return (
         <SettingsPage>
+            <ManagedSetting configKey="arr.instances">
             <div className={'space-y-4'}>
                 <div className={'flex items-center justify-between text-lg font-semibold text-base-content'}>
                     <div>Radarr Instances</div>
@@ -277,6 +278,7 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
                     })}
                 </ul>
             </div>
+            </ManagedSetting>
         </SettingsPage>
     );
 }

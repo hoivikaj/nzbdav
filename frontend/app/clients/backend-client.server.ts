@@ -376,6 +376,8 @@ export type DirectoryItem = {
 export type ConfigItem = {
     configName: string,
     configValue: string,
+    /** Present when the setting is owned by an NZBDAV_CONFIG__... environment variable. */
+    environmentVariableName?: string | null,
 }
 
 export type ExcludeSyncUrlStatus = {

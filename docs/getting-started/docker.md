@@ -41,6 +41,13 @@ docker compose up -d
 
 Set `PUID`/`PGID` from `id` on the host. Map `/mnt` (or your media paths) so completed downloads and library folders share paths with *Arr and media servers.
 
+!!! tip "Headless Settings [since 0.9.0](https://github.com/nzbdav/nzbdav/releases/tag/v0.9.0){ .nzbdav-since }"
+
+    Prefer infrastructure-as-code for Usenet, WebDAV, *Arr, and other Settings? Use authoritative
+    [`NZBDAV_CONFIG__...`](../configuration/headless.md) variables — see the
+    [fully hydrated Compose example](../configuration/headless.md#fully-hydrated-compose-example).
+    Process variables on this page (`PUID`, `TZ`, …) stay separate.
+
 ## Change the published port
 
 Compose port mappings use `HOST_PORT:CONTAINER_PORT`. To open NzbDAV on port

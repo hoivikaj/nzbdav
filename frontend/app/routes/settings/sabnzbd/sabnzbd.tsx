@@ -1,5 +1,5 @@
 import { Button } from "~/components/ui/button";
-import { SettingsPage } from "~/components/ui";
+import { ManagedSetting, SettingsPage } from "~/components/ui";
 import { Checkbox, Input, Select } from "~/components/ui/form";
 import { Icon } from "~/components/ui/icon";
 import { useCallback, useEffect, useMemo, useRef, type Dispatch, type SetStateAction } from "react";
@@ -24,6 +24,7 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
 
     return (
         <SettingsPage>
+            <ManagedSetting configKey="api.key">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="api-key-input">API Key</label>
                 <div className="flex w-full">
@@ -42,7 +43,9 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     Use this API key when configuring your download client in Radarr or Sonarr.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="api.categories">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="categories-input">Categories</label>
                 <TagInput
@@ -56,7 +59,9 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     The complete list of categories for organizing imported nzbs. Only letters, numbers, and dashes are allowed.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="api.manual-category">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="manual-category-input">Manual Upload Category</label>
                 <Input
@@ -71,7 +76,9 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     The category to use for manual uploads through the Queue page on the UI.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="api.import-strategy">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="import-strategy-input">Import Strategy</label>
                 <Select
@@ -86,8 +93,10 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     If you need to be able to stream from Plex, you will need to configure rclone and should select the `Symlinks` option here. If you only need to stream through Emby or Jellyfin, then you can skip rclone altogether and select the `STRM Files` option.
                 </p>
             </div>
+            </ManagedSetting>
             {/* <hr /> */}
             {config["api.import-strategy"] === 'symlinks' &&
+                <ManagedSetting configKey="rclone.mount-dir">
                 <div className={'ml-4 space-y-2 border-l border-base-content/10 pl-4'}>
                     <label className="block text-sm font-medium text-base-content" htmlFor="mount-dir-input">Rclone Mount Directory</label>
                     <Input
@@ -102,8 +111,10 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                         The location at which you've mounted (or will mount) the webdav root, through Rclone. This is used to tell Radarr / Sonarr where to look for completed "downloads."
                     </p>
                 </div>
+                </ManagedSetting>
             }
             {config["api.import-strategy"] === 'strm' && <>
+                <ManagedSetting configKey="api.completed-downloads-dir">
                 <div className={'ml-4 space-y-2 border-l border-base-content/10 pl-4'}>
                     <label className="block text-sm font-medium text-base-content" htmlFor="completed-downloads-dir-input">Completed Downloads Dir</label>
                     <Input
@@ -118,6 +129,8 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                         This is used to tell Radarr / Sonarr where to look for completed "downloads." Make sure this path is also visible to your Radarr / Sonarr containers. The "downloads" placed in this folder will all be *.strm files that point to nzbdav for streaming.
                     </p>
                 </div>
+                </ManagedSetting>
+                <ManagedSetting configKey="general.base-url">
                 <div className={'ml-4 space-y-2 border-l border-base-content/10 pl-4'}>
                     <label className="block text-sm font-medium text-base-content" htmlFor="base-url-input">Base URL</label>
                     <Input
@@ -132,8 +145,10 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                         What is the base URL at which you access nzbdav? Make sure that Emby/Jellyfin can access this url. This is the URL they will connect to for streaming. All *.strm files will point to this URL.
                     </p>
                 </div>
+                </ManagedSetting>
             </>}
             <hr />
+            <ManagedSetting configKey="api.download-file-blocklist">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="ignored-files-input">Ignored Files</label>
                 <TagInput
@@ -147,7 +162,9 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     Files that match these patterns will be ignored and not mounted onto the webdav when processing an nzb. Wildcards (*) are supported.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="api.duplicate-nzb-behavior">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="duplicate-nzb-behavior-input">Behavior for Duplicate NZBs</label>
                 <Select
@@ -163,7 +180,9 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     When an NZB is added, a new folder is created on the webdav. What should be done when the download folder for an NZB already exists?
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="api.user-agent">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="user-agent-input">User Agent</label>
                 <ExpandingTextInput
@@ -179,7 +198,9 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     for fetching nzb files.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="api.addurl-trusted-hosts">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="addurl-trusted-hosts-input">Trusted local hosts</label>
                 <ExpandingTextInput
@@ -197,7 +218,9 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     <code>*</code> to trust every non-public address. Only list hosts you control.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="api.ensure-importable-video">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -211,7 +234,9 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     Whether to mark downloads as `failed` when no single video file is found inside the nzb. This will force Radarr / Sonarr to automatically look for a new nzb.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="api.skip-non-video-on-missing-articles">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -229,7 +254,9 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     Enable this to fail the download instead so *Arr can grab an alternate release.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="api.ensure-article-existence-categories">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -249,7 +276,9 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     onChange={value => setNewConfig({ ...config, "api.ensure-article-existence-categories": value })}
                 />
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="api.ignore-history-limit">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -264,7 +293,13 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     <a href="https://github.com/Sonarr/Sonarr/issues/5452">See here</a>.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKeys={[
+                "api.nzb-backup-enabled",
+                "api.nzb-backup-location",
+                "api.nzb-backup-retention-days",
+            ]}>
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -304,6 +339,7 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     Aged <code>*.nzb</code> files under the backup directory are pruned hourly. Use <code>0</code> to keep backups forever. Default is 30 days.
                 </p>
             </div>
+            </ManagedSetting>
         </SettingsPage>
     );
 }

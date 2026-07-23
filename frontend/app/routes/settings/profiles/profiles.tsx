@@ -1,6 +1,6 @@
 import { type Dispatch, type ReactNode, type SetStateAction, useCallback, useMemo, useState } from "react";
 import { MultiCheckboxInput } from "~/components/multi-checkbox-input/multi-checkbox-input";
-import { Button, Field, Icon, Input, Label, Select, SettingsPage, Toggle } from "~/components/ui";
+import { Button, Field, Icon, Input, Label, ManagedSetting, Select, SettingsPage, Toggle } from "~/components/ui";
 
 type ProfilesSettingsProps = {
     config: Record<string, string>
@@ -117,6 +117,7 @@ export function ProfilesSettings({ config, setNewConfig }: ProfilesSettingsProps
 
     return (
         <SettingsPage>
+            <ManagedSetting configKey="profiles.instances">
             <div className="flex flex-col gap-2">
                 <div className="mb-[18px] flex items-center justify-between">
                     <div>Search Profiles</div>
@@ -142,6 +143,7 @@ export function ProfilesSettings({ config, setNewConfig }: ProfilesSettingsProps
                     ))
                 )}
             </div>
+            </ManagedSetting>
         </SettingsPage>
     );
 }

@@ -1,8 +1,12 @@
 # Environment variables
 
-Advanced reference for **headless / container** configuration. Most day-to-day tunables live in the Settings UI (SQLite). Env vars wire the process, supply secrets at bootstrap, and act as fallbacks when a UI value is empty.
+Advanced reference for **process / container** wiring and **legacy Settings fallbacks**. Most day-to-day tunables live in the Settings UI (SQLite).
 
-Precedence for fallbacks: **saved Settings value wins** over env, which wins over built-in default (unless noted).
+!!! tip "Authoritative headless Settings [since 0.9.0](https://github.com/nzbdav/nzbdav/releases/tag/v0.9.0){ .nzbdav-since }"
+
+    To drive every Settings (`ConfigItems`) value from the environment — with read-only UI locks and values kept out of SQLite — use the **`NZBDAV_CONFIG__...`** overlay documented in **[Headless environment configuration](headless.md)**. That page includes a fully hydrated Compose example.
+
+    Precedence when both are present: **`NZBDAV_CONFIG__...` > SQLite/UI > legacy fallbacks on this page > defaults**.
 
 ## Container / entrypoint
 
@@ -58,6 +62,9 @@ for bridge networking, host networking, healthcheck, and DUMB examples.
 
 ## Settings fallbacks (when UI empty)
 
+These apply only when the matching Settings value is empty **and** no
+[`NZBDAV_CONFIG__...`](headless.md) overlay supplies that key.
+
 | Variable | Related setting | Default if both empty |
 |----------|-----------------|------------------------|
 | `FRONTEND_BACKEND_API_KEY` | API Key | required |
@@ -74,6 +81,9 @@ for bridge networking, host networking, healthcheck, and DUMB examples.
 | `DATABASE_MAINTENANCE_INTERVAL_HOURS` | Retention sweep cadence | `6` |
 
 ## Example Compose snippet
+
+Operational wiring only — for a full Settings-via-ENV stack see the
+[headless Compose example](headless.md#fully-hydrated-compose-example).
 
 ```yaml
 environment:

@@ -2,6 +2,12 @@
 
 Notify rclone RC when WebDAV files change (useful with high `dir-cache-time`).
 
+!!! tip "Headless ENV"
+
+    Map config keys below to `NZBDAV_CONFIG__...` with the
+    [naming algorithm](headless.md#naming-algorithm)
+    (`rclone.host` → `NZBDAV_CONFIG__RCLONE__HOST`).
+
 | Control | Config key | Default | Effect |
 |---------|------------|---------|--------|
 | Enable Rclone RC notifications | `rclone.rc-enabled` | off | Auto `vfs/forget` on add/remove |

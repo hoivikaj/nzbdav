@@ -2,6 +2,12 @@
 
 Pre-resolve list titles to healthy releases. Feature overview: [Watchtower](../features/watchtower.md).
 
+!!! tip "Headless ENV"
+
+    Map config keys below to `NZBDAV_CONFIG__...` with the
+    [naming algorithm](headless.md#naming-algorithm)
+    (`watchtower.enabled` → `NZBDAV_CONFIG__WATCHTOWER__ENABLED`).
+
 | Control | Config key | Default | Effect |
 |---------|------------|---------|--------|
 | Enable Watchtower | `watchtower.enabled` | off | Master switch |

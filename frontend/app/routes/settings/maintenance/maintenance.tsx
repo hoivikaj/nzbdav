@@ -1,4 +1,4 @@
-import { SettingsIntro, SettingsPage } from "~/components/ui";
+import { ManagedSetting, SettingsIntro, SettingsPage } from "~/components/ui";
 import { Checkbox, Input, Select } from "~/components/ui/form";
 import { Icon } from "~/components/ui/icon";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
@@ -28,6 +28,11 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
             </SettingsIntro>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <ManagedSetting configKeys={[
+                    "db.is-startup-vacuum-enabled",
+                    "database.history-retention-days",
+                    "database.healthcheck-retention-days",
+                ]}>
                 <section className="overflow-hidden rounded-lg border border-base-content/10 bg-base-100">
                     <div className="flex items-start gap-3 border-b border-base-content/10 p-4">
                         <span className="rounded-lg bg-primary/10 p-2 text-primary">
@@ -121,7 +126,12 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
                         </div>
                     </div>
                 </section>
+                </ManagedSetting>
 
+                <ManagedSetting configKeys={[
+                    "maintenance.remove-orphaned-schedule-enabled",
+                    "maintenance.remove-orphaned-schedule-time",
+                ]}>
                 <section className="overflow-hidden rounded-lg border border-base-content/10 bg-base-100">
                     <div className="flex items-start gap-3 border-b border-base-content/10 p-4">
                         <span className="rounded-lg bg-primary/10 p-2 text-primary">
@@ -235,6 +245,7 @@ export function Maintenance({ savedConfig, config, setNewConfig }: MaintenancePr
                         </div>
                     </div>
                 </section>
+                </ManagedSetting>
             </div>
 
             <section className="space-y-3">

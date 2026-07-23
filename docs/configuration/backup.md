@@ -2,10 +2,17 @@
 
 Logical SQL dumps of databases, schedule/retention, upload/download/restore.
 
+!!! tip "Headless ENV"
+
+    Map schedule/retention keys to `NZBDAV_CONFIG__...` with the
+    [naming algorithm](headless.md#naming-algorithm)
+    (`backup.schedule-time` → `NZBDAV_CONFIG__BACKUP__SCHEDULE_TIME`, minutes from midnight).
+    Create / upload / restore **actions** remain out of the ENV overlay.
+
 | Control | Config key | Default | Effect |
 |---------|------------|---------|--------|
 | Enable daily backup | `backup.schedule-enabled` | off | `.sql` under config volume |
-| Daily run time | `backup.schedule-time` | midnight | Uses `TZ` |
+| Daily run time | `backup.schedule-time` | midnight (`0`) | Minutes from midnight; uses `TZ` |
 | Keep newest backups | `backup.retention-count` | `5` | Prune non-preserved; `0` = no prune |
 
 Actions: Create / Upload / Download / Preserve / Restore / Delete.

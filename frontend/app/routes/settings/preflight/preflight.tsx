@@ -1,5 +1,5 @@
 import { type Dispatch, type SetStateAction } from "react";
-import { Field, Input, Label, Select, SettingsIntro, SettingsPage } from "~/components/ui";
+import { Field, Input, Label, ManagedSetting, Select, SettingsIntro, SettingsPage } from "~/components/ui";
 
 type PreflightSettingsProps = {
     config: Record<string, string>
@@ -20,6 +20,7 @@ export function PreflightSettings({ config, setNewConfig }: PreflightSettingsPro
                 more it does.
             </SettingsIntro>
 
+            <ManagedSetting configKey="preflight.mode">
             <Field>
                 <Label htmlFor="preflight-mode">Mode</Label>
                 <Select
@@ -41,7 +42,9 @@ export function PreflightSettings({ config, setNewConfig }: PreflightSettingsPro
                     that maps to a previously completed item — useful when re-opening something.
                 </p>
             </Field>
+            </ManagedSetting>
 
+            <ManagedSetting configKey="preflight.max-attempts">
             <Field>
                 <Label htmlFor="preflight-max-attempts">Max candidates to try</Label>
                 <Input
@@ -60,7 +63,9 @@ export function PreflightSettings({ config, setNewConfig }: PreflightSettingsPro
                     background. Default 20.
                 </p>
             </Field>
+            </ManagedSetting>
 
+            <ManagedSetting configKey="preflight.ttl-seconds">
             <Field>
                 <Label htmlFor="preflight-ttl">Keep preflight state for (seconds)</Label>
                 <Input
@@ -78,7 +83,9 @@ export function PreflightSettings({ config, setNewConfig }: PreflightSettingsPro
                     Default 120.
                 </p>
             </Field>
+            </ManagedSetting>
 
+            <ManagedSetting configKey="preflight.indexer-max-wait-seconds">
             <Field>
                 <Label htmlFor="preflight-max-wait">Skip if indexer wait exceeds (seconds)</Label>
                 <Input
@@ -97,6 +104,7 @@ export function PreflightSettings({ config, setNewConfig }: PreflightSettingsPro
                     Default 5.
                 </p>
             </Field>
+            </ManagedSetting>
         </SettingsPage>
     );
 }

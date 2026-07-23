@@ -1,6 +1,6 @@
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/feedback";
-import { SettingsPage } from "~/components/ui";
+import { ManagedSetting, SettingsPage } from "~/components/ui";
 import { Checkbox, Input } from "~/components/ui/form";
 import { Icon } from "~/components/ui/icon";
 import { type Dispatch, type SetStateAction, useState, useCallback, useEffect } from "react";
@@ -51,6 +51,7 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
 
     return (
         <SettingsPage>
+            <ManagedSetting configKey="rclone.rc-enabled">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -64,7 +65,9 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
                     When enabled, NzbDAV will automatically notify your rclone mount via the RC API whenever files are added or removed on the webdav. This allows setting a high dir-cache-time setting on Rclone.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="rclone.host">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="rclone-host-input">Rclone Server Host</label>
                 <div className="flex w-full">
@@ -101,7 +104,9 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
                     The host address of the rclone RC API.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="rclone.user">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="rclone-user-input">Rclone Server User</label>
                 <Input
@@ -115,7 +120,9 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
                     The username for authenticating to the rclone RC API. This field is optional.
                 </p>
             </div>
+            </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="rclone.pass">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="rclone-pass-input">Rclone Server Password</label>
                 <Input
@@ -129,6 +136,7 @@ export function RcloneSettings({ config, setNewConfig }: RcloneSettingsProps) {
                     The password for authenticating to the rclone RC API. This field is optional.
                 </p>
             </div>
+            </ManagedSetting>
         </SettingsPage>
     );
 }

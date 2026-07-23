@@ -8,10 +8,12 @@ import {
     Icon,
     Input,
     Label,
+    ManagedSetting,
     Modal,
     Select,
     Spinner,
     Textarea,
+    useIsAnyManaged,
 } from "~/components/ui";
 import { isMaskedSecret } from "~/utils/config-mask";
 
@@ -296,7 +298,12 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
         const timer = setTimeout(() => { void loadSyncStatus(); }, 2000);
         return () => clearTimeout(timer);
     }, [savedSyncUrls, loadSyncStatus]);
+    const excludeSyncManaged = useIsAnyManaged([
+        "search.exclude-sync-urls",
+        "search.exclude-sync-refresh-minutes",
+    ]);
     const handleSyncNow = useCallback(async () => {
+        if (excludeSyncManaged) return;
         setIsSyncing(true);
         try {
             const res = await fetch("/settings/exclude-sync", { method: "POST" });
@@ -306,7 +313,7 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
         } finally {
             setIsSyncing(false);
         }
-    }, []);
+    }, [excludeSyncManaged]);
 
     const defaultSearchUserAgent = config["api.search-user-agent"] ?? "";
     const handleSearchUserAgentChange = useCallback((value: string) => {
@@ -339,7 +346,8 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                     </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    <ManagedSetting configKey="indexers.instances" className="sm:col-span-2">
+                    <div className="flex flex-col gap-1.5">
                         <Label htmlFor="indexers-default-proxy">HTTP(S) Proxy URL</Label>
                         <Input
                             type="text"
@@ -350,7 +358,9 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                             onChange={e => handleProxyChange(e.target.value)}
                         />
                     </div>
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    </ManagedSetting>
+                    <ManagedSetting configKey="api.search-user-agent" className="sm:col-span-2">
+                    <div className="flex flex-col gap-1.5">
                         <Label htmlFor="indexers-default-search-user-agent">
                             Default Search User-Agent <span className="text-[11px] font-normal text-base-content/45">(sent when searching indexers; per-indexer override below)</span>
                         </Label>
@@ -366,7 +376,9 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                             Sent on indexer search and caps queries. Leave blank to use the default.
                         </HelpText>
                     </div>
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    </ManagedSetting>
+                    <ManagedSetting configKey="api.user-agent" className="sm:col-span-2">
+                    <div className="flex flex-col gap-1.5">
                         <Label htmlFor="indexers-default-retrieve-user-agent">
                             Default Retrieve User-Agent <span className="text-[11px] font-normal text-base-content/45">(sent when retrieving the .nzb; per-indexer override below)</span>
                         </Label>
@@ -382,7 +394,9 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                             Sent when retrieving the .nzb file. Leave blank to use the default.
                         </HelpText>
                     </div>
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    </ManagedSetting>
+                    <ManagedSetting configKey="indexers.instances" className="sm:col-span-2 space-y-3.5">
+                    <div className="flex flex-col gap-1.5">
                         <Label htmlFor="indexers-default-timeout">
                             Request timeout (seconds) <span className="text-[11px] font-normal text-base-content/45">(leave blank for {DEFAULT_TIMEOUT_SECONDS}s default)</span>
                         </Label>
@@ -395,7 +409,7 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                             onChange={e => handleTimeoutChange(e.target.value)}
                         />
                     </div>
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    <div className="flex flex-col gap-1.5">
                         <Label htmlFor="indexers-default-search-limit">
                             Search results per indexer <span className="text-[11px] font-normal text-base-content/45">(blank = {DEFAULT_SEARCH_RESULT_LIMIT}; higher pages the indexer for more results, using more API calls)</span>
                         </Label>
@@ -408,8 +422,10 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                             onChange={e => handleSearchLimitChange(e.target.value)}
                         />
                     </div>
+                    </ManagedSetting>
 
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    <ManagedSetting configKey="search.exclude-patterns" className="sm:col-span-2">
+                    <div className="flex flex-col gap-1.5">
                         <Label htmlFor="indexers-exclude-patterns">
                             Exclude result patterns <span className="text-[11px] font-normal text-base-content/45">(applies to every indexer)</span>
                         </Label>
@@ -439,8 +455,13 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                             releases your setup can't handle, whatever the reason.
                         </HelpText>
                     </div>
+                    </ManagedSetting>
 
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                    <ManagedSetting configKeys={[
+                        "search.exclude-sync-urls",
+                        "search.exclude-sync-refresh-minutes",
+                    ]} className="sm:col-span-2">
+                    <div className="flex flex-col gap-1.5">
                         <Label htmlFor="indexers-exclude-sync-urls">
                             Synced exclude URLs <span className="text-[11px] font-normal text-base-content/45">(auto-updating; one URL per line)</span>
                         </Label>
@@ -476,7 +497,15 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                                 value={excludeSyncRefresh}
                                 onChange={e => handleSyncRefreshChange(e.target.value)} />
                             <span className="text-[11px] text-base-content/45">minutes</span>
-                            <Button variant="primary" size="small" onClick={handleSyncNow} disabled={isSyncing}>
+                            <Button
+                                variant="primary"
+                                size="small"
+                                onClick={handleSyncNow}
+                                disabled={isSyncing || excludeSyncManaged}
+                                title={excludeSyncManaged
+                                    ? "Synced exclude URLs are managed by NZBDAV_CONFIG__... — change the container environment and restart"
+                                    : undefined}
+                            >
                                 <Icon name={isSyncing ? "progress_activity" : "sync"} className={`!text-[18px] ${isSyncing ? "animate-spin" : ""}`} />
                                 {isSyncing ? "Syncing…" : "Sync now"}
                             </Button>
@@ -500,9 +529,11 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                             reached, the last good copy keeps working. Save your changes first, then use <strong>Sync now</strong>.
                         </HelpText>
                     </div>
+                    </ManagedSetting>
                 </div>
             </div>
 
+            <ManagedSetting configKey="indexers.instances">
             <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-3">
                     <div className="text-base font-semibold text-base-content">Indexers</div>
@@ -534,6 +565,7 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                 onClose={handleCloseModal}
                 onSave={handleSave}
             />
+            </ManagedSetting>
         </div>
     );
 }
@@ -1423,7 +1455,6 @@ function IndexerModal({ show, indexer, onClose, onSave }: IndexerModalProps) {
         </Modal>
     );
 }
-
 export function isIndexersSettingsUpdated(config: Record<string, string>, newConfig: Record<string, string>) {
     return config["indexers.instances"] !== newConfig["indexers.instances"]
         || (config["api.user-agent"] ?? "") !== (newConfig["api.user-agent"] ?? "")

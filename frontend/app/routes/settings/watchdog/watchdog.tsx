@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import type { Dispatch, SetStateAction } from "react";
-import { NativeForm as Form, SettingsPage } from "~/components/ui";
+import { NativeForm as Form, ManagedSetting, SettingsPage } from "~/components/ui";
 
 type WatchdogSettingsProps = {
     config: Record<string, string>
@@ -20,6 +20,16 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
 
     return (
         <SettingsPage>
+            <ManagedSetting configKeys={[
+                "play.watchdog-enabled", "play.total-budget-seconds", "play.hedge-delay-seconds",
+                "play.max-candidates", "play.max-attempts", "play.verify-mode",
+                "play.candidate-negative-cache-minutes", "play.resolution-cache-ttl-hours",
+                "play.prefer-subtitles", "grab.stall-failover-enabled",
+                "grab.stall-failover-window-seconds", "grab.stall-failover-ceiling-seconds",
+                "variants.mode", "variants.tolerance-pct", "variants.max-per-group",
+                "variants.replay-strategy", "variants.fallback-on-failure",
+                "variants.eviction-strategy", "variants.eviction-active-grace-seconds",
+            ]}>
             <div className="flex flex-col gap-2">
                 <div className="text-[0.95rem] font-semibold text-base-content">Failover</div>
                 <div className="text-[0.8125rem] leading-relaxed text-base-content/55">
@@ -357,6 +367,7 @@ export function WatchdogSettings({ config, setNewConfig }: WatchdogSettingsProps
                     never remove an item that's still being accessed. Default 60.
                 </p>
             </Form.Group>
+            </ManagedSetting>
         </SettingsPage>
     );
 }

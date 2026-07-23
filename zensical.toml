@@ -43,6 +43,7 @@ nav = [
   ]},
   { "Configuration" = [
     { "Overview" = "configuration/index.md" },
+    { "Headless environment config" = "configuration/headless.md" },
     { "Usenet" = "configuration/usenet.md" },
     { "Indexers" = "configuration/indexers.md" },
     { "Search profiles" = "configuration/profiles.md" },

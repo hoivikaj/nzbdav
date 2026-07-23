@@ -2,6 +2,12 @@
 
 Newznab indexers/aggregators, global request defaults, and title exclude patterns.
 
+!!! tip "Headless ENV"
+
+    Map config keys below to `NZBDAV_CONFIG__...` with the
+    [naming algorithm](headless.md#naming-algorithm)
+    (`indexers.instances` → `NZBDAV_CONFIG__INDEXERS__INSTANCES`).
+
 ## Global defaults
 
 | Control | Config key | Default | Effect |

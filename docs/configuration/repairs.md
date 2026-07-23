@@ -2,6 +2,13 @@
 
 Background health monitoring and replacement of unhealthy library items.
 
+!!! tip "Headless ENV"
+
+    Map config keys below to `NZBDAV_CONFIG__...` with the
+    [naming algorithm](headless.md#naming-algorithm)
+    (`repair.enable` → `NZBDAV_CONFIG__REPAIR__ENABLE`). Enabling repairs via ENV
+    also needs `media.library-dir` and *Arr instances.
+
 | Control | Config key | Default | Effect |
 |---------|------------|---------|--------|
 | Enable Background Repairs | `repair.enable` | off | Needs library dir + *Arr |
