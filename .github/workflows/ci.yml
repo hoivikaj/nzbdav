@@ -49,9 +49,20 @@ jobs:
         run: npm run build && npm run build:server
 
       # Node ESM requires explicit .js extensions in emitted dist-node imports.
+      # Import every helper under dist-node/server/ (not server.js, which listens).
       - name: Smoke-import dist-node server modules
         working-directory: frontend
-        run: node --input-type=module -e "import('./dist-node/server/security-headers.js')"
+        run: |
+          node --input-type=module <<'EOF'
+          import { readdir } from "node:fs/promises";
+
+          const directory = "./dist-node/server";
+          for (const file of await readdir(directory)) {
+            if (file.endsWith(".js")) {
+              await import(`${directory}/${file}`);
+            }
+          }
+          EOF
 
       # The production launcher (server.ts) requires these exports; a build that
       # falls back to the virtual SSR entry ships a server that crashes on start.
