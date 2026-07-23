@@ -75,7 +75,13 @@ describe("BackendClient", () => {
   });
 
   it("gets, updates, and defaults config items", async () => {
-    const configItems = [{ configName: "one", configValue: "value" }];
+    const configItems = [
+      {
+        configName: "one",
+        configValue: "value",
+        environmentVariableName: "NZBDAV_CONFIG__ONE",
+      },
+    ];
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ configItems }))
       .mockResolvedValueOnce(jsonResponse({}))
