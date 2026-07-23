@@ -162,7 +162,7 @@ export function MigrationBoundary({ fallback }: { fallback: FallbackProps }) {
   if (phase === "checking" || phase === "connecting") {
     return (
       <MigrationShell
-        title={seenMigration.current ? "Finishing up" : "Connecting to nzbdav"}
+        title={seenMigration.current ? "Finishing up" : "Connecting to NzbDAV"}
         subtitle={
           seenMigration.current
             ? "Database maintenance finished. Waiting for the server to start..."
@@ -212,10 +212,10 @@ export function MigrationProgressView({ status }: { status: MigrationStatus }) {
 
   let title = "Database maintenance in progress";
   let subtitle =
-    "nzbdav is upgrading your database. This is a one-time step after an update and can take a while on large libraries. The app will load automatically when it finishes.";
+    "NzbDAV is upgrading your database. This is a one-time step after an update and can take a while on large libraries. The app will load automatically when it finishes.";
   if (done) {
     title = "Maintenance complete";
-    subtitle = "Starting nzbdav...";
+    subtitle = "Starting NzbDAV...";
   } else if (failed) {
     title = "Database maintenance failed";
     subtitle = "The upgrade could not be completed. Check the container logs for details.";
