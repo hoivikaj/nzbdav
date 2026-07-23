@@ -148,7 +148,14 @@ function isSameDate(a: Date, b: Date): boolean {
 
 export function CategoryBadge({ category }: { category: string }) {
     const categoryLower = category?.toLowerCase();
-    return <Badge className="badge-outline badge-sm w-[88px] lowercase">{categoryLower}</Badge>;
+    return (
+        <Badge
+            className="badge-outline badge-sm min-w-[88px] max-w-[120px] shrink-0 justify-center whitespace-nowrap lowercase"
+            title={`Category: ${categoryLower}`}
+        >
+            <span className="min-w-0 truncate">{categoryLower}</span>
+        </Badge>
+    );
 }
 
 export function IndexerBadge({ indexer }: { indexer: string }) {
