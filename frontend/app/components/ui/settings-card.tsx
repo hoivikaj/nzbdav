@@ -6,6 +6,7 @@ type SettingsCardProps = {
   title: string;
   description: ReactNode;
   children: ReactNode;
+  action?: ReactNode;
   className?: string;
   contentClassName?: string;
 };
@@ -16,6 +17,7 @@ export function SettingsCard({
   title,
   description,
   children,
+  action,
   className = "",
   contentClassName = "space-y-4",
 }: SettingsCardProps) {
@@ -25,10 +27,11 @@ export function SettingsCard({
         <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Icon name={icon} className="!text-[20px]" />
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-base-content">{title}</h2>
           <p className="mt-0.5 text-xs leading-relaxed text-base-content/50">{description}</p>
         </div>
+        {action && <div className="shrink-0">{action}</div>}
       </div>
       <div className={`p-4 ${contentClassName}`}>{children}</div>
     </section>

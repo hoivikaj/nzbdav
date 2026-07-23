@@ -11,6 +11,9 @@ import {
     ManagedSetting,
     Modal,
     Select,
+    SettingsCard,
+    SettingsIntro,
+    SettingsPage,
     Spinner,
     Textarea,
     useIsAnyManaged,
@@ -335,17 +338,18 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
         : "";
 
     return (
-        <div className="mb-6 flex w-full flex-col gap-6">
-            <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
-                    <div>
-                        <div className="text-base font-semibold text-base-content">Defaults</div>
-                        <HelpText className="mt-1 text-xs">
-                            Global settings used by indexers when no per-indexer override is set.
-                        </HelpText>
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+        <SettingsPage className="mb-6">
+            <SettingsIntro>
+                Configure shared search behavior, filter unwanted results, and manage the Newznab-compatible
+                indexers NzbDAV queries.
+            </SettingsIntro>
+
+            <SettingsCard
+                icon="tune"
+                title="Connection defaults"
+                description="Fallback connection and request settings used when an indexer has no override."
+                contentClassName="grid grid-cols-1 gap-3.5 sm:grid-cols-2"
+            >
                     <ManagedSetting configKey="indexers.instances" className="sm:col-span-2">
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="indexers-default-proxy">HTTP(S) Proxy URL</Label>
@@ -423,7 +427,13 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                         />
                     </div>
                     </ManagedSetting>
+            </SettingsCard>
 
+            <SettingsCard
+                icon="filter_alt"
+                title="Result exclusions"
+                description="Drop matching releases with local patterns or synchronized external lists."
+            >
                     <ManagedSetting configKey="search.exclude-patterns" className="sm:col-span-2">
                     <div className="flex flex-col gap-1.5">
                         <Label htmlFor="indexers-exclude-patterns">
@@ -530,16 +540,17 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                         </HelpText>
                     </div>
                     </ManagedSetting>
-                </div>
-            </div>
+            </SettingsCard>
 
             <ManagedSetting configKey="indexers.instances">
-            <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
-                    <div className="text-base font-semibold text-base-content">Indexers</div>
+            <SettingsCard
+                icon="travel_explore"
+                title="Configured indexers"
+                description="Add, enable, and tune the services used to discover NZB releases."
+                action={
                     <Button size="xsmall" onClick={handleAdd}>Add</Button>
-                </div>
-
+                }
+            >
                 {indexerConfig.Indexers.length === 0 ? (
                     <p className="rounded border border-base-content/10 bg-base-200/40 px-5 py-5 text-sm italic text-base-content/60">
                         No indexers configured. Add a Newznab-compatible indexer (or aggregator) to enable search.
@@ -557,7 +568,7 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                         ))}
                     </div>
                 )}
-            </div>
+            </SettingsCard>
 
             <IndexerModal
                 show={showModal}
@@ -566,7 +577,7 @@ export function IndexersSettings({ config, setNewConfig, savedConfig }: Indexers
                 onSave={handleSave}
             />
             </ManagedSetting>
-        </div>
+        </SettingsPage>
     );
 }
 

@@ -1,6 +1,6 @@
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/feedback";
-import { SettingsPage, ManagedSetting } from "~/components/ui";
+import { SettingsCard, SettingsIntro, SettingsPage, ManagedSetting } from "~/components/ui";
 import { Input, Select } from "~/components/ui/form";
 import { Icon } from "~/components/ui/icon";
 import { type Dispatch, type SetStateAction, useState, useCallback, useEffect } from "react";
@@ -195,15 +195,25 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
 
     return (
         <SettingsPage>
+            <SettingsIntro>
+                Connect Radarr and Sonarr instances for automated replacement searches, then choose how
+                NzbDAV handles downloads stuck in their queues.
+            </SettingsIntro>
+
             <ManagedSetting configKey="arr.instances">
-            <div className={'space-y-4'}>
-                <div className={'flex items-center justify-between text-lg font-semibold text-base-content'}>
-                    <div>Radarr Instances</div>
+            <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <SettingsCard
+                icon="movie"
+                title="Radarr instances"
+                description="Movie managers that can search for replacement releases."
+                action={
                     <Button variant="primary" size="small" onClick={addRadarrInstance}>
                         <Icon name="add" className="!text-[18px]" />
                         Add
                     </Button>
-                </div>
+                }
+            >
                 {arrConfig.RadarrInstances.length === 0 ? (
                     <div role="alert" className="alert alert-info alert-soft text-sm">No Radarr instances configured. Click on the "Add" button to get started.</div>
                 ) : (
@@ -218,16 +228,19 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
                         />
                     )
                 )}
-            </div>
-            <hr />
-            <div className={'space-y-4'}>
-                <div className={'flex items-center justify-between text-lg font-semibold text-base-content'}>
-                    <div>Sonarr Instances</div>
+            </SettingsCard>
+
+            <SettingsCard
+                icon="live_tv"
+                title="Sonarr instances"
+                description="Series managers that can search for replacement releases."
+                action={
                     <Button variant="primary" size="small" onClick={addSonarrInstance}>
                         <Icon name="add" className="!text-[18px]" />
                         Add
                     </Button>
-                </div>
+                }
+            >
                 {arrConfig.SonarrInstances.length === 0 ? (
                     <div role="alert" className="alert alert-info alert-soft text-sm">No Sonarr instances configured. Click on the "Add" button to get started.</div>
                 ) : (
@@ -242,10 +255,14 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
                         />
                     )
                 )}
+            </SettingsCard>
             </div>
-            <hr />
-            <div className="space-y-4">
-                <div className="text-lg font-semibold">Automatic Queue Management</div>
+
+            <SettingsCard
+                icon="rule"
+                title="Automatic queue management"
+                description="Choose how matching Radarr and Sonarr queue warnings should be handled."
+            >
                 <div role="alert" className="alert alert-info alert-soft text-sm">
                     Configure what to do for items stuck in Radarr / Sonarr queues.
                     Different actions can be configured for different status messages.
@@ -277,6 +294,7 @@ export function ArrsSettings({ config, setNewConfig }: ArrsSettingsProps) {
                         );
                     })}
                 </ul>
+            </SettingsCard>
             </div>
             </ManagedSetting>
         </SettingsPage>
