@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Config;
@@ -18,6 +19,24 @@ public class UpdateConfigController(DavDatabaseClient dbClient, ConfigManager co
         // clear message instead of throwing later deep inside a request or background task.
         // Run before webdav.pass hashing so validation sees the raw submitted value.
         ConfigManager.ValidateConfigItems(request.ConfigItems);
+
+        var managed = request.ConfigItems
+            .Where(item => configManager.IsEnvironmentManaged(item.ConfigName))
+            .Select(item => item.ConfigName)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToList();
+        if (managed.Count > 0)
+        {
+            var details = string.Join(", ", managed.Select(name =>
+            {
+                var envName = configManager.GetEnvironmentVariableName(name) ?? name;
+                return $"`{name}` (managed by `{envName}`)";
+            }));
+            throw new BadHttpRequestException(
+                $"Cannot update environment-managed setting(s): {details}. " +
+                "Change the container environment and restart instead.");
+        }
 
         var configNames = request.ConfigItems.Select(x => x.ConfigName).ToHashSet();
         var existingItems = await dbClient.Ctx.ConfigItems
