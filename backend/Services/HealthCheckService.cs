@@ -142,9 +142,14 @@ public class HealthCheckService : BackgroundService
 
     public static IQueryable<DavItem> GetHealthCheckQueueItemsQuery(DavDatabaseClient dbClient)
     {
+        // History-linked files are skipped for routine STAT checks so they do not race SAB
+        // post-processing. UnixEpoch is the playback-triggered urgent sentinel from
+        // ExceptionMiddleware and intentionally overrides only that exclusion.
         return dbClient.Ctx.Items
             .Where(x => x.Type == DavItem.ItemType.UsenetFile)
-            .Where(x => x.HistoryItemId == null);
+            .Where(x =>
+                x.HistoryItemId == null ||
+                x.NextHealthCheck == DateTimeOffset.UnixEpoch);
     }
 
     private async Task PerformHealthCheck
