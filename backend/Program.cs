@@ -137,8 +137,11 @@ class Program
             }
             catch (ConfigEnvironmentException ex)
             {
+                // Operator-facing validation failure — log a single line and exit
+                // without the outer catch / runtime printing a stack dump.
                 Log.Fatal("Invalid headless configuration: {Message}", ex.Message);
-                throw;
+                Environment.ExitCode = 1;
+                return;
             }
 
             RunYencNativeSelfTest();

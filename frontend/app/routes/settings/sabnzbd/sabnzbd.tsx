@@ -96,6 +96,7 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
             </ManagedSetting>
             {/* <hr /> */}
             {config["api.import-strategy"] === 'symlinks' &&
+                <ManagedSetting configKey="rclone.mount-dir">
                 <div className={'ml-4 space-y-2 border-l border-base-content/10 pl-4'}>
                     <label className="block text-sm font-medium text-base-content" htmlFor="mount-dir-input">Rclone Mount Directory</label>
                     <Input
@@ -110,8 +111,10 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                         The location at which you've mounted (or will mount) the webdav root, through Rclone. This is used to tell Radarr / Sonarr where to look for completed "downloads."
                     </p>
                 </div>
+                </ManagedSetting>
             }
             {config["api.import-strategy"] === 'strm' && <>
+                <ManagedSetting configKey="api.completed-downloads-dir">
                 <div className={'ml-4 space-y-2 border-l border-base-content/10 pl-4'}>
                     <label className="block text-sm font-medium text-base-content" htmlFor="completed-downloads-dir-input">Completed Downloads Dir</label>
                     <Input
@@ -126,6 +129,8 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                         This is used to tell Radarr / Sonarr where to look for completed "downloads." Make sure this path is also visible to your Radarr / Sonarr containers. The "downloads" placed in this folder will all be *.strm files that point to nzbdav for streaming.
                     </p>
                 </div>
+                </ManagedSetting>
+                <ManagedSetting configKey="general.base-url">
                 <div className={'ml-4 space-y-2 border-l border-base-content/10 pl-4'}>
                     <label className="block text-sm font-medium text-base-content" htmlFor="base-url-input">Base URL</label>
                     <Input
@@ -140,6 +145,7 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                         What is the base URL at which you access nzbdav? Make sure that Emby/Jellyfin can access this url. This is the URL they will connect to for streaming. All *.strm files will point to this URL.
                     </p>
                 </div>
+                </ManagedSetting>
             </>}
             <hr />
             <ManagedSetting configKey="api.download-file-blocklist">
@@ -289,6 +295,11 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
             </div>
             </ManagedSetting>
             <hr />
+            <ManagedSetting configKeys={[
+                "api.nzb-backup-enabled",
+                "api.nzb-backup-location",
+                "api.nzb-backup-retention-days",
+            ]}>
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -328,6 +339,7 @@ export function SabnzbdSettings({ config, setNewConfig, appVersion }: SabnzbdSet
                     Aged <code>*.nzb</code> files under the backup directory are pruned hourly. Use <code>0</code> to keep backups forever. Default is 30 days.
                 </p>
             </div>
+            </ManagedSetting>
         </SettingsPage>
     );
 }

@@ -238,14 +238,20 @@ function Body(props: BodyProps) {
         setIsSaved(false);
         setSaveError(null);
         try {
+            const changedConfig = omitManagedConfigKeys(
+                getChangedConfig(config, newConfig),
+                managedEnv,
+            );
+            if (Object.keys(changedConfig).length === 0) {
+                // Managed keys are pinned client-side; nothing left to persist.
+                setConfig(newConfig);
+                setIsSaved(true);
+                return;
+            }
             const response = await fetch("/settings/update", {
                 method: "POST",
                 body: (() => {
                     const form = new FormData();
-                    const changedConfig = omitManagedConfigKeys(
-                        getChangedConfig(config, newConfig),
-                        managedEnv,
-                    );
                     form.append("config", JSON.stringify(changedConfig));
                     return form;
                 })()

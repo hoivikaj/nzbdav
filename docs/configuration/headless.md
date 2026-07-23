@@ -41,10 +41,12 @@ Examples:
 
 Structured settings use the same JSON shapes as the Settings API / UI. Per-feature pages list the config keys; apply the mapping rule above for the ENV name.
 
-Internal runtime keys are **excluded** and rejected if supplied:
+Internal runtime keys are **excluded** from the public map. Supplying their mapped names
+(e.g. `NZBDAV_CONFIG__SEARCH__EXCLUDE_SYNC_CACHE`) fails startup as an **unknown**
+configuration variable:
 
-- `search.exclude` (prefix constant)
-- `search.exclude-sync-cache`
+- `search.exclude` (prefix constant — not a persisted setting)
+- `search.exclude-sync-cache` (runtime cache state)
 
 ## Precedence
 

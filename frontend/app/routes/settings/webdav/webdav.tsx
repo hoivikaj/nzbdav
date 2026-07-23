@@ -323,6 +323,7 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
             </div>
             </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="webdav.windows-safe-paths">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -338,6 +339,7 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
                     clients or rclone on Windows. Applies to newly mounted content only.
                 </p>
             </div>
+            </ManagedSetting>
         </SettingsPage>
     );
 }

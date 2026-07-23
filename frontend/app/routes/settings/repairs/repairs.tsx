@@ -105,7 +105,7 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
             </div>
             </ManagedSetting>
             <hr />
-            <ManagedSetting configKey="repair.auto-remove-unlinked-only">
+            <ManagedSetting configKey="repair.auto-remove-after-failures">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="auto-remove-after-failures-input">Auto-Remove After Streaming Failures</label>
                 <Input
@@ -122,6 +122,8 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                     unlinked file on the third failure.
                 </p>
             </div>
+            </ManagedSetting>
+            <ManagedSetting configKey="repair.auto-remove-unlinked-only">
             <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm text-base-content/80">
                     <Checkbox
@@ -140,6 +142,7 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
             </div>
             </ManagedSetting>
             <hr />
+            <ManagedSetting configKey="media.library-dir">
             <div className="space-y-2">
                 <label className="block text-sm font-medium text-base-content" htmlFor="library-dir-input">Library Directory</label>
                 <Input
@@ -154,6 +157,7 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                     Make sure this path is visible to your NzbDAV container.
                 </p>
             </div>
+            </ManagedSetting>
         </SettingsPage>
     );
 }
