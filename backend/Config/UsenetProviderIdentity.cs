@@ -33,6 +33,17 @@ public static class UsenetProviderIdentity
         var assigned = EnsureProviderIds(providerConfig);
         if (!assigned) return;
 
+        // ENV-managed provider JSON is authoritative and must stay out of SQLite.
+        // IDs are normalized when the overlay loads; any remaining in-memory
+        // assignments above are kept until restart without persisting.
+        if (configManager.IsEnvironmentManaged(ConfigKeys.UsenetProviders))
+        {
+            Log.Information(
+                "Assigned ProviderId for {Count} ENV-managed usenet provider(s) in memory only.",
+                providerConfig.Providers.Count);
+            return;
+        }
+
         try
         {
             await SaveProvidersAsync(configManager, providerConfig, ct).ConfigureAwait(false);

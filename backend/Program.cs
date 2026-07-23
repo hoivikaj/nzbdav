@@ -125,6 +125,22 @@ class Program
             var configManager = new ConfigManager();
             await configManager.LoadConfig().ConfigureAwait(false);
 
+            // Authoritative NZBDAV_CONFIG__... overlay (opt-in). Loaded after
+            // SQLite so provider-ID normalization can reuse persisted IDs; values
+            // stay out of the database and win over ConfigItems at read time.
+            try
+            {
+                var overlay = ConfigEnvironmentOverlay.LoadFromEnvironment(
+                    existingUsenetProvidersJson: configManager.GetPersistedConfigValue(
+                        ConfigKeys.UsenetProviders));
+                configManager.ApplyEnvironmentOverlay(overlay);
+            }
+            catch (ConfigEnvironmentException ex)
+            {
+                Log.Fatal("Invalid headless configuration: {Message}", ex.Message);
+                throw;
+            }
+
             RunYencNativeSelfTest();
 
             // Assign stable ProviderIds (persisting if needed) before the streaming
