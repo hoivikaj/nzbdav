@@ -49,17 +49,20 @@ export function WebdavSettings({ config, setNewConfig }: SabnzbdSettingsProps) {
             <hr />
             <ManagedSetting configKey="queue.worker-count">
             <div className="space-y-2">
-                <label className="block text-sm font-medium text-base-content" htmlFor="queue-worker-count-input">Concurrent Queue Downloads</label>
-                <Input
-                    {...className(['w-full', !isValidQueueWorkerCount(config["queue.worker-count"]) && 'input-error'])}
-                    type="text"
-                    id="queue-worker-count-input"
+                <label className="block text-sm font-medium text-base-content" htmlFor="queue-worker-count-select">Concurrent Queue Downloads</label>
+                <Select
+                    className="w-full"
+                    id="queue-worker-count-select"
                     aria-describedby="queue-worker-count-help"
-                    placeholder="1"
-                    value={config["queue.worker-count"] ?? "1"}
-                    onChange={e => setNewConfig({ ...config, "queue.worker-count": e.target.value })} />
+                    value={config["queue.worker-count"] || "1"}
+                    onChange={e => setNewConfig({ ...config, "queue.worker-count": e.target.value })}>
+                    <option value="1">1 — one at a time (default)</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                </Select>
                 <p className="text-[11px] leading-relaxed text-base-content/45" id="queue-worker-count-help">
-                    How many NZB queue items may process at once (1–8, default 1). The first active item
+                    How many NZB queue items may process at once. The first active item
                     gets preferred access to Queue Download Connections; additional items use spare capacity.
                     Raising this does not increase the connection budget.
                 </p>
@@ -427,7 +430,7 @@ function isValidMaxQueueConnections(value: string): boolean {
 function isValidQueueWorkerCount(value: string | undefined): boolean {
     if (value == null || value.trim() === "") return true;
     const num = Number(value);
-    return Number.isInteger(num) && num >= 1 && num <= 8;
+    return Number.isInteger(num) && num >= 1 && num <= 4;
 }
 
 function isValidStreamingPriority(value: string): boolean {
