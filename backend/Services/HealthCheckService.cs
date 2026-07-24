@@ -177,15 +177,16 @@ public class HealthCheckService : BackgroundService
         // Skip the STAT-only recheck and repair immediately: STAT can pass while BODY returns 430
         // (see nzbdav-dev#209), and structurally corrupt archives can have every article present.
         var isUrgentRepair = davItem.NextHealthCheck == DateTimeOffset.UnixEpoch;
-        if (isUrgentRepair)
-        {
-            Log.Information("Performing urgent dynamic repair for {FilePath}", davItem.Path);
-            await HandleUrgentRepair(davItem, dbClient, ct).ConfigureAwait(false);
-            return;
-        }
 
         try
         {
+            if (isUrgentRepair)
+            {
+                Log.Information("Performing urgent dynamic repair for {FilePath}", davItem.Path);
+                await HandleUrgentRepair(davItem, dbClient, ct).ConfigureAwait(false);
+                return;
+            }
+
             // update the release date, if null
             var segments = await GetAllSegments(davItem, dbClient, ct).ConfigureAwait(false);
             if (davItem.ReleaseDate == null) await UpdateReleaseDate(davItem, segments, ct).ConfigureAwait(false);
@@ -283,6 +284,83 @@ public class HealthCheckService : BackgroundService
                 HealthCheckResult.RepairAction.ActionNeeded,
                 FormatTransportFailureHealthMessage(reason), ct).ConfigureAwait(false);
         }
+        catch (Exception e) when (!e.IsCancellationException(ct))
+        {
+            await DeferHealthCheck(davItem, dbClient, e, ct).ConfigureAwait(false);
+        }
+    }
+
+    private async Task DeferHealthCheck(
+        DavItem davItem,
+        DavDatabaseClient dbClient,
+        Exception exception,
+        CancellationToken ct)
+    {
+        var isKnownFailure = exception.TryGetKnownErrorMessage(out var reason);
+        var utcNow = DateTimeOffset.UtcNow;
+        davItem.LastHealthCheck = utcNow;
+        davItem.NextHealthCheck = ComputeFailureNextHealthCheck(utcNow, isKnownFailure);
+
+        _ = _websocketManager.SendMessage(WebsocketTopic.HealthItemProgress, $"{davItem.Id}|100");
+        _ = _websocketManager.SendMessage(WebsocketTopic.HealthItemProgress, $"{davItem.Id}|done");
+
+        if (isKnownFailure)
+        {
+            Log.Warning(
+                "Health check failed for {Path}. Deferred next check until {NextHealthCheck}. Reason: {Reason}",
+                davItem.Path, davItem.NextHealthCheck, reason);
+            Log.Debug(exception, "Health check known failure stack for {Path}", davItem.Path);
+        }
+        else
+        {
+            Log.Error(
+                exception,
+                "Unexpected error during health check for {Path}. Deferred next check until {NextHealthCheck}",
+                davItem.Path, davItem.NextHealthCheck);
+        }
+
+        try
+        {
+            await RecordHealthResult(
+                dbClient, davItem,
+                HealthCheckResult.HealthResult.Unhealthy,
+                HealthCheckResult.RepairAction.ActionNeeded,
+                isKnownFailure
+                    ? $"Health check deferred: {reason}"
+                    : $"Unexpected error during health check: {exception.Message}",
+                ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception persistenceException)
+        {
+            Log.Error(
+                persistenceException,
+                "Could not record deferred health-check result for {Path}; retrying schedule persistence",
+                davItem.Path);
+
+            foreach (var entry in dbClient.Ctx.ChangeTracker.Entries<HealthCheckResult>()
+                         .Where(x => x.State == EntityState.Added))
+                entry.State = EntityState.Detached;
+
+            try
+            {
+                await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception scheduleException)
+            {
+                Log.Error(
+                    scheduleException,
+                    "Could not persist deferred health-check schedule for {Path}",
+                    davItem.Path);
+            }
+        }
     }
 
     /// <summary>
@@ -290,6 +368,16 @@ public class HealthCheckService : BackgroundService
     /// </summary>
     internal static string FormatTransportFailureHealthMessage(string reason) =>
         $"NNTP transport failure during health check: {reason}";
+
+    /// <summary>
+    /// Schedules a failed health check far enough in the future to avoid starving
+    /// other items, while allowing known provider/configuration failures more time
+    /// to be corrected than unexpected application failures.
+    /// </summary>
+    public static DateTimeOffset ComputeFailureNextHealthCheck(
+        DateTimeOffset utcNow,
+        bool knownFailure) =>
+        utcNow + (knownFailure ? TimeSpan.FromDays(1) : TimeSpan.FromHours(1));
 
     /// <summary>
     /// Schedules the next health check so the interval doubles with the item's age since release,
@@ -384,7 +472,9 @@ public class HealthCheckService : BackgroundService
         var firstSegmentId = StringUtil.EmptyToNull(segments.FirstOrDefault());
         if (firstSegmentId == null) return;
         var articleHeadersResponse = await _usenetClient.HeadAsync(firstSegmentId, ct).ConfigureAwait(false);
-        var articleHeaders = articleHeadersResponse.ArticleHeaders!;
+        if (articleHeadersResponse.ArticleHeaders is not { } articleHeaders)
+            throw new UsenetUnexpectedResponseException(
+                firstSegmentId, articleHeadersResponse.ResponseMessage);
         davItem.ReleaseDate = articleHeaders.Date;
     }
 
