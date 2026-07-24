@@ -229,6 +229,60 @@ public sealed class ConcurrentQueueManagerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ProcessQueueAsync_DoesNotSpinAfterAwakenWhileWorkerRuns()
+    {
+        var gate = new ManualResetEventSlim(false);
+        var item = CreateQueueItem("spin.nzb", "movies", "SpinJob");
+
+        await using (var ctx = new DavDatabaseContext(_options))
+        {
+            ctx.QueueItems.Add(item);
+            await ctx.SaveChangesAsync();
+        }
+
+        // One claimable item, so once it is in flight every later poll returns
+        // null and each poll marks one pass of the coordinator loop.
+        var polls = 0;
+        _queueManager.GetTopQueueItemOverride = async (exclude, ct) =>
+        {
+            Interlocked.Increment(ref polls);
+            await using var ctx = new DavDatabaseContext(_options);
+            var client = new DavDatabaseClient(ctx);
+            var (claimed, _) = await client.GetTopQueueItem(exclude, ct);
+            if (claimed is null) return (null, null);
+            ctx.ChangeTracker.Clear();
+            return (claimed, new GateStream(gate));
+        };
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var loop = _queueManager.ProcessQueueAsync(cts.Token);
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline && !_queueManager.HasActiveQueueItems)
+            await Task.Delay(20);
+        Assert.True(_queueManager.HasActiveQueueItems, "Expected a worker to be in flight");
+
+        // An addfile lands while that worker is still running. The signal must be
+        // consumed once; latching it spins the loop as fast as the CPU allows.
+        var before = Volatile.Read(ref polls);
+        _queueManager.AwakenQueue();
+        await Task.Delay(500);
+        var passes = Volatile.Read(ref polls) - before;
+
+        Assert.True(passes <= 15,
+            $"Coordinator ran {passes} passes in 500ms, expected a bounded poll rather than a spin");
+
+        gate.Set();
+        deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline && _queueManager.HasActiveQueueItems)
+            await Task.Delay(20);
+
+        await cts.CancelAsync();
+        try { await loop; }
+        catch (OperationCanceledException) { }
+    }
+
+    [Fact]
     public async Task GetTopQueueItem_ExcludesInFlightIds()
     {
         var a = CreateQueueItem("a.nzb", "movies", "A");

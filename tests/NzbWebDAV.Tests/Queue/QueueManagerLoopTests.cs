@@ -128,6 +128,70 @@ public class QueueManagerLoopTests
         await loop;
     }
 
+    [Fact]
+    public async Task WaitForWorkerOrAwaken_ConsumesAwakenSignalInsteadOfSpinning()
+    {
+        using var manager = CreateManager();
+
+        // Stand in for an in-progress worker that never finishes.
+        var runningWorker = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // An addfile (e.g. a new grab) awakens the queue while a worker runs.
+        manager.AwakenQueue();
+
+        using var cts = new CancellationTokenSource();
+        var firstWait = manager.WaitForWorkerOrAwakenAsync([runningWorker.Task], cts.Token);
+        Assert.True(await firstWait.WaitAsync(TimeSpan.FromSeconds(1)));
+
+        // With the signal consumed, the next wait must block on the poll/worker
+        // instead of returning instantly. Before the fix the token stayed latched
+        // and this returned immediately every iteration, spinning a core.
+        var secondWait = manager.WaitForWorkerOrAwakenAsync([runningWorker.Task], cts.Token);
+        var winner = await Task.WhenAny(secondWait, Task.Delay(TimeSpan.FromMilliseconds(250)));
+        Assert.NotSame(secondWait, winner);
+
+        runningWorker.SetResult();
+        await cts.CancelAsync();
+        await secondWait;
+    }
+
+    [Fact]
+    public async Task WaitForWorkerOrAwaken_ReturnsFalseOnShutdown()
+    {
+        using var manager = CreateManager();
+        var runningWorker = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var cts = new CancellationTokenSource();
+        var wait = manager.WaitForWorkerOrAwakenAsync([runningWorker.Task], cts.Token);
+
+        // Shutdown while a worker is still running must break the coordinator loop.
+        await cts.CancelAsync();
+        Assert.False(await wait.WaitAsync(TimeSpan.FromSeconds(1)));
+
+        runningWorker.SetResult();
+    }
+
+    [Fact]
+    public async Task WaitForWorkerOrAwaken_TimedAwakenDoesNotSpin()
+    {
+        using var manager = CreateManager();
+        var runningWorker = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // A future pause schedules a timed wake. Until it fires the token is not
+        // cancelled, so the wait must block on the poll rather than resetting and
+        // returning instantly the way a fired awaken does.
+        manager.AwakenQueue(DateTime.Now.AddSeconds(5));
+
+        using var cts = new CancellationTokenSource();
+        var wait = manager.WaitForWorkerOrAwakenAsync([runningWorker.Task], cts.Token);
+        var winner = await Task.WhenAny(wait, Task.Delay(TimeSpan.FromMilliseconds(250)));
+        Assert.NotSame(wait, winner);
+
+        runningWorker.SetResult();
+        await cts.CancelAsync();
+        await wait;
+    }
+
     private static QueueManager CreateManager()
     {
         var config = new ConfigManager();
