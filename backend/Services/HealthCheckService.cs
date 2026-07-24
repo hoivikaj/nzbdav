@@ -502,7 +502,7 @@ public class HealthCheckService : BackgroundService
     }
 
     /// <summary>
-    /// How an urgent (streaming-triggered) repair should proceed given auto-remove settings.
+    /// How an urgent (streaming-triggered) repair should proceed given the streaming-failure threshold.
     /// </summary>
     public enum UrgentRepairDisposition
     {
@@ -516,7 +516,8 @@ public class HealthCheckService : BackgroundService
 
     /// <summary>
     /// Decides urgent-repair disposition from failure count and auto-remove config.
-    /// Threshold 0 disables the feature (identical to today's immediate Repair).
+    /// Threshold 0 preserves immediate repair; otherwise all streaming-triggered actions wait
+    /// until the configured number of consecutive failures.
     /// </summary>
     public static UrgentRepairDisposition GetUrgentRepairDisposition(
         int threshold,
@@ -528,13 +529,7 @@ public class HealthCheckService : BackgroundService
             return UrgentRepairDisposition.RepairNormally;
 
         if (failureCount < threshold)
-        {
-            // Library-linked + unlinked-only: prefer Arr remove-and-search immediately.
-            // Unlinked (and aggressive linked) wait until the threshold before deleting.
-            if (hasLibraryLink && autoRemoveUnlinkedOnly)
-                return UrgentRepairDisposition.RepairNormally;
             return UrgentRepairDisposition.Defer;
-        }
 
         if (hasLibraryLink && autoRemoveUnlinkedOnly)
             return UrgentRepairDisposition.RepairNormally;
@@ -651,7 +646,7 @@ public class HealthCheckService : BackgroundService
                 string.Join(" ", [
                     "File failed during streaming.",
                     $"Streaming failure count: {failureCount}/{threshold}.",
-                    "Auto-remove deferred until the failure threshold is reached."
+                    "Repair and replacement deferred until the failure threshold is reached."
                 ]), ct).ConfigureAwait(false);
             return;
         }

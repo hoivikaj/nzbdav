@@ -1261,8 +1261,8 @@ public class ConfigManager
     }
 
     /// <summary>
-    /// Number of streaming failures before auto-removing a broken file during urgent repair.
-    /// 0 (default) disables auto-remove and preserves today's immediate-repair behavior.
+    /// Number of streaming failures before urgent repair starts.
+    /// 0 (default) preserves immediate-repair behavior.
     /// </summary>
     public int GetAutoRemoveAfterFailures()
     {
@@ -1272,9 +1272,8 @@ public class ConfigManager
     }
 
     /// <summary>
-    /// When true (default), auto-remove only deletes unlinked/orphaned files; library-linked
-    /// items still go through *Arr remove-and-search. When false, linked items are force-deleted
-    /// after the failure threshold as well.
+    /// When true (default), library-linked items use *Arr remove-and-search at the failure
+    /// threshold. When false, linked items are force-deleted after the threshold as well.
     /// </summary>
     public bool IsAutoRemoveUnlinkedOnly()
     {

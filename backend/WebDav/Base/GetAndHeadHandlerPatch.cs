@@ -7,6 +7,7 @@ using NWebDav.Server.Props;
 using NWebDav.Server.Stores;
 using NzbWebDAV.Api.Controllers.GetWebdavItem;
 using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Database.Models;
 using NzbWebDAV.Database.Models.Metrics;
 using NzbWebDAV.Services;
 using NzbWebDAV.Services.StreamTrace;
@@ -30,17 +31,20 @@ public class GetAndHeadHandlerPatch : IRequestHandler
     private readonly ProviderUsageTracker _providerUsageTracker;
     private readonly ActiveReadRegistry _activeReadRegistry;
     private readonly StreamTraceBuffer _streamTrace;
+    private readonly StreamingFailureTracker _failureTracker;
 
     public GetAndHeadHandlerPatch(
         IStore store,
         ProviderUsageTracker providerUsageTracker,
         ActiveReadRegistry activeReadRegistry,
-        StreamTraceBuffer streamTrace)
+        StreamTraceBuffer streamTrace,
+        StreamingFailureTracker failureTracker)
     {
         _store = store;
         _providerUsageTracker = providerUsageTracker;
         _activeReadRegistry = activeReadRegistry;
         _streamTrace = streamTrace;
+        _failureTracker = failureTracker;
     }
 
     /// <summary>
@@ -217,6 +221,14 @@ public class GetAndHeadHandlerPatch : IRequestHandler
                             (n, pos) => _activeReadRegistry.Touch(sessionId, n, pos),
                             httpContext.RequestAborted).ConfigureAwait(false);
                         FinishRange(sessionId, ReadSession.EndReasonCode.Completed);
+                        ClearStreamingFailureAfterCompletedRead(
+                            _failureTracker,
+                            httpContext.Items["DavItem"],
+                            isHeadRequest,
+                            true,
+                            copyStart,
+                            copyEnd,
+                            stream.CanSeek ? stream.Length : null);
                     }
                     catch (OperationCanceledException) when (httpContext.RequestAborted.IsCancellationRequested)
                     {
@@ -236,6 +248,28 @@ public class GetAndHeadHandlerPatch : IRequestHandler
                 response.SetStatus(DavStatusCode.NoContent);
             }
         }
+        return true;
+    }
+
+    internal static bool ClearStreamingFailureAfterCompletedRead(
+        StreamingFailureTracker failureTracker,
+        object? requestDavItem,
+        bool isHeadRequest,
+        bool copySucceeded,
+        long copyStart,
+        long? copyEnd,
+        long? streamLength)
+    {
+        if (!copySucceeded ||
+            isHeadRequest ||
+            copyStart != 0 ||
+            requestDavItem is not DavItem davItem ||
+            (copyEnd.HasValue && (streamLength is null || copyEnd.Value != streamLength.Value - 1)))
+        {
+            return false;
+        }
+
+        failureTracker.ClearFailure(davItem.Id);
         return true;
     }
 

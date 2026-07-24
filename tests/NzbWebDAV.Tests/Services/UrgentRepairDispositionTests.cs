@@ -37,10 +37,10 @@ public class UrgentRepairDispositionTests
     }
 
     [Fact]
-    public void Linked_UnlinkedOnly_UsesArrPathEvenAtThreshold()
+    public void Linked_UnlinkedOnly_DefersUntilThresholdThenUsesArrPath()
     {
         Assert.Equal(
-            HealthCheckService.UrgentRepairDisposition.RepairNormally,
+            HealthCheckService.UrgentRepairDisposition.Defer,
             HealthCheckService.GetUrgentRepairDisposition(3, 1, hasLibraryLink: true, autoRemoveUnlinkedOnly: true));
         Assert.Equal(
             HealthCheckService.UrgentRepairDisposition.RepairNormally,

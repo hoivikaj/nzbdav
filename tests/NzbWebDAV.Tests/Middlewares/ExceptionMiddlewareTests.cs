@@ -83,6 +83,19 @@ public class ExceptionMiddlewareTests
         Assert.Equal(1, failureTracker.GetFailureCount(davItem.Id));
     }
 
+    [Theory]
+    [InlineData(0, 1, true)]
+    [InlineData(3, 2, false)]
+    [InlineData(3, 3, true)]
+    [InlineData(3, 4, true)]
+    public void ShouldScheduleUrgentRepair_RequiresConfiguredFailureThreshold(
+        int threshold,
+        int failureCount,
+        bool expected)
+    {
+        Assert.Equal(expected, ExceptionMiddleware.ShouldScheduleUrgentRepair(threshold, failureCount));
+    }
+
     private static ExceptionMiddleware CreateMiddleware(
         RequestDelegate next,
         ConfigManager? configManager = null,

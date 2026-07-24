@@ -258,10 +258,18 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
         if (!configManager.IsRepairJobEnabled())
             return;
 
-        // Track every distinct streaming failure (not deduped by RepairDedupeWindow below) so the
-        // optional repair.auto-remove-after-failures policy in HealthCheckService can see how many
-        // times playback has actually failed against this item.
-        failureTracker.RecordFailure(davItemId);
+        // Count every distinct streaming failure before applying either threshold or deduplication.
+        // Repeated failures must still advance the repair threshold while duplicate DB scheduling
+        // writes remain suppressed below.
+        var failureCount = failureTracker.RecordFailure(davItemId);
+        var threshold = configManager.GetAutoRemoveAfterFailures();
+        if (!ShouldScheduleUrgentRepair(threshold, failureCount))
+        {
+            Log.Information(
+                "Deferring dynamic repair for DavItem {DavItemId} until streaming failure {FailureCount}/{FailureThreshold}",
+                davItemId, failureCount, threshold);
+            return;
+        }
 
         var now = DateTime.UtcNow;
         var isDuplicate = false;
@@ -305,6 +313,11 @@ public class ExceptionMiddleware(RequestDelegate next, ConfigManager configManag
                 Log.Warning(ex, "Failed to schedule dynamic repair for DavItem {DavItemId}", davItemId);
             }
         });
+    }
+
+    internal static bool ShouldScheduleUrgentRepair(int threshold, int failureCount)
+    {
+        return threshold <= 0 || failureCount >= threshold;
     }
 
     private static void LogWithDedup(

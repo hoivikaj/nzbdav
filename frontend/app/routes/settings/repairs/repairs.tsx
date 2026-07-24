@@ -145,13 +145,13 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
 
             <SettingsCard
                 icon="delete_sweep"
-                title="Automatic cleanup"
-                description="Choose when repeated playback failures should remove broken files."
+                title="Streaming failure handling"
+                description="Choose when repeated playback failures should trigger repair or removal."
                 contentClassName="grid grid-cols-1 gap-4 lg:grid-cols-2"
             >
             <ManagedSetting configKey="repair.auto-remove-after-failures">
             <div className="space-y-2">
-                <label className="block text-sm font-medium text-base-content" htmlFor="auto-remove-after-failures-input">Auto-Remove After Streaming Failures</label>
+                <label className="block text-sm font-medium text-base-content" htmlFor="auto-remove-after-failures-input">Repair After Streaming Failures</label>
                 <Input
                     className={`w-full ${!isNonNegativeInteger(autoRemoveAfter || "0") ? "input-error" : ""}`}
                     type="text"
@@ -161,9 +161,9 @@ export function RepairsSettings({ config, setNewConfig }: RepairsSettingsProps) 
                     value={autoRemoveAfter}
                     onChange={e => setNewConfig({ ...config, "repair.auto-remove-after-failures": e.target.value })} />
                 <p className="text-[11px] leading-relaxed text-base-content/45" id="auto-remove-after-failures-help">
-                    After this many streaming playback failures (missing articles or corrupt archives), urgent repair will
-                    auto-remove the broken file. Set to 0 to disable (default). Example: 3 removes an
-                    unlinked file on the third failure.
+                    Wait for this many consecutive streaming playback failures before urgent repair starts. Linked library
+                    items then use Radarr/Sonarr remove-and-search; unlinked items are removed. Set to 0 for immediate
+                    repair (default).
                 </p>
             </div>
             </ManagedSetting>
