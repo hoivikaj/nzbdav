@@ -12,6 +12,7 @@ namespace NzbWebDAV.Database.Backup;
 public static class SqliteSqlImporter
 {
     private static int _batteriesInitialized;
+    private static readonly strdelegate_authorizer RestoreAuthorizer = AuthorizeRestoreStatement;
 
     public static async Task ImportAsync(
         string sqlFilePath,
@@ -47,6 +48,7 @@ public static class SqliteSqlImporter
 
             await using var connection = new SqliteConnection(connectionString);
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            raw.sqlite3_set_authorizer(connection.Handle, RestoreAuthorizer, null);
 
             progress?.Invoke("Importing SQL dump");
             await ExecuteStatementsAsync(sqlFilePath, connection, progress, cancellationToken).ConfigureAwait(false);
@@ -77,6 +79,32 @@ public static class SqliteSqlImporter
             TryDeleteDatabaseFiles(targetDatabaseFilePath);
             throw;
         }
+    }
+
+    private static int AuthorizeRestoreStatement(
+        object? _,
+        int actionCode,
+        string? parameter1,
+        string? parameter2,
+        string? _databaseName,
+        string? _triggerOrView)
+    {
+        if (actionCode is raw.SQLITE_ATTACH or raw.SQLITE_DETACH)
+            return raw.SQLITE_DENY;
+
+        if (actionCode == raw.SQLITE_FUNCTION &&
+            string.Equals(parameter2, "load_extension", StringComparison.OrdinalIgnoreCase))
+        {
+            return raw.SQLITE_DENY;
+        }
+
+        if (actionCode == raw.SQLITE_PRAGMA &&
+            string.Equals(parameter1, "writable_schema", StringComparison.OrdinalIgnoreCase))
+        {
+            return raw.SQLITE_DENY;
+        }
+
+        return raw.SQLITE_OK;
     }
 
     private static async Task ExecuteStatementsAsync(

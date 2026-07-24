@@ -141,6 +141,48 @@ public sealed class SqliteDumpImportTests
     }
 
     [Fact]
+    public async Task Importer_RejectsAttachedDatabaseAndLeavesItUnchanged()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"nzbdav-import-authorizer-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var sqlPath = Path.Combine(root, "malicious.sql");
+            var stagedPath = Path.Combine(root, "staged.sqlite");
+            var livePath = Path.Combine(root, "live.sqlite");
+            await File.WriteAllTextAsync(sqlPath, $"""
+                CREATE TABLE Safe(Value TEXT);
+                aTtAcH DATABASE '{livePath.Replace("'", "''", StringComparison.Ordinal)}' AS live;
+                DELETE FROM live.Marker;
+                """);
+
+            await using (var live = Open(livePath, create: true))
+            {
+                await live.OpenAsync();
+                await using var create = live.CreateCommand();
+                create.CommandText = "CREATE TABLE Marker(Value TEXT); INSERT INTO Marker VALUES ('live');";
+                await create.ExecuteNonQueryAsync();
+            }
+
+            var error = await Assert.ThrowsAsync<SqliteException>(
+                () => SqliteSqlImporter.ImportAsync(sqlPath, stagedPath));
+
+            Assert.Contains("not authorized", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(File.Exists(stagedPath));
+
+            await using var check = Open(livePath);
+            await check.OpenAsync();
+            await using var marker = check.CreateCommand();
+            marker.CommandText = "SELECT Value FROM Marker;";
+            Assert.Equal("live", await marker.ExecuteScalarAsync());
+        }
+        finally
+        {
+            TryDeleteDirectory(root);
+        }
+    }
+
+    [Fact]
     public async Task DumpAndImport_RoundTripsRealDavSchema()
     {
         var root = Path.Combine(Path.GetTempPath(), $"nzbdav-schema-{Guid.NewGuid():N}");
