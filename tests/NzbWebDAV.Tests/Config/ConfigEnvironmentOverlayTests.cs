@@ -162,4 +162,70 @@ public class ConfigEnvironmentOverlayTests
         var parsed = JsonSerializer.Deserialize<UsenetProviderConfig>(normalized)!;
         Assert.NotEqual(Guid.Empty, parsed.Providers[0].ProviderId);
     }
+
+    [Fact]
+    public void LoadFromEnvironment_RejectsMiscasedUsenetProviderJson()
+    {
+        var secret = "env-secret-pass";
+        var ex = Assert.Throws<ConfigEnvironmentException>(() =>
+            ConfigEnvironmentOverlay.LoadFromEnvironment(new Hashtable
+            {
+                // camelCase "providers" is dropped by the default deserializer,
+                // yielding a zero-provider config with no startup error.
+                ["NZBDAV_CONFIG__USENET__PROVIDERS"] =
+                    $"{{\"providers\":[{{\"host\":\"news.example\",\"pass\":\"{secret}\"}}]}}",
+            }));
+
+        Assert.Contains("NZBDAV_CONFIG__USENET__PROVIDERS", ex.Message);
+        Assert.DoesNotContain(secret, ex.Message);
+    }
+
+    [Fact]
+    public void LoadFromEnvironment_RejectsUnknownArrInstanceProperty()
+    {
+        var ex = Assert.Throws<ConfigEnvironmentException>(() =>
+            ConfigEnvironmentOverlay.LoadFromEnvironment(new Hashtable
+            {
+                ["NZBDAV_CONFIG__ARR__INSTANCES"] =
+                    "{\"radarrInstances\":[{\"host\":\"http://radarr:7878\",\"apiKey\":\"k\"}]}",
+            }));
+
+        Assert.Contains("NZBDAV_CONFIG__ARR__INSTANCES", ex.Message);
+    }
+
+    [Fact]
+    public void LoadFromEnvironment_AcceptsPascalCaseArrInstances()
+    {
+        var arr = JsonSerializer.Serialize(new ArrConfig
+        {
+            RadarrInstances =
+            [
+                new ArrConfig.ConnectionDetails { Host = "http://radarr:7878", ApiKey = "k" },
+            ],
+        });
+
+        var overlay = ConfigEnvironmentOverlay.LoadFromEnvironment(new Hashtable
+        {
+            ["NZBDAV_CONFIG__ARR__INSTANCES"] = arr,
+        });
+
+        Assert.True(overlay.IsManaged(ConfigKeys.ArrInstances));
+    }
+
+    [Fact]
+    public void ValidateConfigItems_RejectsUnknownJsonPropertiesOnlyWhenStrict()
+    {
+        var miscased = new ConfigItem
+        {
+            ConfigName = ConfigKeys.ArrInstances,
+            ConfigValue = "{\"radarrInstances\":[]}",
+        };
+
+        // The default UI and API save path is unchanged and tolerates miscased JSON.
+        ConfigManager.ValidateConfigItems([miscased]);
+
+        // Env-overlay path is strict so declarative config fails loud.
+        Assert.Throws<ArgumentException>(() =>
+            ConfigManager.ValidateConfigItems([miscased], rejectUnknownJsonProperties: true));
+    }
 }

@@ -91,11 +91,14 @@ public sealed class ConfigEnvironmentOverlay
 
         // Validate one key at a time so failures name the ENV variable without
         // echoing the submitted value (ValidateConfigItems includes values).
+        // Reject unknown or miscased JSON properties. A declarative env config
+        // has no operator to notice a silently dropped key, so it fails startup
+        // instead of running with empty or partial structured config.
         foreach (var item in items)
         {
             try
             {
-                ConfigManager.ValidateConfigItems([item]);
+                ConfigManager.ValidateConfigItems([item], rejectUnknownJsonProperties: true);
             }
             catch (ArgumentException)
             {

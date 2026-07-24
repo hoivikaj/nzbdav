@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Clients.Usenet.Concurrency;
@@ -243,14 +244,22 @@ public class ConfigManager
     private void SyncPathSanitizer() =>
         PathSanitizer.SetWindowsSafePathsEnabled(IsWindowsSafePathsEnabled());
 
+    private static readonly JsonSerializerOptions RejectUnknownMembersJsonOptions = new()
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    };
+
     /// <summary>
     /// Validates incoming config values, failing fast for anything that would otherwise throw
     /// deep inside a request/background task at read time (non-numeric ints, non-boolean flags,
     /// malformed JSON). Empty values are treated as "unset" and always allowed, matching the
-    /// getters' fallback-to-default behavior.
+    /// getters' fallback-to-default behavior. With <paramref name="rejectUnknownJsonProperties"/>
+    /// set, structured JSON values also reject unknown or miscased properties instead of silently
+    /// dropping them.
     /// </summary>
-    public static void ValidateConfigItems(IEnumerable<ConfigItem> configItems)
+    public static void ValidateConfigItems(IEnumerable<ConfigItem> configItems, bool rejectUnknownJsonProperties = false)
     {
+        var jsonOptions = rejectUnknownJsonProperties ? RejectUnknownMembersJsonOptions : null;
         foreach (var item in configItems)
         {
             var value = StringUtil.EmptyToNull(item.ConfigValue);
@@ -355,19 +364,19 @@ public class ConfigManager
                     break;
 
                 case ConfigKeys.UsenetProviders:
-                    RequireValidUsenetProviders(item.ConfigName, value);
+                    RequireValidUsenetProviders(item.ConfigName, value, jsonOptions);
                     break;
 
                 case ConfigKeys.ArrInstances:
-                    RequireJson<ArrConfig>(item.ConfigName, value);
+                    RequireJson<ArrConfig>(item.ConfigName, value, jsonOptions);
                     break;
 
                 case ConfigKeys.IndexersInstances:
-                    RequireJson<IndexerConfig>(item.ConfigName, value);
+                    RequireJson<IndexerConfig>(item.ConfigName, value, jsonOptions);
                     break;
 
                 case ConfigKeys.ProfilesInstances:
-                    RequireJson<ProfileConfig>(item.ConfigName, value);
+                    RequireJson<ProfileConfig>(item.ConfigName, value, jsonOptions);
                     break;
             }
         }
@@ -393,11 +402,11 @@ public class ConfigManager
                     $"Config value for '{key}' must be one of '{string.Join("', '", allowed)}', but was '{value}'.");
         }
 
-        static void RequireJson<T>(string key, string value)
+        static void RequireJson<T>(string key, string value, JsonSerializerOptions? options)
         {
             try
             {
-                JsonSerializer.Deserialize<T>(value);
+                JsonSerializer.Deserialize<T>(value, options);
             }
             catch (JsonException e)
             {
@@ -405,12 +414,12 @@ public class ConfigManager
             }
         }
 
-        static void RequireValidUsenetProviders(string key, string value)
+        static void RequireValidUsenetProviders(string key, string value, JsonSerializerOptions? options)
         {
             UsenetProviderConfig? config;
             try
             {
-                config = JsonSerializer.Deserialize<UsenetProviderConfig>(value);
+                config = JsonSerializer.Deserialize<UsenetProviderConfig>(value, options);
             }
             catch (JsonException e)
             {
