@@ -779,11 +779,18 @@ public class MultiProviderNntpClient(
             var byTier = pool.OrderBy(x => x.ProviderType);
             var byRecovery = byTier.ThenBy(x =>
                 circuitStates[x] == ProviderCircuitState.HalfOpen ? 1 : 0);
-            var prioritized = cascadeEnabled?.Invoke() == true
+            var cascade = cascadeEnabled?.Invoke() == true;
+            var prioritized = cascade
                 ? byRecovery.ThenBy(EffectivePriority)
                 : byRecovery;
-            var ordered = prioritized
-                .ThenByDescending(x => GetRemainingBytes(x))
+            var byUsage = prioritized.ThenByDescending(x => GetRemainingBytes(x));
+            // In pool mode, capacity must outrank learned speed. Otherwise a warmed
+            // provider can keep winning the speed tie-break after its pool is full,
+            // leaving requests queued there while peer providers remain idle.
+            var capacityBalanced = cascade
+                ? byUsage
+                : byUsage.ThenByDescending(x => x.UnreservedConnections);
+            var ordered = capacityBalanced
                 .ThenBy(EstimatedDeliveryScore)
                 .ToList();
 
