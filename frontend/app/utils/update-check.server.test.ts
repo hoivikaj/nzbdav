@@ -66,6 +66,7 @@ describe("isComparableVersion", () => {
     ["0.0.0", false],
     ["pre-123", false],
     ["PRE-1", false],
+    ["dev-123", false],
     ["0.7.5", true],
     ["v0.7.5", true],
   ])("treats %s as comparable=%s", (version, expected) => {
@@ -301,7 +302,7 @@ describe("checkForUpdate (dev builds)", () => {
     });
   });
 
-  it("returns commits behind when main is ahead", async () => {
+  it("returns commits behind for dev builds when main is ahead", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         status: "ahead",
@@ -310,7 +311,7 @@ describe("checkForUpdate (dev builds)", () => {
       }),
     );
 
-    await expect(checkForUpdate("pre-42")).resolves.toEqual({
+    await expect(checkForUpdate("dev-42")).resolves.toEqual({
       kind: "dev",
       commitsBehind: 3,
       compareUrl: `https://github.com/nzbdav/nzbdav/compare/${buildSha}...main`,

@@ -15,7 +15,7 @@ jobs:
       packages: write
     with:
       tags: "ghcr.io/${{ github.repository }}:dev"
-      nzbdav_version: pre-${{ github.run_number }}
+      nzbdav_version: dev-${{ github.run_number }}
     secrets:
       registry_token: ${{ secrets.GITHUB_TOKEN }}
 
