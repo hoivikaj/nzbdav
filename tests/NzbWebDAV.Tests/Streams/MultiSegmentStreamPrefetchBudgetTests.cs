@@ -18,7 +18,7 @@ public class MultiSegmentStreamPrefetchBudgetTests
             .ToDictionary(
                 i => $"seg-{i}",
                 i => Enumerable.Repeat((byte)(i % 256), segmentSize).ToArray());
-        var client = new FakeNntpClient(segments);
+        var client = new FakeNntpClient(segments, useCachedYencStreams: true);
         var segmentIds = segments.Keys.ToArray().AsMemory();
 
         await using var stream = MultiSegmentStream.Create(
@@ -57,7 +57,7 @@ public class MultiSegmentStreamPrefetchBudgetTests
             .ToDictionary(
                 i => $"seg-{i}",
                 _ => Enumerable.Repeat((byte)1, segmentSize).ToArray());
-        var client = new FakeNntpClient(segments);
+        var client = new FakeNntpClient(segments, useCachedYencStreams: true);
 
         await using var stream = MultiSegmentStream.Create(
             segments.Keys.ToArray().AsMemory(),
