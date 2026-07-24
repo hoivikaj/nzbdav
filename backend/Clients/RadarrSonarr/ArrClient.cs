@@ -9,6 +9,7 @@ namespace NzbWebDAV.Clients.RadarrSonarr;
 public class ArrClient(string host, string apiKey)
 {
     protected static readonly HttpClient HttpClient = new();
+    protected virtual HttpClient Client => HttpClient;
 
     public string Host { get; } = host;
     private string ApiKey { get; } = apiKey;
@@ -55,10 +56,23 @@ public class ArrClient(string host, string apiKey)
     protected Task<T> Get<T>(string path, CancellationToken ct = default) =>
         GetRoot<T>($"{BasePath}{path}", ct);
 
+    protected Task<T?> GetOrNull<T>(string path, CancellationToken ct = default) where T : class =>
+        GetRootOrNull<T>($"{BasePath}{path}", ct);
+
     protected async Task<T> GetRoot<T>(string rootPath, CancellationToken ct = default)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, $"{Host}{rootPath}");
         using var response = await SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        return await JsonSerializer.DeserializeAsync<T>(stream, cancellationToken: ct) ?? throw new NullReferenceException();
+    }
+
+    private async Task<T?> GetRootOrNull<T>(string rootPath, CancellationToken ct) where T : class
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"{Host}{rootPath}");
+        using var response = await SendAsync(request, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         return await JsonSerializer.DeserializeAsync<T>(stream, cancellationToken: ct) ?? throw new NullReferenceException();
@@ -95,6 +109,6 @@ public class ArrClient(string host, string apiKey)
     private Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         request.Headers.Add("X-Api-Key", ApiKey);
-        return HttpClient.SendAsync(request, ct);
+        return Client.SendAsync(request, ct);
     }
 }

@@ -582,8 +582,10 @@ public class HealthCheckService : BackgroundService
             catch (Exception e)
             {
                 anInstanceFailed = true;
-                Log.Warning(e, "Health-check repair: could not query root folders from {Host}",
-                            arrClient.Host);
+                LogArrRepairFailure(
+                    e,
+                    "Health-check repair: could not query root folders from {Host}",
+                    arrClient.Host);
                 continue;
             }
 
@@ -605,8 +607,10 @@ public class HealthCheckService : BackgroundService
             catch (Exception e)
             {
                 anInstanceFailed = true;
-                Log.Warning(e, "Health-check repair: remove-and-search failed on {Host}",
-                            arrClient.Host);
+                LogArrRepairFailure(
+                    e,
+                    "Health-check repair: remove-and-search failed on {Host}",
+                    arrClient.Host);
                 continue;
             }
 
@@ -624,6 +628,29 @@ public class HealthCheckService : BackgroundService
             return ArrLinkedRepairDecision.DeferUnreachable;
 
         return ArrLinkedRepairDecision.DeleteConfirmedOrphan;
+    }
+
+    private static void LogArrRepairFailure(Exception exception, string messageTemplate, string host)
+    {
+        if (exception.TryGetCausingException<HttpRequestException>(out var httpException) &&
+            httpException is not null)
+        {
+            var reason = httpException.StatusCode is { } statusCode
+                ? $"HTTP {(int)statusCode} ({statusCode})"
+                : httpException.Message;
+            Log.Warning(messageTemplate + ". Reason: {Reason}", host, reason);
+            Log.Debug(exception, "Health-check repair Arr HTTP failure stack");
+            return;
+        }
+
+        if (exception.TryGetKnownErrorMessage(out var knownReason))
+        {
+            Log.Warning(messageTemplate + ". Reason: {Reason}", host, knownReason);
+            Log.Debug(exception, "Health-check repair Arr known failure stack");
+            return;
+        }
+
+        Log.Warning(exception, messageTemplate, host);
     }
 
     private async Task HandleUrgentRepair(DavItem davItem, DavDatabaseClient dbClient, CancellationToken ct)

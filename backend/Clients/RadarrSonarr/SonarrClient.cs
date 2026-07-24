@@ -19,8 +19,14 @@ public class SonarrClient(string host, string apiKey) : ArrClient(host, apiKey)
     public Task<SonarrSeries> GetSeries(int seriesId) =>
         Get<SonarrSeries>($"/series/{seriesId}");
 
+    private Task<SonarrSeries?> GetSeriesOrNull(int seriesId) =>
+        GetOrNull<SonarrSeries>($"/series/{seriesId}");
+
     public Task<SonarrEpisodeFile> GetEpisodeFile(int episodeFileId) =>
         Get<SonarrEpisodeFile>($"/episodefile/{episodeFileId}");
+
+    private Task<SonarrEpisodeFile?> GetEpisodeFileOrNull(int episodeFileId) =>
+        GetOrNull<SonarrEpisodeFile>($"/episodefile/{episodeFileId}");
 
     public Task<List<SonarrEpisodeFile>> GetAllEpisodeFiles(int seriesId) =>
         Get<List<SonarrEpisodeFile>>($"/episodefile?seriesId={seriesId}");
@@ -69,8 +75,9 @@ public class SonarrClient(string host, string apiKey) : ArrClient(host, apiKey)
         // if episode-file-id is found in the cache, verify it and return it
         if (SymlinkOrStrmToEpisodeFileIdCache.TryGetValue(symlinkOrStrmPath, out var episodeFileId))
         {
-            var episodeFile = await GetEpisodeFile(episodeFileId);
-            if (episodeFile.Path == symlinkOrStrmPath) return episodeFileId;
+            var episodeFile = await GetEpisodeFileOrNull(episodeFileId);
+            if (episodeFile?.Path == symlinkOrStrmPath) return episodeFileId;
+            SymlinkOrStrmToEpisodeFileIdCache.Remove(symlinkOrStrmPath);
         }
 
         // otherwise, find the series-id
@@ -93,18 +100,18 @@ public class SonarrClient(string host, string apiKey) : ArrClient(host, apiKey)
     private async Task<int?> GetSeriesId(string symlinkOrStrmPath)
     {
         // get series-id from cache
-        var cachedSeriesId = PathUtil.GetAllParentDirectories(symlinkOrStrmPath)
+        var cachedSeriesPath = PathUtil.GetAllParentDirectories(symlinkOrStrmPath)
             .Where(x => SeriesPathToSeriesIdCache.ContainsKey(x))
-            .Select(x => SeriesPathToSeriesIdCache[x])
-            .Select(x => (int?)x)
             .FirstOrDefault();
 
         // if found, verify and return it
-        if (cachedSeriesId != null)
+        if (cachedSeriesPath != null)
         {
-            var series = await GetSeries(cachedSeriesId.Value);
-            if (symlinkOrStrmPath.StartsWith(series.Path!))
+            var cachedSeriesId = SeriesPathToSeriesIdCache[cachedSeriesPath];
+            var series = await GetSeriesOrNull(cachedSeriesId);
+            if (series?.Path != null && symlinkOrStrmPath.StartsWith(series.Path))
                 return cachedSeriesId;
+            SeriesPathToSeriesIdCache.Remove(cachedSeriesPath);
         }
 
         // otherwise, fetch all series and repopulate the cache

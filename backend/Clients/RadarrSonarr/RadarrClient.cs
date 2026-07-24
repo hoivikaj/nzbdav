@@ -11,6 +11,9 @@ public class RadarrClient(string host, string apiKey) : ArrClient(host, apiKey)
     public Task<RadarrMovie> GetMovieAsync(int id) =>
         Get<RadarrMovie>($"/movie/{id}");
 
+    private Task<RadarrMovie?> GetMovieOrNullAsync(int id) =>
+        GetOrNull<RadarrMovie>($"/movie/{id}");
+
     public Task<List<RadarrMovie>> GetMoviesAsync() =>
         Get<List<RadarrMovie>>($"/movie");
 
@@ -42,9 +45,11 @@ public class RadarrClient(string host, string apiKey) : ArrClient(host, apiKey)
         // then let's use it to find and return the corresponding movie-file-id
         if (SymlinkOrStrmToMovieIdCache.TryGetValue(symlinkOrStrmPath, out var movieId))
         {
-            var movie = await GetMovieAsync(movieId);
-            if (movie.MovieFile?.Path == symlinkOrStrmPath)
-                return (movie.MovieFile.Id!, movieId);
+            var movie = await GetMovieOrNullAsync(movieId);
+            var movieFile = movie?.MovieFile;
+            if (movieFile?.Path == symlinkOrStrmPath)
+                return (movieFile.Id!, movieId);
+            SymlinkOrStrmToMovieIdCache.Remove(symlinkOrStrmPath);
         }
 
         // otherwise, let's fetch all movies, cache all movie files
