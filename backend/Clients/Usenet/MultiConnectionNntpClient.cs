@@ -101,7 +101,8 @@ public class MultiConnectionNntpClient(
     public void ReservePending() => Interlocked.Increment(ref _pendingSelections);
     public void ReleasePending() => Interlocked.Decrement(ref _pendingSelections);
 
-    public bool HasSpareConnection => AvailableConnections - PendingSelections > 0;
+    public int UnreservedConnections => Math.Max(0, AvailableConnections - PendingSelections);
+    public bool HasSpareConnection => UnreservedConnections > 0;
 
     public override Task ConnectAsync(string host, int port, bool useSsl, CancellationToken cancellationToken)
     {

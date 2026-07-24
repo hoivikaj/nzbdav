@@ -751,20 +751,118 @@ public class MultiProviderNntpClientTests
         Assert.Equal(ProviderCircuitState.Closed, recovering.GetSnapshot().State);
     }
 
+    [Fact]
+    public async Task PoolMode_PrefersProviderWithMostUnreservedConnections()
+    {
+        var bytesTracker = new ProviderBytesTracker();
+        bytesTracker.RecordSegmentThroughput("small.example", 1_000_000, 1);
+        var smallConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        var largeConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(smallConnection, host: "small.example", maxConnections: 1),
+            CreateProvider(largeConnection, host: "large.example", maxConnections: 4),
+        ], bytesTracker: bytesTracker, cascadeEnabled: () => false);
+
+        var response = await client.DecodedBodyAsync("segment", CancellationToken.None);
+        await response.Stream!.DisposeAsync();
+
+        Assert.Equal(0, smallConnection.SingularRequests);
+        Assert.Equal(1, largeConnection.SingularRequests);
+    }
+
+    [Fact]
+    public async Task PoolMode_RoutesAroundSaturatedFasterProvider()
+    {
+        var bytesTracker = new ProviderBytesTracker();
+        bytesTracker.RecordSegmentThroughput("fast.example", 1_000_000, 1);
+        var fastConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+            DeferSingularCompletion = true,
+        };
+        var idleConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(fastConnection, host: "fast.example"),
+            CreateProvider(idleConnection, host: "idle.example"),
+        ], bytesTracker: bytesTracker, cascadeEnabled: () => false);
+
+        UsenetDecodedBodyResponse? firstResponse = null;
+        try
+        {
+            firstResponse = await client.DecodedBodyAsync("segment-1", CancellationToken.None);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var secondResponse = await client.DecodedBodyAsync("segment-2", timeout.Token);
+            await secondResponse.Stream!.DisposeAsync();
+
+            Assert.Equal(1, fastConnection.SingularRequests);
+            Assert.Equal(1, idleConnection.SingularRequests);
+        }
+        finally
+        {
+            fastConnection.CompletePendingSingularRequests();
+            if (firstResponse?.Stream != null)
+                await firstResponse.Stream.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task CascadeMode_PreservesPriorityOverAvailableCapacity()
+    {
+        var primaryConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        var secondaryConnection = new ScriptedNntpClient
+        {
+            BatchResponseCode = 222,
+            SingularResponseCode = 222,
+        };
+        using var client = new MultiProviderNntpClient(
+        [
+            CreateProvider(primaryConnection, host: "primary.example", maxConnections: 1, priority: 0),
+            CreateProvider(secondaryConnection, host: "secondary.example", maxConnections: 4, priority: 1),
+        ], cascadeEnabled: () => true);
+
+        var response = await client.DecodedBodyAsync("segment", CancellationToken.None);
+        await response.Stream!.DisposeAsync();
+
+        Assert.Equal(1, primaryConnection.SingularRequests);
+        Assert.Equal(0, secondaryConnection.SingularRequests);
+    }
+
     private static MultiConnectionNntpClient CreateProvider(
         INntpClient connection,
         string host = "test",
         string storageGroup = "",
         ProviderCircuitBreaker? circuitBreaker = null,
-        ProviderType providerType = ProviderType.Pooled)
+        ProviderType providerType = ProviderType.Pooled,
+        int maxConnections = 1,
+        int priority = 0)
     {
         var pool = new ConnectionPool<INntpClient>(
-            maxConnections: 1, _ => ValueTask.FromResult(connection));
+            maxConnections, _ => ValueTask.FromResult(connection));
         return new MultiConnectionNntpClient(
             pool,
             providerType,
             circuitBreaker ?? new ProviderCircuitBreaker(host),
             host,
+            priority: priority,
             storageGroup: storageGroup);
     }
 
@@ -795,8 +893,10 @@ public class MultiProviderNntpClientTests
         public int SingularResponseCode { get; init; } = 222;
         public Func<int, Exception?>? BatchException { get; init; }
         public Func<string, Exception>? SingularException { get; init; }
+        public bool DeferSingularCompletion { get; init; }
         public int BatchRequests { get; private set; }
         public int SingularRequests { get; private set; }
+        private readonly Queue<Action<ArticleBodyResult>> _pendingSingularCallbacks = new();
 
         public override Task<UsenetDecodedBodyBatch> DecodedBodiesAsync(
             IReadOnlyList<SegmentId> segmentIds,
@@ -825,8 +925,17 @@ public class MultiProviderNntpClientTests
                 throw SingularException(segmentId.ToString());
 
             var response = CreateResponse(segmentId, SingularResponseCode);
-            onConnectionReadyAgain?.Invoke(ToArticleBodyResult(SingularResponseCode));
+            if (DeferSingularCompletion && onConnectionReadyAgain != null)
+                _pendingSingularCallbacks.Enqueue(onConnectionReadyAgain);
+            else
+                onConnectionReadyAgain?.Invoke(ToArticleBodyResult(SingularResponseCode));
             return Task.FromResult(response);
+        }
+
+        public void CompletePendingSingularRequests()
+        {
+            while (_pendingSingularCallbacks.TryDequeue(out var callback))
+                callback(ToArticleBodyResult(SingularResponseCode));
         }
 
         private static ArticleBodyResult ToArticleBodyResult(int responseCode) => responseCode switch
