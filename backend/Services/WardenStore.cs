@@ -422,7 +422,9 @@ public partial class WardenStore
             cmd.ExecuteNonQuery();
             processed++;
 
-            if (++inBatch >= 5000)
+            // Replacements must remain invisible until the complete source has
+            // passed validation; merge imports may still commit in batches.
+            if (!replace && ++inBatch >= 5000)
             {
                 await tx.CommitAsync(ct).ConfigureAwait(false);
                 await tx.DisposeAsync().ConfigureAwait(false);
