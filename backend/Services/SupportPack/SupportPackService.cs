@@ -176,14 +176,25 @@ public sealed class SupportPackService(
             .Where(row => row.Minute >= since24Hours)
             .Select(row => new
             {
-                row.Minute, row.Articles, row.Misses, row.Errors, row.BytesFetched, row.BytesServed,
+                row.Minute,
+                row.Articles,
+                row.Misses,
+                row.Errors,
+                row.BytesFetched,
+                row.BytesServed,
             })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         var providerHours = await db.ProviderHourly
             .Where(row => row.Hour >= since7Days)
             .Select(row => new
             {
-                row.Hour, row.Provider, row.Articles, row.Misses, row.Errors, row.Retries, row.BytesFetched,
+                row.Hour,
+                row.Provider,
+                row.Articles,
+                row.Misses,
+                row.Errors,
+                row.Retries,
+                row.BytesFetched,
                 row.FailoverSaves,
             })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
