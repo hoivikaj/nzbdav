@@ -20,7 +20,10 @@ public class ArrClient(string host, string apiKey)
     public virtual Task<bool> RemoveAndSearch(string symlinkOrStrmPath) =>
         throw new InvalidOperationException();
 
-    public virtual Task<List<ArrRootFolder>> GetRootFolders(CancellationToken ct = default) =>
+    public virtual Task<List<ArrRootFolder>> GetRootFolders() =>
+        GetRootFolders(CancellationToken.None);
+
+    public virtual Task<List<ArrRootFolder>> GetRootFolders(CancellationToken ct) =>
         Get<List<ArrRootFolder>>($"/rootfolder", ct);
 
     public Task<List<ArrDownloadClient>> GetDownloadClientsAsync(CancellationToken ct = default) =>
