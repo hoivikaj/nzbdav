@@ -32,7 +32,6 @@ jobs:
 
       - name: Audit production dependencies
         working-directory: frontend
-        continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
 
       - name: Lint
@@ -110,9 +109,18 @@ jobs:
       - name: Restore backend
         run: dotnet restore backend/NzbWebDAV.csproj && dotnet restore tests/NzbWebDAV.Tests/NzbWebDAV.Tests.csproj
 
-      - name: List vulnerable packages
-        continue-on-error: true
-        run: dotnet list backend/NzbWebDAV.csproj package --vulnerable --include-transitive
+      - name: Verify NuGet vulnerability gate fixtures
+        run: bash scripts/test-nuget-vulnerability-gate.sh
+
+      - name: Audit NuGet production dependencies
+        run: |
+          report="$(mktemp)"
+          trap 'rm -f "$report"' EXIT
+          dotnet list backend/NzbWebDAV.csproj package --vulnerable --include-transitive --format json --output-version 1 > "$report"
+          python3 scripts/check-nuget-vulnerabilities.py \
+            "$report" \
+            --allowlist scripts/nuget-vulnerability-allowlist.json \
+            --summary "${GITHUB_STEP_SUMMARY}"
 
       - name: Build backend
         working-directory: backend
