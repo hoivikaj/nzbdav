@@ -8,6 +8,8 @@ namespace NzbWebDAV.Clients.Usenet.Contexts;
 /// </summary>
 public sealed class QueueDownloadContext
 {
+    private long _semaphoreWaitMilliseconds;
+
     /// <summary>
     /// True while this worker is the preferred (first) active queue item.
     /// Mutated in place when a secondary is promoted after the previous primary finishes.
@@ -19,4 +21,12 @@ public sealed class QueueDownloadContext
     /// promoted secondary immediately gets the primary budget.
     /// </summary>
     public required Func<int> GetFanOutConcurrency { get; init; }
+
+    public long SemaphoreWaitMilliseconds => Interlocked.Read(ref _semaphoreWaitMilliseconds);
+
+    public void RecordSemaphoreWait(long elapsedMilliseconds)
+    {
+        if (elapsedMilliseconds > 0)
+            Interlocked.Add(ref _semaphoreWaitMilliseconds, elapsedMilliseconds);
+    }
 }

@@ -1,4 +1,5 @@
-﻿using NzbWebDAV.Clients.Usenet.Concurrency;
+﻿using System.Diagnostics;
+using NzbWebDAV.Clients.Usenet.Concurrency;
 using NzbWebDAV.Clients.Usenet.Contexts;
 using NzbWebDAV.Clients.Usenet.Models;
 using NzbWebDAV.Config;
@@ -26,7 +27,10 @@ public class DownloadingNntpClient : WrappingNntpClient
         var streamingPriority = configManager.GetStreamingPriority();
         _configManager = configManager;
         _streamingSemaphore = new PrioritizedSemaphore(maxDownloadConnections, maxDownloadConnections, streamingPriority);
-        _queueSemaphore = new PrioritizedSemaphore(maxQueueConnections, maxQueueConnections);
+        _queueSemaphore = new PrioritizedSemaphore(
+            maxQueueConnections,
+            maxQueueConnections,
+            new SemaphorePriorityOdds { HighPriorityOdds = 80 });
         configManager.OnConfigChanged += OnConfigChanged;
     }
 
@@ -172,7 +176,17 @@ public class DownloadingNntpClient : WrappingNntpClient
     private async Task<PrioritizedSemaphore> AcquireExclusiveConnectionAsync(CancellationToken cancellationToken)
     {
         var (semaphore, priority) = SelectSemaphore(cancellationToken);
-        await semaphore.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
+        var queueContext = cancellationToken.GetContext<QueueDownloadContext>();
+        if (queueContext is null)
+        {
+            await semaphore.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            var waitTimer = Stopwatch.StartNew();
+            await semaphore.WaitAsync(priority, cancellationToken).ConfigureAwait(false);
+            queueContext.RecordSemaphoreWait(waitTimer.ElapsedMilliseconds);
+        }
         return semaphore;
     }
 

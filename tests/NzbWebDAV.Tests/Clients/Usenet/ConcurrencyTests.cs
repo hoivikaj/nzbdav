@@ -353,6 +353,35 @@ public class ConcurrencyTests
     }
 
     [Fact]
+    public async Task PrioritizedSemaphore_80PercentHighPriority_AllowsLowWaiterEveryFifthContestedRelease()
+    {
+        using var semaphore = new PrioritizedSemaphore(
+            initialAllowed: 1,
+            maxAllowed: 1,
+            new SemaphorePriorityOdds { HighPriorityOdds = 80 });
+        await semaphore.WaitAsync(SemaphorePriority.Low);
+        var lowWaiter = semaphore.WaitAsync(SemaphorePriority.Low);
+
+        for (var handoff = 1; handoff <= 4; handoff++)
+        {
+            var highWaiter = semaphore.WaitAsync(SemaphorePriority.High);
+            semaphore.Release();
+
+            await highWaiter.WaitAsync(TimeSpan.FromSeconds(1));
+            Assert.False(lowWaiter.IsCompleted);
+        }
+
+        var fifthHighWaiter = semaphore.WaitAsync(SemaphorePriority.High);
+        semaphore.Release();
+
+        await lowWaiter.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.False(fifthHighWaiter.IsCompleted);
+        semaphore.Release();
+        await fifthHighWaiter.WaitAsync(TimeSpan.FromSeconds(1));
+        semaphore.Release();
+    }
+
+    [Fact]
     public async Task PrioritizedSemaphore_RemovesCanceledWaiter()
     {
         using var semaphore = new PrioritizedSemaphore(initialAllowed: 0, maxAllowed: 1);

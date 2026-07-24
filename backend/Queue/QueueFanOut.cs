@@ -23,7 +23,9 @@ public static class QueueFanOut
     /// </summary>
     public static int PrimaryFanOutWhenSharing(int maxQueueConnections, int activeSecondaryCount)
     {
-        var reserve = Math.Max(1, activeSecondaryCount);
+        var reserve = Math.Max(
+            Math.Max(1, activeSecondaryCount),
+            Math.Max(1, maxQueueConnections / 8));
         return Math.Max(1, maxQueueConnections - reserve);
     }
 

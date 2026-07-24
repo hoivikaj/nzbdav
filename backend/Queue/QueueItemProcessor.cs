@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using NzbWebDAV.Api.SabControllers.GetHistory;
 using NzbWebDAV.Clients.RadarrSonarr;
 using NzbWebDAV.Clients.Usenet;
+using NzbWebDAV.Clients.Usenet.Contexts;
 using NzbWebDAV.Config;
 using NzbWebDAV.Database;
 using NzbWebDAV.Database.Models;
@@ -69,6 +70,7 @@ public class QueueItemProcessor(
     }
 
     private const int MaxProviderRetryAttempts = 20;
+    private static readonly TimeSpan StageWarningInterval = TimeSpan.FromMinutes(15);
 
     private static TimeSpan GetProviderRetryBackoff(int attempt)
     {
@@ -165,6 +167,57 @@ public class QueueItemProcessor(
         }
     }
 
+    private async Task<T> RunStageAsync<T>(string stage, Func<Task<T>> action)
+    {
+        using var stageCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var stageTimer = Stopwatch.StartNew();
+        var monitorTask = MonitorLongRunningStageAsync(stage, stageTimer, stageCts.Token);
+        try
+        {
+            return await action().ConfigureAwait(false);
+        }
+        finally
+        {
+            await stageCts.CancelAsync().ConfigureAwait(false);
+            await monitorTask.ConfigureAwait(false);
+        }
+    }
+
+    private Task RunStageAsync(string stage, Func<Task> action)
+    {
+        return RunStageAsync<object?>(stage, async () =>
+        {
+            await action().ConfigureAwait(false);
+            return null;
+        });
+    }
+
+    private async Task MonitorLongRunningStageAsync(string stage, Stopwatch stageTimer, CancellationToken stageCt)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(StageWarningInterval, stageCt).ConfigureAwait(false);
+                var queueContext = ct.GetContext<QueueDownloadContext>();
+                Log.Warning(
+                    "Queue item {JobName} ({QueueItemId}) remains in {Stage} after {ElapsedSeconds:0}s; " +
+                    "primary={IsPrimary} fanOut={FanOut} semaphoreWait={SemaphoreWait}ms",
+                    queueItem.JobName,
+                    queueItem.Id,
+                    stage,
+                    stageTimer.Elapsed.TotalSeconds,
+                    queueContext?.IsPrimary ?? false,
+                    queueContext?.GetFanOutConcurrency() ?? 1,
+                    queueContext?.SemaphoreWaitMilliseconds ?? 0);
+            }
+        }
+        catch (OperationCanceledException) when (stageCt.IsCancellationRequested)
+        {
+            // The stage completed or the worker was cancelled.
+        }
+    }
+
     private async Task ProcessQueueItemAsync(DateTime startTime)
     {
         // if the `/blobs` folder is tampered with outside the nzbdav process,
@@ -208,12 +261,16 @@ public class QueueItemProcessor(
         var part1Progress = progress
             .Scale(50, 100)
             .ToPercentage(nzbFiles.Count);
-        var segments = await FetchFirstSegmentsStep.FetchFirstSegments(
-            nzbFiles, usenetClient, configManager, ct, part1Progress).ConfigureAwait(false);
+        var segments = await RunStageAsync(
+            "first-segment",
+            () => FetchFirstSegmentsStep.FetchFirstSegments(
+                nzbFiles, usenetClient, configManager, ct, part1Progress)).ConfigureAwait(false);
         var msFirstSeg = stepTimer.ElapsedMilliseconds;
         stepTimer.Restart();
-        var par2FileDescriptors = await GetPar2FileDescriptorsStep.GetPar2FileDescriptors(
-            segments, usenetClient, ct).ConfigureAwait(false);
+        var par2FileDescriptors = await RunStageAsync(
+            "par2",
+            () => GetPar2FileDescriptorsStep.GetPar2FileDescriptors(
+                segments, usenetClient, ct)).ConfigureAwait(false);
         var msPar2 = stepTimer.ElapsedMilliseconds;
         stepTimer.Restart();
         var fileInfos = GetFileInfosStep.GetFileInfos(
@@ -258,7 +315,8 @@ public class QueueItemProcessor(
         if (configManager.IsLazyRarParsingEnabled() && rarFiles.Count > 0)
         {
             var lazyProc = new LazyRarProcessor(rarFiles, usenetClient, archivePassword, ct);
-            lazyRarResult = await lazyProc.ProcessAsync().ConfigureAwait(false) as LazyRarProcessor.Result;
+            lazyRarResult = await RunStageAsync("lazy-rar", lazyProc.ProcessAsync)
+                .ConfigureAwait(false) as LazyRarProcessor.Result;
             // Nested archives need the full eager pass + NestedRarExpansionStep.
             if (lazyRarResult is not null &&
                 FilenameUtil.IsRarFile(Path.GetFileName(lazyRarResult.PathInArchive)))
@@ -277,17 +335,20 @@ public class QueueItemProcessor(
             .Offset(50)
             .Scale(50, 100)
             .ToMultiProgress(fileProcessors.Count);
-        var fileProcessingResultsAll = await fileProcessors
-            .Select(x => x!.ProcessAsync(part2Progress.SubProgress))
-            .WithConcurrencyAsync(QueueFanOut.GetConcurrency(ct, configManager))
-            .GetAllAsync(ct).ConfigureAwait(false);
-        var fileProcessingResults = fileProcessingResultsAll
-            .Where(x => x is not null)
-            .Select(x => x!)
-            .ToList();
-        if (lazyRarResult is not null) fileProcessingResults.Add(lazyRarResult);
-        fileProcessingResults = await NestedRarExpansionStep.ExpandAsync(
-            fileProcessingResults, usenetClient, archivePassword, ct).ConfigureAwait(false);
+        var fileProcessingResults = await RunStageAsync("processors", async () =>
+        {
+            var fileProcessingResultsAll = await fileProcessors
+                .Select(x => x!.ProcessAsync(part2Progress.SubProgress))
+                .WithConcurrencyAsync(QueueFanOut.GetConcurrency(ct, configManager))
+                .GetAllAsync(ct).ConfigureAwait(false);
+            var results = fileProcessingResultsAll
+                .Where(x => x is not null)
+                .Select(x => x!)
+                .ToList();
+            if (lazyRarResult is not null) results.Add(lazyRarResult);
+            return await NestedRarExpansionStep.ExpandAsync(
+                results, usenetClient, archivePassword, ct).ConfigureAwait(false);
+        }).ConfigureAwait(false);
         var msProcessors = stepTimer.ElapsedMilliseconds;
         stepTimer.Restart();
 
@@ -306,8 +367,10 @@ public class QueueItemProcessor(
             var healthCheckConcurrency = Math.Min(
                 configManager.GetHealthCheckConcurrency(),
                 QueueFanOut.GetConcurrency(ct, configManager));
-            await ArticleExistenceChecker
-                .CheckAsync(usenetClient, articlesToCheck, healthCheckConcurrency, part3Progress, ct)
+            await RunStageAsync(
+                    "health",
+                    () => ArticleExistenceChecker
+                        .CheckAsync(usenetClient, articlesToCheck, healthCheckConcurrency, part3Progress, ct))
                 .ConfigureAwait(false);
             checkedFullHealth = true;
         }
@@ -316,8 +379,9 @@ public class QueueItemProcessor(
 
         Log.Information(
             "play-timing nzo={NzoId} files={Files} firstSeg={FirstSeg}ms par2={Par2}ms rar={Rar}ms " +
-            "processors={Processors}ms health={Health}ms",
-            queueItem.Id, nzbFiles.Count, msFirstSeg, msPar2, msRar, msProcessors, msHealth);
+            "processors={Processors}ms health={Health}ms semWait={SemaphoreWait}ms",
+            queueItem.Id, nzbFiles.Count, msFirstSeg, msPar2, msRar, msProcessors, msHealth,
+            ct.GetContext<QueueDownloadContext>()?.SemaphoreWaitMilliseconds ?? 0);
 
         // update the database
         await MarkQueueItemCompleted(startTime, error: null, async () =>

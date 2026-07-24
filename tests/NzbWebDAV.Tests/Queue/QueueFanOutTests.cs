@@ -23,6 +23,7 @@ public class QueueFanOutTests
     [InlineData(10, 3, 7)]
     [InlineData(1, 1, 1)]
     [InlineData(2, 4, 1)]
+    [InlineData(160, 3, 140)]
     public void PrimaryFanOutWhenSharing_LeavesSpareSoftSlots(
         int maxQueue, int secondaryCount, int expected)
     {
@@ -87,6 +88,22 @@ public class QueueFanOutTests
         Assert.Same(
             parentCts.Token.GetContext<QueueDownloadContext>(),
             linked.Token.GetContext<QueueDownloadContext>());
+    }
+
+    [Fact]
+    public void QueueDownloadContext_AccumulatesSemaphoreWait()
+    {
+        var context = new QueueDownloadContext
+        {
+            IsPrimary = false,
+            GetFanOutConcurrency = () => 1,
+        };
+
+        context.RecordSemaphoreWait(12);
+        context.RecordSemaphoreWait(8);
+        context.RecordSemaphoreWait(0);
+
+        Assert.Equal(20, context.SemaphoreWaitMilliseconds);
     }
 
     private static ConfigManager CreateConfig(int maxQueueConnections)
