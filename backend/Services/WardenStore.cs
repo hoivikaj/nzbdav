@@ -388,10 +388,15 @@ public partial class WardenStore
         cmd.Transaction = tx;
 
         var processed = 0;
+        var recordsRead = 0;
         var inBatch = 0;
         string? line;
         while ((line = await reader.ReadLineAsync(ct).ConfigureAwait(false)) is not null)
         {
+            if (++recordsRead > WardenInputLimits.MaxRecords)
+                throw new InvalidOperationException($"Source exceeds the {WardenInputLimits.MaxRecords:N0}-record processing limit.");
+            if (line.Length > WardenInputLimits.MaxRecordCharacters)
+                throw new InvalidOperationException($"Source contains a record longer than the {WardenInputLimits.MaxRecordCharacters:N0}-character limit.");
             if (line.Length == 0) continue;
             if (line.StartsWith("{\"warden\"", StringComparison.Ordinal)) continue;
 

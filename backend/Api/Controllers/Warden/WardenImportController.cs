@@ -27,6 +27,8 @@ public class WardenImportController(WardenStore warden) : BaseApiController
 
         var target = form["target"].ToString();
         var file = form.Files[0];
+        if (file.Length > 256L * 1024 * 1024)
+            throw new BadHttpRequestException("Warden upload exceeds the 256 MiB size limit.", StatusCodes.Status413PayloadTooLarge);
 
         await using var buffered = await BufferAndDecompressAsync(file, ct);
 
@@ -60,13 +62,27 @@ public class WardenImportController(WardenStore warden) : BaseApiController
             {
                 var decompressed = new MemoryStream();
                 await using (var gz = new GZipStream(ms, CompressionMode.Decompress, leaveOpen: true))
-                    await gz.CopyToAsync(decompressed, ct);
+                    await CopyWithLimitAsync(gz, decompressed, WardenInputLimits.MaxDecompressedBytes, ct);
                 decompressed.Position = 0;
                 return decompressed;
             }
         }
         ms.Position = 0;
         return ms;
+    }
+
+    private static async Task CopyWithLimitAsync(Stream input, Stream output, long limit, CancellationToken ct)
+    {
+        var buffer = new byte[64 * 1024];
+        var copied = 0L;
+        int read;
+        while ((read = await input.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+        {
+            if (copied > limit - read)
+                throw new BadHttpRequestException("Warden source exceeds the decompressed size limit.", StatusCodes.Status413PayloadTooLarge);
+            await output.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+            copied += read;
+        }
     }
 }
 

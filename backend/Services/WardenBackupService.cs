@@ -155,7 +155,8 @@ public partial class WardenBackupService : BackgroundService
             await using var raw = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             using var buffer = await BufferAsync(raw, ct).ConfigureAwait(false);
             Stream body = LooksGzip(buffer) ? new GZipStream(buffer, CompressionMode.Decompress) : buffer;
-            var count = await _store.ReplaceSourceAsync(WardenStore.LocalSourceId, body, ct).ConfigureAwait(false);
+            using var limitedBody = new LimitedReadStream(body, WardenInputLimits.MaxDecompressedBytes);
+            var count = await _store.ReplaceSourceAsync(WardenStore.LocalSourceId, limitedBody, ct).ConfigureAwait(false);
             Log.Information("Warden backup: restored {Count} fingerprints from {Repo}", count, s.Repo);
             return $"Restored {count:N0} fingerprints into your list.";
         }
