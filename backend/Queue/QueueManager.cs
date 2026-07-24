@@ -161,7 +161,7 @@ public class QueueManager : IDisposable
             toCancel = _inProgress.Values
                 .Where(x => queueItemIds.Contains(x.QueueItem.Id))
                 .ToList();
-        }).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
 
         foreach (var item in toCancel)
         {
@@ -181,7 +181,7 @@ public class QueueManager : IDisposable
             await dbClient.RemoveQueueItemsAsync(queueItemIds, ct).ConfigureAwait(false);
             await dbClient.Ctx.SaveChangesAsync(ct).ConfigureAwait(false);
             foreach (var id in queueItemIds) _retryAttempts.TryRemove(id, out _);
-        }).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
     }
 
     internal async Task ProcessQueueAsync(CancellationToken ct)
@@ -203,7 +203,7 @@ public class QueueManager : IDisposable
             {
                 // Reap before fill so completed primaries do not occupy slots or
                 // block secondary promotion while new workers are claimed.
-                await ReapCompletedWorkersAsync().ConfigureAwait(false);
+                await ReapCompletedWorkersAsync(ct).ConfigureAwait(false);
                 await FillWorkerSlotsAsync(ct).ConfigureAwait(false);
 
                 if (_inProgress.IsEmpty)
@@ -253,7 +253,7 @@ public class QueueManager : IDisposable
             }
         }
 
-        await ReapCompletedWorkersAsync().ConfigureAwait(false);
+        await ReapCompletedWorkersAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task FillWorkerSlotsAsync(CancellationToken ct)
@@ -443,7 +443,7 @@ public class QueueManager : IDisposable
             item.QueueDownloadContext.IsPrimary = item.QueueItem.Id == _primaryId.Value;
     }
 
-    private async Task ReapCompletedWorkersAsync()
+    private async Task ReapCompletedWorkersAsync(CancellationToken ct)
     {
         List<InProgressQueueItem> completed = [];
         await LockAsync(() =>
@@ -461,7 +461,7 @@ public class QueueManager : IDisposable
 
             if (completed.Count > 0)
                 EnsurePrimaryDesignation();
-        }).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
 
         foreach (var item in completed)
         {
@@ -640,9 +640,9 @@ public class QueueManager : IDisposable
         return $"{queueItemId}|{payload}";
     }
 
-    private async Task LockAsync(Func<Task> actionAsync)
+    private async Task LockAsync(Func<Task> actionAsync, CancellationToken ct = default)
     {
-        await _stateLock.WaitAsync().ConfigureAwait(false);
+        await _stateLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await actionAsync().ConfigureAwait(false);
@@ -653,9 +653,9 @@ public class QueueManager : IDisposable
         }
     }
 
-    private async Task LockAsync(Action action)
+    private async Task LockAsync(Action action, CancellationToken ct = default)
     {
-        await _stateLock.WaitAsync().ConfigureAwait(false);
+        await _stateLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             action();

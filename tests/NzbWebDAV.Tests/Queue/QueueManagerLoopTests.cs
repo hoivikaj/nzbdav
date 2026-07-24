@@ -100,6 +100,34 @@ public class QueueManagerLoopTests
         await loop; // observe completion / no fault
     }
 
+    [Fact]
+    public async Task RemoveQueueItemsAsync_CancellationInterruptsContendedStateLock()
+    {
+        using var manager = CreateManager();
+        var lockEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseLock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        manager.GetTopQueueItemOverride = async (_, _) =>
+        {
+            lockEntered.TrySetResult();
+            await releaseLock.Task;
+            return (null, null);
+        };
+
+        using var loopCancellation = new CancellationTokenSource();
+        var loop = manager.ProcessQueueAsync(loopCancellation.Token);
+        await lockEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        using var requestCancellation = new CancellationTokenSource();
+        var remove = manager.RemoveQueueItemsAsync([], null!, requestCancellation.Token);
+        await requestCancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await remove);
+
+        releaseLock.TrySetResult();
+        await loopCancellation.CancelAsync();
+        await loop;
+    }
+
     private static QueueManager CreateManager()
     {
         var config = new ConfigManager();

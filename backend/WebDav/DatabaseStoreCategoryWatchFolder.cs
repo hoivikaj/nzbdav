@@ -25,6 +25,7 @@ public class DatabaseStoreCategoryWatchFolder(
     public override string Name => category;
     public override string UniqueKey => $"nzbs_category_{category}";
     public override DateTime CreatedAt => DateTime.Now;
+    protected override bool SupportsEmptyFileStaging => true;
 
     protected override async Task<IStoreItem?> GetItemAsync(GetItemRequest request)
     {

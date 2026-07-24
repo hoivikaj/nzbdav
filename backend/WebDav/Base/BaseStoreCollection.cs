@@ -23,6 +23,8 @@ public abstract class BaseStoreCollection : IStoreCollection
     protected abstract Task<StoreItemResult> MoveItemAsync(MoveItemRequest request);
     protected abstract Task<DavStatusCode> DeleteItemAsync(DeleteItemRequest request);
 
+    protected virtual bool SupportsEmptyFileStaging => false;
+
     // private members
     private BaseStoreEmptyFileManager EmptyFileManager => BaseStoreEmptyFileManager.GetEmptyFileManager(UniqueKey);
 
@@ -31,9 +33,9 @@ public abstract class BaseStoreCollection : IStoreCollection
 
     // Depth > 1 PROPFIND would recurse into child collections while the parent's
     // streamed EF query is still open, starting a second operation on the same scoped
-    // DbContext. It also materializes the entire subtree in memory. Clamp to depth 1;
-    // WebDAV clients (rclone included) traverse one directory per request anyway.
-    public InfiniteDepthMode InfiniteDepthMode => InfiniteDepthMode.Assume1;
+    // DbContext. It also materializes the entire subtree in memory. Reject it rather
+    // than silently returning an incomplete depth-1 response.
+    public InfiniteDepthMode InfiniteDepthMode => InfiniteDepthMode.Rejected;
 
     public Task<StoreItemResult> CopyAsync
     (
@@ -94,7 +96,8 @@ public abstract class BaseStoreCollection : IStoreCollection
         if (existingItem is null)
         {
             // This handles step #1 in the note above.
-            if (await probingStream.IsEmptyAsync().ConfigureAwait(false))
+            if (SupportsEmptyFileStaging &&
+                await probingStream.IsEmptyAsync().ConfigureAwait(false))
             {
                 var emptyFile = new BaseStoreEmptyFile(name);
                 EmptyFileManager.Add(emptyFile);
