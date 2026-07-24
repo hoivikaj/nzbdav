@@ -62,10 +62,11 @@ export default tseslint.config(
 
       // Plugin registered so existing eslint-disable comments resolve.
       // Full react-hooks recommended (incl. React Compiler rules) is a follow-up ratchet.
-      "react-hooks/rules-of-hooks": "warn",
+      "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
 
-      // Existing backlog — ratchet to error in a follow-up.
+      // Existing backlog — the npm lint script locks its 163-warning baseline;
+      // follow-ups must reduce it before the budget can be lowered.
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-unused-vars": [
         "warn",

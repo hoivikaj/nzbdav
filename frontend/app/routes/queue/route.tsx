@@ -5,8 +5,8 @@ import { HistoryTable } from "./components/history-table/history-table";
 import { QueueTable } from "./components/queue-table/queue-table";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useHistoryEvents, useQueueEvents } from "./controllers/events-controller";
-import { initializeQueueHistoryWebsocket } from "./controllers/websocket-controller";
-import { initializeUploadController } from "./controllers/nzb-upload-controller";
+import { useQueueHistoryWebsocket } from "./controllers/websocket-controller";
+import { useUploadController } from "./controllers/nzb-upload-controller";
 import { useQueueDropzone } from "./controllers/dropzone-controller";
 import { Alert } from "~/components/ui";
 
@@ -114,11 +114,11 @@ export default function Queue(props: Route.ComponentProps) {
     const historyEvents = useHistoryEvents(setHistorySlots, historyPageSize);
 
     // websocket
-    initializeQueueHistoryWebsocket(queueEvents, historyEvents, isQueueLive, isHistoryLive);
+    useQueueHistoryWebsocket(queueEvents, historyEvents, isQueueLive, isHistoryLive);
 
     // uploads
     const dropzone = useQueueDropzone(setUploadingFiles, uploadQueueRef, manualCategoryRef);
-    initializeUploadController(isUploadingRef, uploadQueueRef, uploadingFiles, setUploadingFiles);
+    useUploadController(isUploadingRef, uploadQueueRef, uploadingFiles, setUploadingFiles);
 
     // view
     return (

@@ -103,7 +103,7 @@ export function useQueueEvents(
         setQueueSlots(slots => slots.map(x => x.nzo_id === nzo_id ? { ...x, providers } : x));
     }, [setQueueSlots]);
 
-    return memoize({
+    return useStableEventHandlers({
         onAddQueueSlot,
         onSelectQueueSlots,
         onRemovingQueueSlots,
@@ -135,7 +135,7 @@ export function useHistoryEvents(
         setHistorySlots(slots => slots.filter(x => !ids.has(x.nzo_id)));
     }, [setHistorySlots]);
 
-    return memoize({
+    return useStableEventHandlers({
         onAddHistorySlot,
         onSelectHistorySlots,
         onRemovingHistorySlots,
@@ -143,7 +143,7 @@ export function useHistoryEvents(
     });
 }
 
-function memoize<T extends Record<string, unknown>>(object: T): T {
+function useStableEventHandlers<T extends Record<string, unknown>>(object: T): T {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     return useMemo(() => object, Object.values(object));
 }

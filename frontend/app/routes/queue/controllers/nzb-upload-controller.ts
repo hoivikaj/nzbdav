@@ -11,7 +11,7 @@ type UploadResponse = {
 
 type XhrErrorResponse = Pick<XMLHttpRequest, "response" | "responseText" | "status" | "statusText">;
 
-export function initializeUploadController(
+export function useUploadController(
     isUploadingRef: React.RefObject<boolean>,
     uploadQueueRef: React.RefObject<UploadingFile[]>,
     uploadingFiles: UploadingFile[],

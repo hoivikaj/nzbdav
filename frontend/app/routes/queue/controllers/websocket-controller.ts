@@ -24,7 +24,7 @@ const topicSubscriptions = {
     [topicNames.historyItemRemoved]: 'event',
 } as const;
 
-export function initializeQueueHistoryWebsocket(
+export function useQueueHistoryWebsocket(
     queueEvents: QueueEvents,
     historyEvents: HistoryEvents,
     isQueueLive: boolean,
