@@ -11,6 +11,7 @@ namespace NzbWebDAV.Database.Backup;
 /// </summary>
 public static class SqliteSqlImporter
 {
+    internal const int MaxStatementCharacters = 64 * 1024 * 1024;
     private static int _batteriesInitialized;
     private static readonly strdelegate_authorizer RestoreAuthorizer = AuthorizeRestoreStatement;
 
@@ -125,6 +126,10 @@ public static class SqliteSqlImporter
         while ((line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false)) is not null)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            var separatorLength = buffer.Length > 0 ? 1 : 0;
+            if (line.Length > MaxStatementCharacters - buffer.Length - separatorLength)
+                throw new InvalidOperationException($"SQL statement exceeds the {MaxStatementCharacters:N0}-character restore limit.");
 
             if (buffer.Length > 0)
                 buffer.Append('\n');
