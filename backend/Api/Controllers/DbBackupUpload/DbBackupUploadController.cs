@@ -13,6 +13,11 @@ namespace NzbWebDAV.Api.Controllers.DbBackupUpload;
 [RequestFormLimits(MultipartBodyLengthLimit = 4L * 1024 * 1024 * 1024)]
 public class DbBackupUploadController(DatabaseBackupStore store) : BaseApiController
 {
+    private const long MaxRestoreBytes = 4L * 1024 * 1024 * 1024;
+    private const int MaxRecognizedZipEntries = 4;
+    private const int HeaderSampleCharacters = 4 * 1024;
+    private const long MaxCompressionRatio = 200;
+
     protected override async Task<IActionResult> HandleRequest()
     {
         // Allow large backup uploads regardless of the global Kestrel body limit.
@@ -38,10 +43,13 @@ public class DbBackupUploadController(DatabaseBackupStore store) : BaseApiContro
             }
             else if (fileName.EndsWith(".sql", StringComparison.OrdinalIgnoreCase))
             {
+                if (file.Length > MaxRestoreBytes)
+                    throw PayloadTooLarge("SQL dump exceeds the restore size limit.");
+
                 var target = Path.Combine(stagingPath, DatabaseBackupStore.DbSqlName);
                 await using var stream = file.OpenReadStream();
                 await using var output = System.IO.File.Create(target);
-                await stream.CopyToAsync(output, HttpContext.RequestAborted).ConfigureAwait(false);
+                await CopyWithLimitAsync(stream, output, MaxRestoreBytes, HttpContext.RequestAborted).ConfigureAwait(false);
             }
             else
             {
@@ -72,6 +80,9 @@ public class DbBackupUploadController(DatabaseBackupStore store) : BaseApiContro
     {
         await using var upload = file.OpenReadStream();
         using var archive = new ZipArchive(upload, ZipArchiveMode.Read, leaveOpen: false);
+        var extractedBytes = 0L;
+        var recognizedEntries = 0;
+        var extractedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in archive.Entries)
         {
             if (string.IsNullOrEmpty(entry.Name))
@@ -88,11 +99,44 @@ public class DbBackupUploadController(DatabaseBackupStore store) : BaseApiContro
                 or DatabaseBackupStore.ManifestFileName))
                 continue;
 
+            if (!extractedNames.Add(fileName))
+                throw new BadHttpRequestException($"Zip contains duplicate {fileName} entries.");
+
+            if (++recognizedEntries > MaxRecognizedZipEntries)
+                throw PayloadTooLarge("Zip contains too many recognized backup entries.");
+
+            if (entry.Length > MaxRestoreBytes || extractedBytes > MaxRestoreBytes - entry.Length)
+                throw PayloadTooLarge("Zip extraction exceeds the restore size limit.");
+
+            if (entry.CompressedLength > 0 && entry.Length / entry.CompressedLength > MaxCompressionRatio)
+                throw PayloadTooLarge("Zip entry compression ratio exceeds the restore safety limit.");
+
             var dest = Path.Combine(stagingPath, fileName);
             await using var entryStream = entry.Open();
             await using var output = System.IO.File.Create(dest);
-            await entryStream.CopyToAsync(output, ct).ConfigureAwait(false);
+            extractedBytes += await CopyWithLimitAsync(
+                entryStream,
+                output,
+                MaxRestoreBytes - extractedBytes,
+                ct).ConfigureAwait(false);
         }
+    }
+
+    private static async Task<long> CopyWithLimitAsync(Stream input, Stream output, long remainingBytes, CancellationToken ct)
+    {
+        var buffer = new byte[64 * 1024];
+        var copied = 0L;
+        int read;
+        while ((read = await input.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+        {
+            if (copied > remainingBytes - read)
+                throw PayloadTooLarge("Backup data exceeds the restore size limit.");
+
+            await output.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+            copied += read;
+        }
+
+        return copied;
     }
 
     private static void ValidateSqlFiles(string stagingPath)
@@ -112,15 +156,13 @@ public class DbBackupUploadController(DatabaseBackupStore store) : BaseApiContro
                 continue;
             found = true;
             using var reader = new StreamReader(path);
-            var header = reader.ReadLine() ?? "";
-            if (!header.Contains("PRAGMA foreign_keys", StringComparison.OrdinalIgnoreCase)
-                && !header.Contains("BEGIN", StringComparison.OrdinalIgnoreCase)
-                && !header.Contains("CREATE", StringComparison.OrdinalIgnoreCase))
+            var sampleBuffer = new char[HeaderSampleCharacters];
+            var sampleLength = reader.ReadBlock(sampleBuffer, 0, sampleBuffer.Length);
+            var sample = new string(sampleBuffer, 0, sampleLength);
+            if (!sample.Contains("PRAGMA foreign_keys", StringComparison.OrdinalIgnoreCase)
+                && !sample.Contains("BEGIN", StringComparison.OrdinalIgnoreCase)
+                && !sample.Contains("CREATE", StringComparison.OrdinalIgnoreCase))
             {
-                // Soft check — dumps may start with blank lines; read a bit more.
-                var sample = header + "\n" + reader.ReadToEnd();
-                if (sample.Length > 4096)
-                    sample = sample[..4096];
                 if (!sample.Contains("CREATE TABLE", StringComparison.OrdinalIgnoreCase)
                     && !sample.Contains("BEGIN", StringComparison.OrdinalIgnoreCase))
                     throw new BadHttpRequestException($"{name} does not look like a SQLite SQL dump.");
@@ -130,4 +172,7 @@ public class DbBackupUploadController(DatabaseBackupStore store) : BaseApiContro
         if (!found)
             throw new BadHttpRequestException("Upload did not contain any recognized .sql dump files.");
     }
+
+    private static BadHttpRequestException PayloadTooLarge(string message) =>
+        new(message, StatusCodes.Status413PayloadTooLarge);
 }
