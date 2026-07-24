@@ -215,21 +215,8 @@ public class QueueManager : IDisposable
                 // Wait for any worker to finish, an awaken signal, or a short
                 // poll so worker-count increases can fill new slots promptly.
                 var workerTasks = _inProgress.Values.Select(x => x.CompletionSignal.Task).ToArray();
-                using var wakeWait = CancellationTokenSource.CreateLinkedTokenSource(
-                    ct, _sleepingQueueToken.Token);
-                try
-                {
-                    var wakeDelay = Task.Delay(TimeSpan.FromSeconds(1), wakeWait.Token);
-                    await Task.WhenAny(Task.WhenAny(workerTasks), wakeDelay).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (_sleepingQueueToken.IsCancellationRequested)
-                {
-                    ResetSleepingQueueToken();
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
+                if (!await WaitForWorkerOrAwakenAsync(workerTasks, ct).ConfigureAwait(false))
                     break;
-                }
             }
             catch (Exception e) when (!e.IsCancellationException(ct))
             {
@@ -510,6 +497,32 @@ public class QueueManager : IDisposable
         }
     }
 
+    // Wait for any worker to finish, an awaken signal, or a short poll. Returns
+    // false when shutdown is requested. Task.WhenAny completes without observing
+    // wakeDelay's cancellation, so the awaken signal is consumed here explicitly
+    // rather than in a catch clause that never runs.
+    internal async Task<bool> WaitForWorkerOrAwakenAsync(Task[] workerTasks, CancellationToken ct)
+    {
+        using var wakeWait = CancellationTokenSource.CreateLinkedTokenSource(
+            ct, _sleepingQueueToken.Token);
+        var wakeDelay = Task.Delay(TimeSpan.FromSeconds(1), wakeWait.Token);
+
+        // The poll always joins the wait set, so the wait stays bounded when no
+        // workers are in flight and Task.WhenAny never sees an empty array.
+        await Task.WhenAny([.. workerTasks, wakeDelay]).ConfigureAwait(false);
+
+        if (ct.IsCancellationRequested)
+            return false;
+
+        if (_sleepingQueueToken.IsCancellationRequested)
+            ResetSleepingQueueToken();
+
+        return true;
+    }
+
+    // Resetting discards a CancelAfter scheduled by a paused add. The pause is
+    // still honored because ComputeIdleDelayAsync re-derives the next wake from
+    // the database once the queue goes idle.
     private void ResetSleepingQueueToken()
     {
         lock (_sleepingQueueLock)
